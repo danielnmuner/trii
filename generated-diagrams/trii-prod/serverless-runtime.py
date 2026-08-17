@@ -6,11 +6,12 @@ from diagrams.aws.database import Dynamodb
 from diagrams.aws.ml import Bedrock
 from diagrams.aws.network import APIGateway
 from diagrams.aws.storage import S3
-from diagrams.onprem.client import User
+from diagrams.custom import Custom
 
 
 OUTPUT_DIR = Path("generated-diagrams/trii-prod")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+STREAMLIT_ICON = Path("generated-diagrams/streamlit.png").resolve().as_posix()
 
 graph_attr = {
     "fontsize": "18",
@@ -35,7 +36,7 @@ with Diagram(
     graph_attr=graph_attr,
     node_attr=node_attr,
 ):
-    streamlit_operator = User("Streamlit\noperator")
+    streamlit_operator = Custom("Streamlit\noperator", STREAMLIT_ICON)
 
     with Cluster("AWS prod"):
         http_api = APIGateway("HTTP API")
