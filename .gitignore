@@ -221,7 +221,6 @@ streamlit_app/output/
 
 # Terraform
 .terraform/
-.terraform.lock.hcl
 *.tfstate
 *.tfstate.*
 crash.log

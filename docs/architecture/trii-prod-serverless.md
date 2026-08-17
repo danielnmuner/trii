@@ -2,52 +2,62 @@
 
 ## Goal
 
-This architecture separates synchronous API handling, persistent business data, source document storage, and asynchronous AI processing with the fewest moving parts that still keep the design reliable.
+This architecture keeps a single simple synchronous flow with clear separation of responsibilities:
 
-## Data model
+- the user sends a prompt with instructions,
+- `api_handler` receives the request and persists operational data,
+- `ai_handler` reads context only when the prompt needs it,
+- `ai_handler` invokes Bedrock,
+- the answer returns to the user in the same request.
 
-The current target model uses three DynamoDB tables and one S3 bucket for source documents only.
+## Runtime shape
+
+This version removes SQS because the expected traffic is extremely low and the request can be handled synchronously.
+
+The architecture now uses:
+
+- `API Gateway`
+- one Lambda for synchronous API handling: `api_handler`
+- one Lambda for AI orchestration: `ai_handler`
+- `Bedrock Nova Pro`
+- DynamoDB tables for business persistence and optional AI context
+- S3 for source documents and optional AI context
+
+## Data sources
 
 ### DynamoDB tables
 
-- `trii-prod-current-snapshots`: latest parsed and enriched market snapshot records.
-- `trii-prod-stock-orders`: normalized order records derived from sources such as `orders-trii.csv`.
-- `trii-prod-parsed-invoices`: normalized invoice records derived from XML invoices such as `nuco-factura.xml`.
+- `trii-prod-current-snapshots`
+- `trii-prod-stock-orders`
+- `trii-prod-parsed-invoices`
 
 ### S3 bucket
 
-- `trii-prod-source-documents`: original source files only, such as brokerage statements, invoice PDFs, invoice XML files, and similar documents.
-
-Important: processed JSON should not be stored in S3. The important business data lives in DynamoDB.
-
-## Lambda strategy
-
-Given the expected load of roughly 100 API requests per day, the architecture can be reduced safely to two Lambdas:
-
-- `api_handler`: one synchronous Lambda behind API Gateway for all HTTP routes.
-- `process_ai_job`: one asynchronous Lambda that consumes SQS and invokes Bedrock Nova Pro.
-
-This keeps the system simple without mixing synchronous HTTP handling with asynchronous queue processing.
+- `trii-prod-source-documents`
 
 ## Proposed flow
 
-1. Streamlit sends requests to `API Gateway`.
-2. `api_handler` routes by path and method.
-3. For snapshots, `api_handler` validates the payload, writes the current snapshot to DynamoDB, and enqueues an AI job in SQS.
-4. For orders, `api_handler` writes normalized order records to the orders table.
-5. For invoices, `api_handler` stores the original documents in S3 and writes the parsed invoice record to the invoices table.
-6. For snapshot reads, `api_handler` returns the latest snapshot state from DynamoDB.
-7. `process_ai_job` consumes the queue, reads the snapshot from DynamoDB, invokes `Bedrock Nova Pro`, and updates the snapshot record in DynamoDB.
+1. Streamlit sends a prompt and instructions to `API Gateway`.
+2. `API Gateway` invokes `api_handler`.
+3. `api_handler` persists business data when the request is about snapshots, orders, invoices, or source documents.
+4. When the request is an AI prompt, `api_handler` invokes `ai_handler`.
+5. `ai_handler` decides whether the prompt requires additional context.
+6. If needed, `ai_handler` reads from one or more DynamoDB tables.
+7. If needed, `ai_handler` can also read document metadata or related references from S3.
+8. `ai_handler` invokes `Bedrock Nova Pro`.
+9. `ai_handler` returns the final answer to `api_handler`.
+10. `api_handler` returns the response to the user through `API Gateway`.
 
 ## Important decision
 
-Even with low traffic, the asynchronous Lambda that consumes SQS should not reply to the original HTTP request. The reliable pattern here is:
+This architecture is intentionally synchronous.
 
-- return quickly with a `snapshot_id` and an initial status;
-- process AI work in the background;
-- query the latest state through a read endpoint.
+Because the expected concurrency is usually `1` and at most around `2`, adding SQS would add operational complexity without a clear payoff right now.
 
-If real-time updates are needed later, the natural evolution would be WebSocket API, SSE, or a separate notification channel.
+Keeping `ai_handler` separate from `api_handler` still makes sense because it preserves a cleaner boundary:
+
+- `api_handler` owns transport and persistence.
+- `ai_handler` owns prompt orchestration, optional context lookup, and Bedrock integration.
 
 ## Naming conventions
 
@@ -59,12 +69,11 @@ Examples:
 
 - `trii-prod-http-api`
 - `trii-prod-api-handler`
-- `trii-prod-process-ai-job`
+- `trii-prod-ai-handler`
 - `trii-prod-current-snapshots`
 - `trii-prod-stock-orders`
 - `trii-prod-parsed-invoices`
 - `trii-prod-source-documents`
-- `trii-prod-ai-jobs`
 
 ## Recommended Terraform layout
 
@@ -81,23 +90,19 @@ infra/
       parsed-invoices-table/
     s3/
       source-documents-bucket/
-    sqs/
-      standard-queue/
   prod/
     services/
       apigateway/
         http-api/
       lambda/
         api-handler/
-        process-ai-job/
+        ai-handler/
       dynamodb/
         current-snapshots-table/
         stock-orders-table/
         parsed-invoices-table/
       s3/
         source-documents-bucket/
-      sqs/
-        ai-jobs-queue/
       bedrock/
         nova-pro/
 ```

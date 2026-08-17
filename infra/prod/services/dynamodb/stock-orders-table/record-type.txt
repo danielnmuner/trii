@@ -24,6 +24,7 @@ record_type:
 - source_line_number: number
 - ordered_at: string, iso-8601 timestamp with timezone
 - ordered_month: string, yyyy-mm
+- ordered_at_symbol: string, materialized gsi sort key formatted as ordered_at#SYMBOL
 - symbol: string, uppercase stock symbol
 - order_side: string, buy or sell
 - raw_status: string

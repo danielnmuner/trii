@@ -24,6 +24,7 @@ record_type:
 - order_reference_id: string, preferred from cac:OrderReference/cbc:ID, nullable
 - issued_at: string, iso-8601 timestamp with timezone
 - issued_month: string, yyyy-mm
+- issued_at_invoice_number: string, materialized gsi sort key formatted as issued_at#invoice_number
 - supplier_tax_id: string
 - supplier_name: string
 - customer_tax_id: string

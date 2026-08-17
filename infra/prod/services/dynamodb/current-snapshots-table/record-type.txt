@@ -22,6 +22,7 @@ record_type:
 - captured_date: string, yyyy-mm-dd
 - timezone_name: string
 - snapshot_checksum: string
+- symbol_captured_at: string, materialized gsi sort key formatted as SYMBOL#captured_at
 - last_price: number
 - previous_close: number
 - best_bid_price: number
