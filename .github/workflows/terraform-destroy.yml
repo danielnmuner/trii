@@ -1,0 +1,63 @@
+name: Terraform Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_destroy:
+        description: "Escribe destroy-prod para continuar"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: terraform-prod-destroy
+  cancel-in-progress: false
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Enforce main branch
+        run: |
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "This workflow must run from main because the IAM trust policy is expected to allow the main branch."
+            exit 1
+          fi
+
+      - name: Validate confirmation
+        run: |
+          if [[ "${{ github.event.inputs.confirm_destroy }}" != "destroy-prod" ]]; then
+            echo "Confirmation mismatch. Expected destroy-prod."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::311923415472:role/GitHubTerraformTriiRole
+          role-session-name: github-actions-terraform-destroy
+          allowed-account-ids: 311923415472
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.14.6
+          terraform_wrapper: false
+
+      - name: Bootstrap Terraform state bucket
+        run: bash infra/scripts/bootstrap-state-bucket.sh
+
+      - name: Terraform init prod
+        run: terraform -chdir=infra/prod init -input=false
+
+      - name: Terraform destroy prod
+        run: terraform -chdir=infra/prod destroy -input=false -auto-approve
+        env:
+          TF_IN_AUTOMATION: "true"

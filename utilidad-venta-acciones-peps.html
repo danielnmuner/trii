@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="es-CO">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Utilidad en venta de acciones · Método PEPS · Finanzas con Stefany</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Great+Vibes&family=Fraunces:opsz,wght@9..144,400;9..144,600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --petroleo:#175A60;
+    --esmeralda:#35AC99;
+    --mint:#77C9BD;
+    --dorado:#F0C34E;
+    --crema:#FEF8E2;
+    --tinta:#0E2E31;
+    --tinta-suave:#3d5a5d;
+    --linea:#dfe9e6;
+    --blanco:#ffffff;
+    --rojo:#c0523d;
+    --go:#F0C34E;        /* ganancia ocasional */
+    --go-tinta:#6b5210;
+    --ro:#35AC99;        /* renta ordinaria */
+    --ro-tinta:#0c4f44;
+    --sombra:0 1px 2px rgba(14,46,49,.04), 0 8px 24px rgba(14,46,49,.06);
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;
+    font-family:"Poppins",system-ui,sans-serif;
+    color:var(--tinta);
+    background:
+      radial-gradient(1200px 500px at 100% -10%, rgba(119,201,189,.18), transparent 60%),
+      radial-gradient(900px 500px at -10% 0%, rgba(240,195,78,.14), transparent 55%),
+      var(--crema);
+    line-height:1.5;
+    font-size:15px;
+  }
+  .wrap{max-width:1140px;margin:0 auto;padding:28px 20px 80px}
+
+  /* ---------- Encabezado ---------- */
+  header.top{
+    display:flex;align-items:flex-end;justify-content:space-between;
+    gap:24px;flex-wrap:wrap;margin-bottom:26px;
+  }
+  .brand-mark{font-family:"Great Vibes",cursive;font-size:26px;color:var(--esmeralda);line-height:1;margin-bottom:6px}
+  h1{
+    font-family:"Fraunces",serif;font-weight:600;
+    font-size:clamp(26px,4.4vw,40px);line-height:1.05;margin:0;color:var(--petroleo);
+    letter-spacing:-.01em;
+  }
+  .sub{margin-top:8px;color:var(--tinta-suave);font-size:14px;max-width:56ch}
+  .badge-peps{
+    display:inline-flex;align-items:center;gap:8px;
+    background:var(--petroleo);color:var(--crema);
+    padding:8px 14px;border-radius:999px;font-weight:600;font-size:13px;letter-spacing:.02em;
+    box-shadow:var(--sombra);white-space:nowrap;
+  }
+  .badge-peps b{color:var(--dorado)}
+
+  /* ---------- Barra de acciones ---------- */
+  .toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:22px}
+  button.tool{
+    font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;
+    border:1px solid var(--linea);background:var(--blanco);color:var(--tinta);
+    padding:9px 14px;border-radius:10px;display:inline-flex;align-items:center;gap:7px;
+    transition:transform .08s ease, box-shadow .15s ease, border-color .15s ease;
+  }
+  button.tool:hover{border-color:var(--mint);box-shadow:var(--sombra)}
+  button.tool:active{transform:translateY(1px)}
+  button.tool.primary{background:var(--esmeralda);border-color:var(--esmeralda);color:#fff;font-weight:600}
+  button.tool.ghost{background:transparent}
+  button.tool svg{width:15px;height:15px;flex:none}
+
+  /* ---------- Tarjetas de entrada ---------- */
+  .grid-io{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:22px}
+  .card{
+    background:var(--blanco);border:1px solid var(--linea);border-radius:16px;
+    box-shadow:var(--sombra);overflow:hidden;
+  }
+  .card > .card-head{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:15px 18px;border-bottom:1px solid var(--linea);
+  }
+  .card-head h2{margin:0;font-size:15px;font-weight:600;letter-spacing:.01em;display:flex;align-items:center;gap:9px}
+  .dot{width:9px;height:9px;border-radius:50%;flex:none}
+  .dot.buy{background:var(--esmeralda)}
+  .dot.sell{background:var(--dorado)}
+  .card-head .count{font-size:12px;color:var(--tinta-suave)}
+  .table-scroll{overflow-x:auto}
+  table.io{width:100%;border-collapse:collapse;min-width:520px}
+  table.io th{
+    text-align:left;font-weight:500;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--tinta-suave);padding:10px 10px;border-bottom:1px solid var(--linea);white-space:nowrap;
+  }
+  table.io td{padding:6px 8px;border-bottom:1px solid #f0f5f3;vertical-align:middle}
+  table.io tr:last-child td{border-bottom:none}
+  table.io input{
+    width:100%;font-family:inherit;font-size:14px;color:var(--tinta);
+    border:1px solid transparent;background:#f6faf9;border-radius:8px;padding:8px 9px;
+    transition:border-color .12s ease, background .12s ease;
+  }
+  table.io input:focus{outline:none;border-color:var(--mint);background:#fff;box-shadow:0 0 0 3px rgba(53,172,153,.14)}
+  table.io input.tk{font-weight:600}
+  table.io input[type="number"]{text-align:right;font-variant-numeric:tabular-nums}
+  td.qcol,th.qcol{width:92px}
+  td.pcol,th.pcol{width:130px}
+  td.dcol,th.dcol{width:150px}
+  td.xcol,th.xcol{width:34px}
+  button.del{
+    border:none;background:none;cursor:pointer;color:#b9c7c4;padding:6px;border-radius:8px;
+    display:inline-flex;transition:color .12s, background .12s;
+  }
+  button.del:hover{color:var(--rojo);background:#fbeeeb}
+  button.del svg{width:16px;height:16px}
+  .card-foot{padding:12px 14px;border-top:1px solid var(--linea)}
+  button.add{
+    width:100%;border:1.5px dashed var(--mint);background:transparent;color:var(--petroleo);
+    font-family:inherit;font-weight:600;font-size:13.5px;cursor:pointer;padding:10px;border-radius:10px;
+    display:flex;align-items:center;justify-content:center;gap:8px;transition:background .12s, border-color .12s;
+  }
+  button.add:hover{background:#f2faf8;border-color:var(--esmeralda)}
+
+  /* ---------- Parámetros ---------- */
+  .params{
+    display:flex;flex-wrap:wrap;align-items:center;gap:18px 26px;
+    background:var(--blanco);border:1px solid var(--linea);border-radius:14px;
+    padding:14px 18px;margin-bottom:26px;box-shadow:var(--sombra);
+  }
+  .param{display:flex;flex-direction:column;gap:3px}
+  .param label{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--tinta-suave)}
+  .param .inp{display:flex;align-items:center;gap:6px}
+  .param input{
+    width:74px;font-family:inherit;font-size:15px;font-weight:600;text-align:right;font-variant-numeric:tabular-nums;
+    border:1px solid var(--linea);border-radius:8px;padding:6px 8px;color:var(--petroleo);background:#f6faf9;
+  }
+  .param input:focus{outline:none;border-color:var(--mint);background:#fff}
+  .param .pct{color:var(--tinta-suave);font-weight:600}
+  .param .hint{font-size:11px;color:#94a7a3;margin-left:auto;max-width:34ch}
+
+  /* ---------- Nota informativa de impuestos + estimador opcional ---------- */
+  .info-note{display:flex;gap:11px;align-items:flex-start;background:var(--blanco);border:1px solid var(--linea);border-left:3px solid var(--dorado);border-radius:14px;box-shadow:var(--sombra);padding:14px 16px;margin-bottom:14px;font-size:13px;line-height:1.55;color:var(--tinta-suave)}
+  .info-note b{color:var(--tinta)}
+  .info-note svg{width:18px;height:18px;flex:none;color:#caa02f;margin-top:2px}
+  details.tax-est{background:var(--blanco);border:1px solid var(--linea);border-radius:14px;box-shadow:var(--sombra);margin-bottom:26px;overflow:hidden}
+  details.tax-est>summary{cursor:pointer;list-style:none;padding:12px 16px;font-size:13px;font-weight:600;color:var(--tinta-suave);display:flex;align-items:center;gap:9px}
+  details.tax-est>summary::-webkit-details-marker{display:none}
+  details.tax-est .chev{width:14px;height:14px;transition:transform .15s ease}
+  details.tax-est[open] .chev{transform:rotate(90deg)}
+  .tax-est-body{display:flex;flex-wrap:wrap;align-items:flex-end;gap:14px 26px;padding:2px 16px 16px}
+  .tax-est-body .hint{font-size:11px;color:#94a7a3;margin:0;max-width:38ch;align-self:center}
+
+  /* ---------- KPIs ---------- */
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px}
+  .kpi{
+    background:var(--blanco);border:1px solid var(--linea);border-radius:16px;padding:16px 18px;
+    box-shadow:var(--sombra);position:relative;overflow:hidden;
+  }
+  .kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px}
+  .kpi.total::before{background:var(--petroleo)}
+  .kpi.go::before{background:var(--dorado)}
+  .kpi.ro::before{background:var(--esmeralda)}
+  .kpi.tax::before{background:var(--tinta)}
+  .kpi .klabel{font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--tinta-suave);font-weight:500}
+  .kpi .kval{font-size:clamp(19px,2.5vw,25px);font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em;margin-top:6px;line-height:1.1}
+  .kpi .kval.neg{color:var(--rojo)}
+  .kpi .ksub{font-size:12px;color:var(--tinta-suave);margin-top:4px;font-variant-numeric:tabular-nums}
+  .kpi .ksub b{color:var(--tinta)}
+
+  /* ---------- Resultados por acción ---------- */
+  .results-head{display:flex;align-items:baseline;gap:12px;margin:30px 0 14px}
+  .results-head h2{font-family:"Fraunces",serif;font-weight:600;font-size:22px;color:var(--petroleo);margin:0}
+  .results-head .muted{color:var(--tinta-suave);font-size:13px}
+
+  .tk-block{
+    background:var(--blanco);border:1px solid var(--linea);border-radius:16px;
+    box-shadow:var(--sombra);margin-bottom:16px;overflow:hidden;
+  }
+  .tk-head{
+    display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;
+    padding:14px 18px;background:linear-gradient(180deg,#f7fbfa,#fff);border-bottom:1px solid var(--linea);
+  }
+  .tk-name{font-weight:600;font-size:16px;color:var(--petroleo);display:flex;align-items:center;gap:9px}
+  .tk-name .chip{font-size:11px;font-weight:600;color:var(--tinta-suave);background:#eef5f3;border:1px solid var(--linea);padding:2px 8px;border-radius:999px}
+  .tk-total{font-variant-numeric:tabular-nums;font-weight:600;font-size:15px}
+  .tk-total.neg{color:var(--rojo)}
+  .tk-total .lbl{font-weight:400;color:var(--tinta-suave);font-size:12px;margin-right:6px}
+
+  .sale-row{padding:14px 18px;border-bottom:1px solid #f0f5f3}
+  .sale-row:last-child{border-bottom:none}
+  .sale-meta{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;font-size:13px;color:var(--tinta-suave);margin-bottom:9px}
+  .sale-meta .strong{color:var(--tinta);font-weight:600}
+  .sale-meta .op{background:var(--dorado);color:#5a4409;font-weight:600;font-size:11px;padding:2px 9px;border-radius:999px;letter-spacing:.03em}
+
+  /* barra de emparejamiento PEPS (elemento distintivo) */
+  .fifo-bar{display:flex;height:26px;border-radius:8px;overflow:hidden;border:1px solid var(--linea);margin-bottom:10px}
+  .fifo-seg{display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#fff;min-width:2px;position:relative}
+  .fifo-seg.go{background:var(--dorado);color:var(--go-tinta)}
+  .fifo-seg.ro{background:var(--esmeralda)}
+  .fifo-seg.short{background:repeating-linear-gradient(45deg,#e7ecea,#e7ecea 6px,#f4f7f6 6px,#f4f7f6 12px);color:var(--rojo);border-left:1px dashed var(--rojo)}
+
+  table.detail{width:100%;border-collapse:collapse;font-size:13px}
+  table.detail th{
+    text-align:right;font-weight:500;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;
+    color:var(--tinta-suave);padding:6px 8px;border-bottom:1px solid var(--linea);white-space:nowrap;
+  }
+  table.detail th.l,table.detail td.l{text-align:left}
+  table.detail td{padding:7px 8px;border-bottom:1px solid #f4f7f6;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+  table.detail tr:last-child td{border-bottom:none}
+  .tag{font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap;display:inline-block}
+  .tag.go{background:#fdf3d3;color:var(--go-tinta)}
+  .tag.ro{background:#d9f2ec;color:var(--ro-tinta)}
+  .util-pos{color:var(--ro-tinta);font-weight:600}
+  .util-neg{color:var(--rojo);font-weight:600}
+  .warn{
+    background:#fbeeeb;border:1px solid #f0cabf;color:#8a3423;border-radius:10px;
+    padding:8px 12px;font-size:12.5px;margin-top:8px;display:flex;gap:8px;align-items:flex-start;
+  }
+  .warn svg{width:16px;height:16px;flex:none;margin-top:1px}
+
+  /* inventario remanente */
+  .inv-block{margin-top:8px}
+  details.inv{background:var(--blanco);border:1px solid var(--linea);border-radius:14px;box-shadow:var(--sombra);overflow:hidden}
+  details.inv summary{
+    cursor:pointer;padding:13px 18px;font-weight:600;font-size:14px;color:var(--petroleo);
+    display:flex;align-items:center;gap:9px;list-style:none;
+  }
+  details.inv summary::-webkit-details-marker{display:none}
+  details.inv summary .chev{transition:transform .15s ease}
+  details.inv[open] summary .chev{transform:rotate(90deg)}
+  .inv-body{padding:0 18px 16px}
+
+  .empty{
+    text-align:center;color:var(--tinta-suave);padding:40px 20px;font-size:14px;
+    background:var(--blanco);border:1px dashed var(--linea);border-radius:16px;
+  }
+
+  footer.notes{
+    margin-top:34px;padding-top:20px;border-top:1px solid var(--linea);
+    font-size:12px;color:var(--tinta-suave);line-height:1.65;
+  }
+  footer.notes b{color:var(--tinta)}
+  footer.notes .lg{font-family:"Great Vibes",cursive;font-size:20px;color:var(--esmeralda)}
+
+  /* ---------- Seguridad social ---------- */
+  .ss-panel{background:var(--blanco);border:1px solid var(--linea);border-radius:16px;box-shadow:var(--sombra);overflow:hidden;margin-bottom:16px}
+  .ss-head{display:flex;align-items:center;gap:10px;padding:15px 18px;border-bottom:1px solid var(--linea)}
+  .ss-head h2{margin:0;font-size:15px;font-weight:600;display:flex;align-items:center;gap:9px}
+  .dot.ss{background:var(--petroleo)}
+  .ss-body{padding:16px 18px}
+  .ss-controls{display:flex;flex-wrap:wrap;gap:14px 22px;align-items:flex-end;margin-bottom:16px}
+  .ss-controls .param select{font-family:inherit;font-size:14px;font-weight:600;color:var(--petroleo);border:1px solid var(--linea);border-radius:8px;padding:7px 9px;background:#f6faf9;cursor:pointer}
+  .ss-controls .param select:focus{outline:none;border-color:var(--mint);background:#fff}
+  .ss-banner{display:flex;align-items:center;gap:12px;border-radius:12px;padding:13px 16px;margin-bottom:16px;font-weight:600;font-size:14px}
+  .ss-banner.yes{background:#e5f5f0;border:1px solid var(--mint);color:var(--ro-tinta)}
+  .ss-banner.no{background:#f4f7f6;border:1px solid var(--linea);color:var(--tinta-suave);font-weight:500}
+  .ss-banner .big{margin-left:auto;font-size:21px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--petroleo);white-space:nowrap}
+  .ss-banner svg{width:20px;height:20px;flex:none}
+  .ss-flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+  .ss-step{background:#f7fbfa;border:1px solid var(--linea);border-radius:12px;padding:11px 13px}
+  .ss-step .l{font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--tinta-suave)}
+  .ss-step .v{font-size:17px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:3px;line-height:1.15}
+  .ss-step .n{font-size:11px;color:#94a7a3;margin-top:2px}
+  .ss-lines{display:grid;grid-template-columns:1fr;max-width:460px}
+  .ss-line{display:flex;justify-content:space-between;align-items:center;padding:9px 2px;border-bottom:1px solid #f0f5f3;font-variant-numeric:tabular-nums;font-size:14px}
+  .ss-line:last-child{border-bottom:none}
+  .ss-line .lbl{color:var(--tinta-suave);font-weight:500}
+  .ss-line.tot{font-weight:700;font-size:16px;color:var(--petroleo);border-top:2px solid var(--linea);border-bottom:none;margin-top:4px;padding-top:12px}
+  .ss-line.tot .lbl{color:var(--petroleo);font-weight:700}
+  .ss-tabs{display:inline-flex;border:1px solid var(--linea);border-radius:10px;overflow:hidden;background:#f6faf9}
+  .ss-tab{font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--tinta-suave);padding:8px 14px;transition:background .12s,color .12s}
+  .ss-tab.active{background:var(--petroleo);color:#fff}
+  .ss-tab:not(.active):hover{background:#eaf4f1;color:var(--petroleo)}
+  .ss-note{font-size:12.5px;line-height:1.5;color:var(--tinta-suave);background:#f7fbfa;border:1px solid var(--linea);border-left:3px solid var(--esmeralda);border-radius:8px;padding:10px 13px;margin:-2px 0 16px}
+  .ss-note b{color:var(--tinta)}
+
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
+
+  @media (max-width:820px){
+    .grid-io{grid-template-columns:1fr}
+    .kpis{grid-template-columns:1fr 1fr}
+  }
+  @media (max-width:480px){
+    .kpis{grid-template-columns:1fr}
+    .wrap{padding:20px 14px 60px}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+  @media print{
+    body{background:#fff}
+    .toolbar,button.add,button.del,.card-foot,.param .hint{display:none!important}
+    .card,.kpi,.tk-block,details.inv,.params{box-shadow:none;break-inside:avoid}
+    details.inv[open]{break-inside:auto}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div>
+      <div class="brand-mark">Finanzas con Stefany</div>
+      <h1>Utilidad en venta de acciones</h1>
+      <p class="sub">Cada venta se descarga contra las compras más antiguas (PEPS). Cada porción se clasifica según el tiempo que estuvo el lote en tu poder: <b style="color:var(--go-tinta)">ganancia ocasional</b> si son 2 años o más, <b style="color:var(--ro-tinta)">renta ordinaria</b> si es menos.</p>
+    </div>
+    <div class="badge-peps">Método <b>PEPS</b> · Primeras en entrar, primeras en salir</div>
+  </header>
+
+  <div class="toolbar">
+    <button class="tool primary" id="btn-example">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+      Cargar ejemplo
+    </button>
+    <button class="tool ghost" id="btn-clear">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
+      Limpiar todo
+    </button>
+    <button class="tool" id="btn-save">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+      Guardar (JSON)
+    </button>
+    <button class="tool" id="btn-load">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+      Cargar (JSON)
+    </button>
+    <button class="tool" id="btn-csv">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg>
+      Exportar CSV
+    </button>
+    <button class="tool" id="btn-print">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z"/></svg>
+      Imprimir / PDF
+    </button>
+    <input type="file" id="file-input" accept="application/json,.json" class="sr-only">
+  </div>
+
+  <div class="grid-io">
+    <!-- COMPRAS -->
+    <section class="card">
+      <div class="card-head">
+        <h2><span class="dot buy"></span>Compras</h2>
+        <span class="count" id="count-buy">0 registros</span>
+      </div>
+      <div class="table-scroll">
+        <table class="io" id="tbl-buy">
+          <thead>
+            <tr>
+              <th>Acción / Ticker</th>
+              <th class="dcol">Fecha</th>
+              <th class="qcol">Cantidad</th>
+              <th class="pcol">Precio unit. (COP)</th>
+              <th class="xcol"><span class="sr-only">Eliminar</span></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="card-foot">
+        <button class="add" data-add="buy">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><path d="M12 5v14M5 12h14"/></svg>
+          Agregar compra
+        </button>
+      </div>
+    </section>
+
+    <!-- VENTAS -->
+    <section class="card">
+      <div class="card-head">
+        <h2><span class="dot sell"></span>Ventas</h2>
+        <span class="count" id="count-sell">0 registros</span>
+      </div>
+      <div class="table-scroll">
+        <table class="io" id="tbl-sell">
+          <thead>
+            <tr>
+              <th>Acción / Ticker</th>
+              <th class="dcol">Fecha</th>
+              <th class="qcol">Cantidad</th>
+              <th class="pcol">Precio unit. (COP)</th>
+              <th class="xcol"><span class="sr-only">Eliminar</span></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="card-foot">
+        <button class="add" data-add="sell">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><path d="M12 5v14M5 12h14"/></svg>
+          Agregar venta
+        </button>
+      </div>
+    </section>
+  </div>
+
+  <div class="info-note">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+    <div>
+      <b>Impuestos.</b> Las acciones inscritas en la Bolsa de Valores de Colombia no pagan impuesto de renta ni de ganancia ocasional cuando la venta no supera el 3% de las acciones en circulación (Art. 36-1 E.T.). Por eso la clasificación de abajo es <b>informativa</b>: te sirve para la seguridad social, no para liquidar impuesto.<br>
+      La <b>seguridad social solo aplica sobre la renta ordinaria</b> (lotes con menos de 2 años). La <b>ganancia ocasional no cotiza</b>.
+    </div>
+  </div>
+
+  <details class="tax-est">
+    <summary><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>Estimar impuesto de renta (informativo — solo para otros activos gravados)</summary>
+    <div class="tax-est-body">
+      <div class="param">
+        <label for="tarifa-go">Tarifa ganancia ocasional</label>
+        <div class="inp"><input type="number" id="tarifa-go" value="0" min="0" max="100" step="0.5"><span class="pct">%</span></div>
+      </div>
+      <div class="param">
+        <label for="tarifa-ro">Tarifa marginal renta ordinaria</label>
+        <div class="inp"><input type="number" id="tarifa-ro" value="0" min="0" max="100" step="0.5"><span class="pct">%</span></div>
+      </div>
+      <p class="hint">Úsalo solo si vendes activos que sí tributan (p. ej. acciones del exterior). Para acciones de la BVC déjalo en 0.</p>
+    </div>
+  </details>
+
+  <div class="kpis" id="kpis"></div>
+
+  <section class="ss-panel" id="ss-panel">
+    <div class="ss-head"><h2><span class="dot ss"></span>Seguridad social · rentista de capital</h2></div>
+    <div class="ss-body">
+      <div class="ss-controls">
+        <div class="param">
+          <label for="ss-base-mode">Base para seguridad social</label>
+          <select id="ss-base-mode">
+            <option value="ro">Utilidad de renta ordinaria (&lt; 2 años)</option>
+            <option value="custom">Personalizado</option>
+          </select>
+        </div>
+        <div class="param" id="ss-custom-wrap" style="display:none">
+          <label for="ss-base-custom">Valor base (COP)</label>
+          <div class="inp"><input type="number" id="ss-base-custom" value="" min="0" step="any" style="width:134px"></div>
+        </div>
+        <div class="param">
+          <label>Método de costos</label>
+          <div class="ss-tabs" role="tablist" aria-label="Método de costos">
+            <button type="button" class="ss-tab active" data-method="real">Costo real</button>
+            <button type="button" class="ss-tab" data-method="presunto">Costos presuntos</button>
+          </div>
+        </div>
+        <div class="param" id="ss-presun-wrap" style="display:none">
+          <label for="ss-presun">Presunción de costos</label>
+          <div class="inp"><input type="number" id="ss-presun" value="28.08" min="0" max="100" step="0.01"><span class="pct">%</span></div>
+        </div>
+        <input type="hidden" id="ss-method" value="real">
+        <div class="param">
+          <label for="ss-ibc">Cotiza sobre</label>
+          <div class="inp"><input type="number" id="ss-ibc" value="40" min="0" max="100" step="1"><span class="pct">%</span></div>
+        </div>
+        <div class="param">
+          <label for="ss-smlv">SMLV 2026</label>
+          <div class="inp"><input type="number" id="ss-smlv" value="1750905" min="0" step="1" style="width:112px"></div>
+        </div>
+      </div>
+      <p class="ss-note" id="ss-method-note"></p>
+      <div id="ss-result"></div>
+    </div>
+  </section>
+
+  <div class="results-head">
+    <h2>Detalle por acción</h2>
+    <span class="muted" id="results-sub"></span>
+  </div>
+  <div id="results"></div>
+
+  <footer class="notes">
+    <p><b>Cómo lee esta herramienta el criterio de 2 años.</b> Una porción se marca como ganancia ocasional cuando la fecha de venta es igual o posterior a la fecha de compra más dos años calendario (Art. 300 E.T.: activos poseídos por dos años o más). Por debajo de ese umbral la utilidad es renta líquida ordinaria. Tu Excel usaba el atajo de 730 días; aquí el corte es por fecha calendario para respetar los años bisiestos.</p>
+    <p><b>Seguridad social (rentista de capital).</b> Las acciones inscritas en la BVC no generan impuesto de renta ni de ganancia ocasional, pero el rendimiento sí computa como ingreso para seguridad social. Esta solo aplica sobre la porción de <b>renta ordinaria</b> (lotes con menos de 2 años); la <b>ganancia ocasional no cotiza</b>. Para el costo puedes escoger <b>costo real</b> (la utilidad PEPS ya descontó el precio de compra, así que ese rendimiento es el ingreso neto) o <b>costos presuntos</b> del 28,08% (Decreto 1601 de 2022). Sobre el ingreso neto se cotiza el 40% como IBC, con piso de 1 SMLV y tope de 25 SMLV. La obligación surge cuando el ingreso neto mensual es igual o superior a 1 SMLV ($1.750.905 en 2026). Aportes: salud 12,5% + pensión 16% + Fondo de Solidaridad Pensional (desde 4 SMLV). Recuerda mensualizar el rendimiento según el período real cuando corresponda.</p>
+    <p><b>Alcance.</b> El costo se toma como el valor de compra de cada lote (sin comisiones ni componente inflacionario, igual que en tu registro de movimientos). El impuesto de renta y de ganancia ocasional aparece solo como estimador opcional e informativo, porque las acciones de la BVC están exentas (Art. 36-1 E.T.); actívalo únicamente para activos que sí tributan. Las pérdidas se muestran, pero no se compensan automáticamente entre cédulas. Es una herramienta de apoyo: el criterio de valuación fiscal y las depuraciones finales quedan a tu juicio profesional. <span class="lg">Stefany López R.</span> · CP T.P. 249099</p>
+  </footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---------------- Estado ---------------- */
+  let buys = [];
+  let sells = [];
+  let uid = 1;
+  const nid = () => "r" + (uid++);
+
+  const EXAMPLE = {
+    buys: [
+      {ticker:"ECOPETROL", fecha:"2023-01-15", cantidad:100, precio:2000},
+      {ticker:"ECOPETROL", fecha:"2025-02-11", cantidad:91,  precio:2020},
+      {ticker:"MINEROS",   fecha:"2025-09-12", cantidad:100, precio:11240},
+      {ticker:"MINEROS",   fecha:"2025-10-17", cantidad:76,  precio:14680},
+    ],
+    sells: [
+      {ticker:"ECOPETROL", fecha:"2026-06-20", cantidad:150, precio:2600},
+      {ticker:"MINEROS",   fecha:"2025-10-16", cantidad:100, precio:14500},
+    ]
+  };
+
+  /* ---------------- Utilidades de formato ---------------- */
+  const cop = new Intl.NumberFormat("es-CO",{style:"currency",currency:"COP",maximumFractionDigits:0});
+  const copSign = (n) => (n>0?"+":"") + cop.format(n);
+  const num = new Intl.NumberFormat("es-CO",{maximumFractionDigits:2});
+  const fmtFecha = (iso) => {
+    if(!iso) return "—";
+    const [y,m,d] = iso.split("-");
+    return `${d}/${m}/${y}`;
+  };
+  const parseISO = (iso) => { const [y,m,d]=iso.split("-").map(Number); return new Date(y, m-1, d); };
+  const diffDias = (a,b) => Math.round((parseISO(b)-parseISO(a))/86400000);
+  // ganancia ocasional: venta >= compra + 2 años calendario
+  const esGananciaOcasional = (fCompra,fVenta) => {
+    const anchor = parseISO(fCompra); anchor.setFullYear(anchor.getFullYear()+2);
+    return parseISO(fVenta) >= anchor;
+  };
+  const anios = (dias) => (dias/365.25);
+
+  /* ---------------- Render de filas de entrada ---------------- */
+  function rowHTML(kind, row){
+    return `<tr data-id="${row.id}" data-kind="${kind}">
+      <td><input class="tk" type="text" value="${escapeAttr(row.ticker)}" placeholder="Ej: ECOPETROL" data-f="ticker" aria-label="Acción o ticker"></td>
+      <td class="dcol"><input type="date" value="${row.fecha||""}" data-f="fecha" aria-label="Fecha"></td>
+      <td class="qcol"><input type="number" value="${row.cantidad!==""&&row.cantidad!=null?row.cantidad:""}" min="0" step="any" placeholder="0" data-f="cantidad" aria-label="Cantidad"></td>
+      <td class="pcol"><input type="number" value="${row.precio!==""&&row.precio!=null?row.precio:""}" min="0" step="any" placeholder="0" data-f="precio" aria-label="Precio unitario"></td>
+      <td class="xcol"><button class="del" title="Eliminar fila" aria-label="Eliminar fila">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button></td>
+    </tr>`;
+  }
+  const escapeAttr = (s) => String(s==null?"":s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");
+
+  function renderInputs(){
+    document.querySelector("#tbl-buy tbody").innerHTML  = buys.map(r=>rowHTML("buy",r)).join("");
+    document.querySelector("#tbl-sell tbody").innerHTML = sells.map(r=>rowHTML("sell",r)).join("");
+    document.getElementById("count-buy").textContent  = `${buys.length} ${buys.length===1?"registro":"registros"}`;
+    document.getElementById("count-sell").textContent = `${sells.length} ${sells.length===1?"registro":"registros"}`;
+  }
+
+  /* ---------------- Motor PEPS ---------------- */
+  function computar(){
+    const tGO = (parseFloat(document.getElementById("tarifa-go").value)||0)/100;
+    const tRO = (parseFloat(document.getElementById("tarifa-ro").value)||0)/100;
+
+    const valid = (r) => r.ticker.trim() && r.fecha && Number(r.cantidad)>0 && r.precio!=="" && r.precio!=null && !isNaN(Number(r.precio));
+    const key = (t) => t.trim().toUpperCase();
+
+    // agrupar por ticker
+    const grupos = {};
+    buys.filter(valid).forEach(r=>{
+      const k=key(r.ticker); (grupos[k]=grupos[k]||{nombre:r.ticker.trim(),compras:[],ventas:[]});
+      grupos[k].compras.push({fecha:r.fecha, cantidad:Number(r.cantidad), precio:Number(r.precio)});
+    });
+    sells.filter(valid).forEach(r=>{
+      const k=key(r.ticker); (grupos[k]=grupos[k]||{nombre:r.ticker.trim(),compras:[],ventas:[]});
+      grupos[k].ventas.push({fecha:r.fecha, cantidad:Number(r.cantidad), precio:Number(r.precio)});
+    });
+
+    const resultado = {tickers:[], goBase:0, roBase:0, utilTotal:0, valorVendido:0, cantVendida:0, nOps:0, faltantes:false};
+
+    Object.keys(grupos).sort((a,b)=>a.localeCompare(b,"es")).forEach(k=>{
+      const g = grupos[k];
+      // lotes ordenados por fecha (más antiguo primero)
+      const lotes = g.compras
+        .map((c,i)=>({...c, orden:i, restante:c.cantidad}))
+        .sort((a,b)=> a.fecha<b.fecha?-1 : a.fecha>b.fecha?1 : a.orden-b.orden);
+      const ventas = g.ventas.slice().sort((a,b)=> a.fecha<b.fecha?-1 : a.fecha>b.fecha?1 : 0);
+
+      const tkOut = {nombre:g.nombre, ventas:[], total:0, goBase:0, roBase:0};
+
+      ventas.forEach(v=>{
+        let porLlenar = v.cantidad;
+        const segmentos = [];
+        let faltante = 0;
+        for(const lote of lotes){
+          if(porLlenar<=0) break;
+          if(lote.restante<=0) continue;
+          const toma = Math.min(lote.restante, porLlenar);
+          const util = (v.precio - lote.precio) * toma;
+          const dias = diffDias(lote.fecha, v.fecha);
+          const go   = esGananciaOcasional(lote.fecha, v.fecha);
+          segmentos.push({
+            fCompra:lote.fecha, pCompra:lote.precio, cant:toma,
+            util, dias, clasif: go?"GO":"RO"
+          });
+          lote.restante -= toma;
+          porLlenar     -= toma;
+          tkOut.total += util;
+          if(go){ tkOut.goBase+=util; } else { tkOut.roBase+=util; }
+        }
+        if(porLlenar>0){ faltante = porLlenar; resultado.faltantes=true; }
+        tkOut.ventas.push({fecha:v.fecha, precio:v.precio, cantidad:v.cantidad, segmentos, faltante});
+        resultado.cantVendida += (v.cantidad - faltante);
+        resultado.valorVendido += v.precio * v.cantidad;
+        resultado.nOps++;
+      });
+
+      // inventario remanente
+      tkOut.inventario = lotes.filter(l=>l.restante>1e-9)
+        .map(l=>({fecha:l.fecha, cantidad:l.restante, precio:l.precio, costo:l.restante*l.precio}));
+
+      resultado.goBase += tkOut.goBase;
+      resultado.roBase += tkOut.roBase;
+      resultado.utilTotal += tkOut.total;
+      if(tkOut.ventas.length) resultado.tickers.push(tkOut);
+      else if(tkOut.inventario.length) resultado.tickers.push(tkOut); // solo compras -> mostrar inventario
+    });
+
+    resultado.impGO = Math.max(0, resultado.goBase) * tGO;
+    resultado.impRO = Math.max(0, resultado.roBase) * tRO;
+    resultado.tGO = tGO; resultado.tRO = tRO;
+    return resultado;
+  }
+
+  /* ---------------- Render de resultados ---------------- */
+  function renderResultados(){
+    const R = computar();
+
+    // KPIs
+    const kpiWrap = document.getElementById("kpis");
+    const negCls = (n)=> n<0?" neg":"";
+    const ss = ssCompute(R);
+    kpiWrap.innerHTML = `
+      <div class="kpi total">
+        <div class="klabel">Utilidad total</div>
+        <div class="kval${negCls(R.utilTotal)}">${copSign(R.utilTotal)}</div>
+        <div class="ksub">${R.nOps} ${R.nOps===1?"venta":"ventas"} · ${num.format(R.cantVendida)} acciones</div>
+      </div>
+      <div class="kpi go">
+        <div class="klabel">Ganancia ocasional</div>
+        <div class="kval${negCls(R.goBase)}">${cop.format(R.goBase)}</div>
+        <div class="ksub">Exenta de renta · no cotiza SS</div>
+      </div>
+      <div class="kpi ro">
+        <div class="klabel">Renta ordinaria</div>
+        <div class="kval${negCls(R.roBase)}">${cop.format(R.roBase)}</div>
+        <div class="ksub">Base de seguridad social</div>
+      </div>
+      <div class="kpi tax">
+        <div class="klabel">Seguridad social</div>
+        <div class="kval">${cop.format(ss.total)}</div>
+        <div class="ksub">${ss.obligado? "sobre la renta ordinaria" : "no genera obligación"}</div>
+      </div>`;
+
+    // Seguridad social
+    renderSS(R, ss);
+
+    // Sub encabezado
+    document.getElementById("results-sub").textContent =
+      R.tickers.length ? `${R.tickers.length} ${R.tickers.length===1?"acción":"acciones"}` : "";
+
+    // Bloques por ticker
+    const cont = document.getElementById("results");
+    if(!R.tickers.length){
+      cont.innerHTML = `<div class="empty">Agrega al menos una compra y una venta de la misma acción para ver el desglose PEPS.<br>O usa <b>Cargar ejemplo</b> para ver cómo funciona.</div>`;
+      return;
+    }
+
+    cont.innerHTML = R.tickers.map(tk=>{
+      const ventasHTML = tk.ventas.map(v=>{
+        const totalSeg = v.cantidad;
+        const segBar = v.segmentos.map(s=>{
+          const w = (s.cant/totalSeg*100);
+          return `<div class="fifo-seg ${s.clasif==='GO'?'go':'ro'}" style="width:${w}%" title="${s.clasif==='GO'?'Ganancia ocasional':'Renta ordinaria'} · ${num.format(s.cant)} und · compra ${fmtFecha(s.fCompra)}">${w>10?num.format(s.cant):''}</div>`;
+        }).join("");
+        const shortBar = v.faltante>0 ? `<div class="fifo-seg short" style="width:${(v.faltante/totalSeg*100)}%" title="Sin lote de compra">${(v.faltante/totalSeg*100)>10?num.format(v.faltante):''}</div>` : "";
+
+        const filas = v.segmentos.map(s=>`
+          <tr>
+            <td class="l">${fmtFecha(s.fCompra)}</td>
+            <td>${cop.format(s.pCompra)}</td>
+            <td>${cop.format(v.precio)}</td>
+            <td>${num.format(s.cant)}</td>
+            <td class="${s.util>=0?'util-pos':'util-neg'}">${copSign(s.util)}</td>
+            <td>${num.format(s.dias)} d · ${anios(s.dias).toFixed(1)} a</td>
+            <td class="l"><span class="tag ${s.clasif==='GO'?'go':'ro'}">${s.clasif==='GO'?'Ganancia ocasional':'Renta ordinaria'}</span></td>
+          </tr>`).join("");
+
+        const warnHTML = v.faltante>0 ? `<div class="warn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+          <span>Faltan <b>${num.format(v.faltante)}</b> acciones sin lote de compra para esta venta. Revisa si falta registrar una compra anterior (o si es una venta en corto).</span>
+        </div>` : "";
+
+        const vTotal = v.segmentos.reduce((a,s)=>a+s.util,0);
+
+        return `<div class="sale-row">
+          <div class="sale-meta">
+            <span class="op">VENTA</span>
+            <span><span class="strong">${fmtFecha(v.fecha)}</span></span>
+            <span>${num.format(v.cantidad)} und @ <span class="strong">${cop.format(v.precio)}</span></span>
+            <span style="margin-left:auto">Utilidad: <span class="strong ${vTotal>=0?'':'util-neg'}">${copSign(vTotal)}</span></span>
+          </div>
+          <div class="fifo-bar">${segBar}${shortBar}</div>
+          <div class="table-scroll">
+            <table class="detail">
+              <thead><tr>
+                <th class="l">Compra (lote)</th><th>Precio compra</th><th>Precio venta</th>
+                <th>Cantidad</th><th>Utilidad</th><th>Tenencia</th><th class="l">Clasificación</th>
+              </tr></thead>
+              <tbody>${filas}</tbody>
+            </table>
+          </div>
+          ${warnHTML}
+        </div>`;
+      }).join("");
+
+      const invHTML = tk.inventario && tk.inventario.length ? `
+        <details class="inv">
+          <summary><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M9 18l6-6-6-6"/></svg>
+            Inventario remanente · ${num.format(tk.inventario.reduce((a,l)=>a+l.cantidad,0))} acciones · costo ${cop.format(tk.inventario.reduce((a,l)=>a+l.costo,0))}
+          </summary>
+          <div class="inv-body table-scroll">
+            <table class="detail">
+              <thead><tr><th class="l">Fecha compra</th><th>Cantidad</th><th>Precio unit.</th><th>Costo fiscal</th></tr></thead>
+              <tbody>${tk.inventario.map(l=>`<tr><td class="l">${fmtFecha(l.fecha)}</td><td>${num.format(l.cantidad)}</td><td>${cop.format(l.precio)}</td><td>${cop.format(l.costo)}</td></tr>`).join("")}</tbody>
+            </table>
+          </div>
+        </details>` : "";
+
+      const tclass = tk.total>=0?"":"neg";
+      return `<div class="tk-block">
+        <div class="tk-head">
+          <div class="tk-name">${escapeAttr(tk.nombre)} <span class="chip">${tk.ventas.length} ${tk.ventas.length===1?'venta':'ventas'}</span></div>
+          <div class="tk-total ${tclass}"><span class="lbl">Utilidad</span>${copSign(tk.total)}</div>
+        </div>
+        ${ventasHTML}
+        ${invHTML ? `<div style="padding:12px 18px">${invHTML}</div>`:""}
+      </div>`;
+    }).join("");
+  }
+
+  /* ---------------- Seguridad social (rentista de capital) ---------------- */
+  // Fondo de Solidaridad Pensional según IBC en número de SMLV
+  function fspRate(sm){
+    if(sm>20)  return 0.02;
+    if(sm>19)  return 0.018;
+    if(sm>18)  return 0.016;
+    if(sm>17)  return 0.014;
+    if(sm>=16) return 0.012;
+    if(sm>=4)  return 0.01;
+    return 0;
+  }
+  function ssCompute(R){
+    const smlv   = parseFloat(document.getElementById("ss-smlv").value)||0;
+    const method = document.getElementById("ss-method").value;
+    const presunInput = (parseFloat(document.getElementById("ss-presun").value)||0)/100;
+    const presun = method==="real" ? 0 : presunInput;
+    const ibcPct = (parseFloat(document.getElementById("ss-ibc").value)||0)/100;
+    const mode   = document.getElementById("ss-base-mode").value;
+    let base;
+    if(mode==="ro") base = R.roBase;
+    else            base = parseFloat(document.getElementById("ss-base-custom").value)||0;
+    base = Math.max(0, base);
+    const neto = base*(1-presun);
+    const obligado = neto>0 && smlv>0 && neto>=smlv;   // obligación: ingreso neto ≥ 1 SMLV
+    let ibc=0,salud=0,pension=0,fsp=0,fspPct=0,total=0,ibcSm=0,piso=false,tope=false;
+    if(obligado){
+      ibc = ibcPct*neto;
+      if(ibc<smlv){ ibc=smlv; piso=true; }          // piso: 1 SMLV
+      if(ibc>25*smlv){ ibc=25*smlv; tope=true; }    // tope: 25 SMLV
+      salud   = 0.125*ibc;
+      pension = 0.16*ibc;
+      ibcSm   = ibc/smlv;
+      fspPct  = fspRate(ibcSm);
+      fsp     = fspPct*ibc;
+      total   = salud+pension+fsp;
+    }
+    return {smlv,presun,ibcPct,mode,method,base,neto,obligado,ibc,salud,pension,fsp,fspPct,total,ibcSm,piso,tope};
+  }
+  function renderSS(R, s){
+    s = s || ssCompute(R);
+    document.getElementById("ss-custom-wrap").style.display = s.mode==="custom" ? "" : "none";
+    document.getElementById("ss-presun-wrap").style.display = s.method==="presunto" ? "" : "none";
+    document.getElementById("ss-method-note").innerHTML = s.method==="real"
+      ? "Las ventas de acciones no aplican costos presuntos. Optas por <b>costo real</b>: la utilidad ya se calculó restando el precio de compra de cada lote (PEPS), así que ese rendimiento es directamente el ingreso neto sobre el que cotizas."
+      : "Método de <b>costos presuntos</b>: se descuenta el "+(s.presun*100).toFixed(2).replace(".",",")+"% del ingreso como costo estimado (rentista de capital, Decreto 1601 de 2022).";
+    const modeLabel = s.mode==="ro" ? "Utilidad de renta ordinaria" : "Valor personalizado";
+    const presunTxt = (s.presun*100).toFixed(2).replace(".",",")+"%";
+    const netoTxt   = ((1-s.presun)*100).toFixed(2).replace(".",",")+"%";
+    const fspTxt    = (s.fspPct*100).toString().replace(".",",")+"%";
+
+    const banner = s.obligado
+      ? `<div class="ss-banner yes">
+           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
+           <span>Debes cotizar seguridad social este período</span>
+           <span class="big">${cop.format(s.total)}</span>
+         </div>`
+      : `<div class="ss-banner no">
+           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+           <span>No genera obligación este período — el ingreso neto (${cop.format(s.neto)}) no alcanza 1 SMLV (${cop.format(s.smlv)}).</span>
+         </div>`;
+
+    const ibcNote = !s.obligado ? "—" : (s.piso ? "ajustado al piso de 1 SMLV" : s.tope ? "ajustado al tope de 25 SMLV" : num.format(s.ibcSm)+" SMLV");
+
+    const costoL = s.method==="real" ? "Costo (real)" : "Presunción de costos";
+    const costoV = s.method==="real" ? "—" : "− "+cop.format(s.base*s.presun);
+    const costoN = s.method==="real" ? "descontado en la utilidad" : presunTxt+" del ingreso";
+    const netoN  = s.method==="real" ? "igual al rendimiento" : netoTxt+" del ingreso";
+
+    const flow = `<div class="ss-flow">
+      <div class="ss-step"><div class="l">Ingreso base</div><div class="v">${cop.format(s.base)}</div><div class="n">${modeLabel}</div></div>
+      <div class="ss-step"><div class="l">${costoL}</div><div class="v">${costoV}</div><div class="n">${costoN}</div></div>
+      <div class="ss-step"><div class="l">Ingreso neto</div><div class="v">${cop.format(s.neto)}</div><div class="n">${netoN}</div></div>
+      <div class="ss-step"><div class="l">IBC (${(s.ibcPct*100).toFixed(0)}%)</div><div class="v">${s.obligado?cop.format(s.ibc):"—"}</div><div class="n">${ibcNote}</div></div>
+    </div>`;
+
+    const lines = s.obligado ? `<div class="ss-lines">
+      <div class="ss-line"><span class="lbl">Salud (12,5%)</span><span>${cop.format(s.salud)}</span></div>
+      <div class="ss-line"><span class="lbl">Pensión (16%)</span><span>${cop.format(s.pension)}</span></div>
+      <div class="ss-line"><span class="lbl">Fondo de Solidaridad Pensional (${fspTxt})</span><span>${cop.format(s.fsp)}</span></div>
+      <div class="ss-line tot"><span class="lbl">Total a pagar</span><span>${cop.format(s.total)}</span></div>
+    </div>` : "";
+
+    const goExcl = R.goBase>0
+      ? `<p class="ss-note" style="margin-top:0;border-left-color:var(--dorado)">Se excluye la ganancia ocasional (${cop.format(R.goBase)}): no cotiza seguridad social. La base es únicamente la renta ordinaria.</p>`
+      : "";
+
+    document.getElementById("ss-result").innerHTML = goExcl + banner + flow + lines;
+  }
+
+  function renderAll(){ renderResultados(); }
+
+  /* ---------------- Eventos ---------------- */
+  document.addEventListener("input", (e)=>{
+    const tr = e.target.closest("tr[data-id]");
+    if(tr){
+      const id=tr.dataset.id, kind=tr.dataset.kind, f=e.target.dataset.f;
+      const arr = kind==="buy"?buys:sells;
+      const row = arr.find(r=>r.id===id);
+      if(row){ row[f] = e.target.value; renderAll(); }
+      return;
+    }
+    if(e.target.id==="tarifa-go" || e.target.id==="tarifa-ro" || e.target.closest("#ss-panel")){ renderAll(); }
+  });
+  document.addEventListener("change", (e)=>{ if(e.target.id==="ss-base-mode") renderAll(); });
+
+  document.addEventListener("click", (e)=>{
+    const tab = e.target.closest(".ss-tab");
+    if(tab){
+      document.querySelectorAll(".ss-tab").forEach(t=>t.classList.remove("active"));
+      tab.classList.add("active");
+      document.getElementById("ss-method").value = tab.dataset.method;
+      renderAll(); return;
+    }
+    const del = e.target.closest("button.del");
+    if(del){
+      const tr = del.closest("tr[data-id]");
+      const kind=tr.dataset.kind, id=tr.dataset.id;
+      if(kind==="buy") buys=buys.filter(r=>r.id!==id); else sells=sells.filter(r=>r.id!==id);
+      renderInputs(); renderAll(); return;
+    }
+    const add = e.target.closest("button.add");
+    if(add){
+      const kind = add.dataset.add;
+      // prellenar ticker con el último usado, para agilizar carga
+      const arr = kind==="buy"?buys:sells;
+      const lastTk = arr.length? arr[arr.length-1].ticker : (buys.length?buys[buys.length-1].ticker:"");
+      const nuevo = {id:nid(), ticker:lastTk||"", fecha:"", cantidad:"", precio:""};
+      if(kind==="buy") buys.push(nuevo); else sells.push(nuevo);
+      renderInputs();
+      // foco en la nueva fila
+      const sel = kind==="buy"?"#tbl-buy":"#tbl-sell";
+      const rows = document.querySelectorAll(`${sel} tbody tr`);
+      const last = rows[rows.length-1];
+      const target = last.querySelector(lastTk? 'input[data-f="fecha"]' : 'input[data-f="ticker"]');
+      target && target.focus();
+      renderAll(); return;
+    }
+  });
+
+  document.getElementById("btn-example").addEventListener("click", ()=>{
+    buys  = EXAMPLE.buys.map(r=>({id:nid(),...r}));
+    sells = EXAMPLE.sells.map(r=>({id:nid(),...r}));
+    renderInputs(); renderAll();
+  });
+
+  document.getElementById("btn-clear").addEventListener("click", ()=>{
+    buys=[]; sells=[];
+    buys.push({id:nid(),ticker:"",fecha:"",cantidad:"",precio:""});
+    sells.push({id:nid(),ticker:"",fecha:"",cantidad:"",precio:""});
+    renderInputs(); renderAll();
+  });
+
+  document.getElementById("btn-save").addEventListener("click", ()=>{
+    const data = {
+      version:1,
+      tarifaGO: document.getElementById("tarifa-go").value,
+      tarifaRO: document.getElementById("tarifa-ro").value,
+      buys: buys.map(({id,...r})=>r),
+      sells: sells.map(({id,...r})=>r)
+    };
+    downloadBlob(JSON.stringify(data,null,2), "acciones-peps.json", "application/json");
+  });
+
+  document.getElementById("btn-load").addEventListener("click", ()=> document.getElementById("file-input").click());
+  document.getElementById("file-input").addEventListener("change", (e)=>{
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try{
+        const d = JSON.parse(reader.result);
+        buys  = (d.buys ||[]).map(r=>({id:nid(),ticker:r.ticker||"",fecha:r.fecha||"",cantidad:r.cantidad??"",precio:r.precio??""}));
+        sells = (d.sells||[]).map(r=>({id:nid(),ticker:r.ticker||"",fecha:r.fecha||"",cantidad:r.cantidad??"",precio:r.precio??""}));
+        if(d.tarifaGO!=null) document.getElementById("tarifa-go").value=d.tarifaGO;
+        if(d.tarifaRO!=null) document.getElementById("tarifa-ro").value=d.tarifaRO;
+        renderInputs(); renderAll();
+      }catch(err){ alert("No pude leer el archivo. Verifica que sea un JSON exportado por esta herramienta."); }
+    };
+    reader.readAsText(file);
+    e.target.value="";
+  });
+
+  document.getElementById("btn-csv").addEventListener("click", ()=>{
+    const R = computar();
+    const rows = [["Accion","Fecha compra","Precio compra","Fecha venta","Precio venta","Cantidad","Utilidad","Dias tenencia","Clasificacion"]];
+    R.tickers.forEach(tk=>{
+      tk.ventas.forEach(v=>{
+        v.segmentos.forEach(s=>{
+          rows.push([tk.nombre, s.fCompra, s.pCompra, v.fecha, v.precio, s.cant, Math.round(s.util), s.dias, s.clasif==="GO"?"Ganancia ocasional":"Renta ordinaria"]);
+        });
+        if(v.faltante>0) rows.push([tk.nombre,"SIN LOTE","","","", v.faltante,"","","Faltante de inventario"]);
+      });
+    });
+    rows.push([]);
+    rows.push(["TOTAL Ganancia ocasional (base)","","","","","",Math.round(R.goBase),"",""]);
+    rows.push(["TOTAL Renta ordinaria (base)","","","","","",Math.round(R.roBase),"",""]);
+    rows.push(["Impuesto GO estimado ("+(R.tGO*100)+"%, informativo)","","","","","",Math.round(R.impGO),"",""]);
+    rows.push(["Impuesto renta estimado ("+(R.tRO*100)+"%, informativo)","","","","","",Math.round(R.impRO),"",""]);
+    const ss = ssCompute(R);
+    rows.push([]);
+    rows.push(["SEGURIDAD SOCIAL (rentista de capital)","","","","","","","",""]);
+    rows.push(["¿Obligado a cotizar?","","","","","", ss.obligado?"SI":"NO","",""]);
+    rows.push(["Ingreso base","","","","","",Math.round(ss.base),"",""]);
+    rows.push(["Ingreso neto (presuncion "+(ss.presun*100).toFixed(2)+"%)","","","","","",Math.round(ss.neto),"",""]);
+    rows.push(["IBC ("+(ss.ibcPct*100)+"%, piso 1 SMLV)","","","","","",Math.round(ss.ibc),"",""]);
+    rows.push(["Salud (12,5%)","","","","","",Math.round(ss.salud),"",""]);
+    rows.push(["Pension (16%)","","","","","",Math.round(ss.pension),"",""]);
+    rows.push(["Fondo Solidaridad Pensional ("+(ss.fspPct*100)+"%)","","","","","",Math.round(ss.fsp),"",""]);
+    rows.push(["Total seguridad social","","","","","",Math.round(ss.total),"",""]);
+    const csv = "\uFEFF" + rows.map(r=>r.map(c=>{
+      const s = String(c==null?"":c);
+      return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+    }).join(",")).join("\n");
+    downloadBlob(csv, "utilidad-acciones-peps.csv", "text/csv;charset=utf-8");
+  });
+
+  document.getElementById("btn-print").addEventListener("click", ()=> window.print());
+
+  function downloadBlob(content, name, type){
+    const blob = new Blob([content],{type});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href=url; a.download=name; document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+  }
+
+  /* ---------------- Arranque ---------------- */
+  buys  = EXAMPLE.buys.map(r=>({id:nid(),...r}));
+  sells = EXAMPLE.sells.map(r=>({id:nid(),...r}));
+  renderInputs();
+  renderAll();
+})();
+</script>
+</body>
+</html>

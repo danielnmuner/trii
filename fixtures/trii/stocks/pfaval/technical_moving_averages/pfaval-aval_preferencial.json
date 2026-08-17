@@ -1,0 +1,52 @@
+{
+  "symbol": "PFAVAL",
+  "asset_name": "Aval Preferencial",
+  "currency": "COP",
+  "buy_signals": 1,
+  "hold_signals": 5,
+  "sell_signals": 0,
+  "indicators": [
+    {
+      "key": "sma_7",
+      "value": 832.43,
+      "raw_signal": "Mantener",
+      "signal": "hold",
+      "commentary": "Falta de tendencia de muy corto plazo."
+    },
+    {
+      "key": "sma_21",
+      "value": 819.05,
+      "raw_signal": "Mantener",
+      "signal": "hold",
+      "commentary": "Falta de tendencia de corto-medio plazo."
+    },
+    {
+      "key": "sma_200",
+      "value": 806.81,
+      "raw_signal": "Mantener",
+      "signal": "hold",
+      "commentary": "Falta de tendencia de largo plazo."
+    },
+    {
+      "key": "momentum_14",
+      "value": 6.0,
+      "raw_signal": "Compra",
+      "signal": "buy",
+      "commentary": "Velocidad ascendente de corto plazo significativa, pero no extrema."
+    },
+    {
+      "key": "bollinger_upper",
+      "value": 846.1,
+      "raw_signal": "Mantener",
+      "signal": "hold",
+      "commentary": "Volatilidad dentro de las bandas"
+    },
+    {
+      "key": "bollinger_lower",
+      "value": 807.9,
+      "raw_signal": "Mantener",
+      "signal": "hold",
+      "commentary": "Volatilidad dentro de las bandas"
+    }
+  ]
+}

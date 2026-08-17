@@ -1,0 +1,28 @@
+{
+  "fixtures": [
+    {
+      "symbol": "PFAVAL",
+      "asset_name": "Aval Preferencial",
+      "section": "stock_snapshot",
+      "path": "fixtures/trii/stocks/pfaval/stock_snapshot/pfaval-aval_preferencial.json"
+    },
+    {
+      "symbol": "PFAVAL",
+      "asset_name": "Aval Preferencial",
+      "section": "technical_oscillators",
+      "path": "fixtures/trii/stocks/pfaval/technical_oscillators/pfaval-aval_preferencial.json"
+    },
+    {
+      "symbol": "PFAVAL",
+      "asset_name": "Aval Preferencial",
+      "section": "technical_moving_averages",
+      "path": "fixtures/trii/stocks/pfaval/technical_moving_averages/pfaval-aval_preferencial.json"
+    },
+    {
+      "symbol": "PFAVAL",
+      "asset_name": "Aval Preferencial",
+      "section": "support_and_resistance",
+      "path": "fixtures/trii/stocks/pfaval/support_and_resistance/pfaval-aval_preferencial.json"
+    }
+  ]
+}

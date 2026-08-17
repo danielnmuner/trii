@@ -1,0 +1,66 @@
+{
+  "symbol": "PFAVAL",
+  "asset_name": "Aval Preferencial",
+  "currency": "COP",
+  "buy_signals": 0,
+  "hold_signals": 8,
+  "sell_signals": 0,
+  "indicators": [
+    {
+      "key": "rsi_7",
+      "value": 51.2,
+      "raw_signal": "Mantener",
+      "signal": "hold",
+      "commentary": "El RSI7 no advierte de sobrecompra o sobreventa."
+    },
+    {
+      "key": "rsi_21",
+      "value": 48.2,
+      "raw_signal": "Mantener",
+      "signal": "hold",
+      "commentary": "El RSI7 no advierte de sobrecompra o sobreventa."
+    },
+    {
+      "key": "rsi_50",
+      "value": 49.9,
+      "raw_signal": "Mantener",
+      "signal": "hold",
+      "commentary": "El RSI7 no advierte de sobrecompra o sobreventa."
+    },
+    {
+      "key": "rsi_200",
+      "value": 52.3,
+      "raw_signal": "Mantener",
+      "signal": "hold",
+      "commentary": "El RSI7 no advierte de sobrecompra o sobreventa."
+    },
+    {
+      "key": "slow_stochastic_d",
+      "value": 72.2,
+      "raw_signal": "Mantener",
+      "signal": "hold",
+      "commentary": "Indicador en zona intermedia, sin señal de agotamiento."
+    },
+    {
+      "key": "fast_stochastic_d",
+      "value": 66.3,
+      "raw_signal": "Mantener",
+      "signal": "hold",
+      "commentary": "Indicador en zona intermedia, sin señal de agotamiento."
+    },
+    {
+      "key": "macd",
+      "value": 4.5,
+      "raw_signal": "Mantener",
+      "signal": "hold",
+      "commentary": "Precio en tendencia bajista."
+    },
+    {
+      "key": "williams_r",
+      "value": 34.3,
+      "raw_signal": "Mantener",
+      "signal": "hold",
+      "commentary": "Neutral, no apoya giro de los precios."
+    }
+  ]
+}
