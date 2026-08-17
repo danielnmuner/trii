@@ -53,7 +53,7 @@ variable "environment_variables" {
 variable "policy_json" {
   description = "Optional inline IAM policy JSON."
   type        = string
-  default     = null
+  default     = "{\"Version\":\"2012-10-17\",\"Statement\":[]}"
 }
 
 variable "tags" {
