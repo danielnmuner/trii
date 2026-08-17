@@ -1,0 +1,47 @@
+table_name: trii-prod-current-snapshots
+
+purpose:
+- store the latest parsed and enriched market snapshots as a time series per symbol
+- support calculations and historical analysis mainly by time
+
+primary_key:
+- pk: symbol
+- sk: captured_at
+
+global_secondary_indexes:
+- gsi1
+  pk: captured_date
+  sk: symbol#captured_at
+  purpose: query all snapshots captured on the same date across symbols
+
+record_type:
+- symbol: string, uppercase stock symbol
+- asset_name: string
+- currency: string
+- captured_at: string, iso-8601 timestamp with timezone
+- captured_date: string, yyyy-mm-dd
+- timezone_name: string
+- snapshot_checksum: string
+- last_price: number
+- previous_close: number
+- best_bid_price: number
+- best_bid_quantity: number
+- best_ask_price: number
+- best_ask_quantity: number
+- mid_price: number
+- spread: number
+- high_price: number
+- low_price: number
+- traded_value: number
+- traded_volume: number
+- oscillators_buy_signals: number
+- oscillators_hold_signals: number
+- oscillators_sell_signals: number
+- moving_averages_buy_signals: number
+- moving_averages_hold_signals: number
+- moving_averages_sell_signals: number
+
+query_patterns:
+- latest snapshot by symbol
+- full time series by symbol
+- all snapshots for one capture date

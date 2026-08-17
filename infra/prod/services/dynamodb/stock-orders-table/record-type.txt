@@ -1,0 +1,49 @@
+table_name: trii-prod-stock-orders
+
+purpose:
+- store historical order records uploaded by the user
+- prevent duplicate inserts across repeated historical uploads
+
+primary_key:
+- pk: record_checksum
+
+global_secondary_indexes:
+- gsi1
+  pk: symbol
+  sk: ordered_at
+  purpose: query order history by symbol
+
+- gsi2
+  pk: ordered_month
+  sk: ordered_at#symbol
+  purpose: query monthly order history without scanning
+
+record_type:
+- record_checksum: string, globally unique normalized checksum for the record
+- source_file_checksum: string
+- source_line_number: number
+- ordered_at: string, iso-8601 timestamp with timezone
+- ordered_month: string, yyyy-mm
+- symbol: string, uppercase stock symbol
+- order_side: string, buy or sell
+- raw_status: string
+- normalized_status: string
+- requested_quantity: number
+- filled_quantity: number
+- pending_quantity: number
+- price_per_share: number
+- gross_amount: number
+- commission_amount: number
+- net_amount: number
+- currency: string
+- imported_at: string, iso-8601 timestamp with timezone
+
+duplicate_rule:
+- every record_checksum must be unique
+- if any checksum in the uploaded file is duplicated, reject the full upload
+- if any checksum already exists in dynamodb, reject the full upload
+
+query_patterns:
+- order history by symbol
+- order history by month
+- exact lookup by checksum

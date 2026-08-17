@@ -1,0 +1,58 @@
+table_name: trii-prod-parsed-invoices
+
+purpose:
+- store parsed invoice data extracted from xml invoices
+- keep the minimum useful fields required for reconciliation against stock orders
+
+primary_key:
+- pk: invoice_uuid
+
+global_secondary_indexes:
+- gsi1
+  pk: order_reference_id
+  sk: issued_at
+  purpose: direct reconciliation when the broker order reference exists in the invoice
+
+- gsi2
+  pk: issued_month
+  sk: issued_at#invoice_number
+  purpose: monthly accounting and operational queries
+
+record_type:
+- invoice_uuid: string, preferred from cbc:UUID or CUFE
+- invoice_number: string, preferred from cbc:ID
+- order_reference_id: string, preferred from cac:OrderReference/cbc:ID, nullable
+- issued_at: string, iso-8601 timestamp with timezone
+- issued_month: string, yyyy-mm
+- supplier_tax_id: string
+- supplier_name: string
+- customer_tax_id: string
+- customer_name: string
+- currency: string
+- invoice_type_code: string
+- payable_amount: number
+- tax_exclusive_amount: number
+- tax_inclusive_amount: number
+- tax_amount: number
+- line_description: string
+- line_item_code: string, nullable
+- extracted_symbol: string, nullable
+- extracted_order_side: string, buy or sell, nullable
+- dian_validation_status: string, nullable
+- source_xml_s3_key: string
+- source_pdf_s3_key: string, nullable
+- imported_at: string, iso-8601 timestamp with timezone
+
+invoice_fields_derived_from_xml:
+- cbc:UUID -> invoice_uuid
+- cbc:ID -> invoice_number
+- cac:OrderReference/cbc:ID -> order_reference_id
+- cbc:IssueDate + cbc:IssueTime -> issued_at
+- cac:LegalMonetaryTotal/cbc:PayableAmount -> payable_amount
+- cac:TaxTotal/cbc:TaxAmount -> tax_amount
+- cac:InvoiceLine/cac:Item/cbc:Description -> line_description
+
+query_patterns:
+- exact lookup by invoice uuid
+- reconciliation by order reference id
+- monthly invoice history
