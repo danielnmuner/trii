@@ -39,11 +39,11 @@ def _process_invoice_submission(*, send_requested: bool) -> None:
 
     try:
         archives = [(uploaded_file.name, uploaded_file.getvalue()) for uploaded_file in uploaded_files]
-        result = INVOICE_ARCHIVES_SERVICE.inspect_archives(archives=archives)
-        st.session_state["invoice_archives_upload_result"] = result
+        prepared_archives = INVOICE_ARCHIVES_SERVICE.prepare_archives(archives=archives)
+        st.session_state["invoice_archives_upload_result"] = prepared_archives.upload_result
         if send_requested:
             client = get_backend_client()
-            response = client.submit_invoice_archives(files=archives)
+            response = client.submit_invoice_archives(documents=list(prepared_archives.documents))
             persisted_result = response.get("result", {})
             st.session_state["invoice_archives_send_message"] = (
                 "Envío completado hacia S3. "
@@ -75,17 +75,17 @@ def _process_invoice_submission(*, send_requested: bool) -> None:
 
 st.write(
     "Carga los archivos fuente de facturas para conservar respaldo documental antes del procesamiento contable y de reconciliación. "
-    "En esta etapa el objetivo es validar el lote y dejar los ZIP listos para envío hacia S3."
+    "En esta etapa el objetivo es validar el lote, descomprimir cada ZIP en memoria y dejar el XML y el PDF listos para envío hacia S3."
 )
 st.caption(
-    "*Estas facturas son la evidencia documental de las operaciones. Mantener el ZIP original preserva trazabilidad, permite "
-    "descomprimir y parsear el XML más adelante, y separa con claridad el almacenamiento fuente en S3 del procesamiento financiero posterior.*"
+    "*Estas facturas son la evidencia documental de las operaciones. La app extrae el XML y el PDF antes del envío para que S3 conserve los archivos fuente finales "
+    "que luego alimentarán el parseo y la reconciliación financiera, sin depender del ZIP original como formato de almacenamiento.*"
 )
 
 with st.form("invoice_archives_upload_form", clear_on_submit=False, border=True):
     st.subheader("Facturas fuente")
     st.caption(
-        "*Se esperan archivos ZIP de factura como los de la carpeta `invoices`. Cada ZIP debe contener exactamente un XML y un PDF.*"
+        "*Se esperan archivos ZIP de factura como los de la carpeta `invoices`. Cada ZIP debe contener exactamente un XML y un PDF, y ambos archivos serán enviados por separado a S3.*"
     )
     st.file_uploader(
         "Archivos ZIP de facturas",
@@ -128,7 +128,7 @@ if upload_result is not None:
     with st.container(border=True):
         st.write(f"**Timestamp de carga:** `{upload_result.captured_at}`")
         st.write(f"**Zona horaria:** `{upload_result.timezone}`")
-        st.write("**Destino esperado:** `S3 / invoices/YYYY/MM/DD/...`")
+        st.write("**Destino esperado:** `S3 / invoices/YYYY/MM/DD/<invoice_id>/archivo.xml|archivo.pdf`")
 
     st.subheader("Vista previa del lote")
     st.dataframe(

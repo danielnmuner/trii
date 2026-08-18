@@ -5,9 +5,8 @@ import json
 import os
 from datetime import datetime, timedelta
 from decimal import Decimal
-from io import BytesIO, StringIO
+from io import StringIO
 from typing import Any
-from zipfile import BadZipFile, ZipFile
 
 import boto3
 from boto3.dynamodb.conditions import Key
@@ -430,59 +429,73 @@ def _persist_orders(body: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _inspect_invoice_archive(file_name: str, raw_bytes: bytes, captured_at: datetime) -> dict[str, Any]:
-    try:
-        with ZipFile(BytesIO(raw_bytes)) as zip_file:
-            members = [member for member in zip_file.namelist() if not member.endswith("/")]
-    except BadZipFile as exc:
-        raise ValueError(f"El archivo `{file_name}` no es un ZIP válido.") from exc
-
-    xml_files = [member for member in members if member.lower().endswith(".xml")]
-    pdf_files = [member for member in members if member.lower().endswith(".pdf")]
-    if len(xml_files) != 1:
-        raise ValueError(f"El archivo `{file_name}` debe contener exactamente un XML.")
-    if len(pdf_files) != 1:
-        raise ValueError(f"El archivo `{file_name}` debe contener exactamente un PDF.")
-
-    return {
-        "file_name": file_name,
-        "raw_bytes": raw_bytes,
-        "xml_file_name": xml_files[0],
-        "pdf_file_name": pdf_files[0],
-        "s3_key": f"invoices/{captured_at.strftime('%Y/%m/%d')}/{file_name}",
-    }
-
-
 def _persist_invoices(body: dict[str, Any]) -> dict[str, Any]:
-    files = body.get("files")
-    if not isinstance(files, list) or not files:
-        raise ValueError("El payload de facturas debe incluir una lista `files` con al menos un ZIP.")
+    documents = body.get("documents")
+    if not isinstance(documents, list) or not documents:
+        raise ValueError(
+            "El payload de facturas debe incluir una lista `documents` con XML y PDF por factura."
+        )
 
     captured_at = datetime.utcnow().replace(microsecond=0)
-    inspected_files = []
-    for file_payload in files:
-        file_name = str(file_payload.get("file_name") or "").strip()
-        if not file_name:
-            raise ValueError("Cada archivo de facturas debe incluir `file_name`.")
-        raw_bytes = _decode_base64_field(file_payload, "content_base64")
-        inspected_files.append(_inspect_invoice_archive(file_name, raw_bytes, captured_at))
+    persisted_documents = []
+    for document_payload in documents:
+        archive_name = str(document_payload.get("archive_name") or "").strip()
+        archive_stem = str(document_payload.get("archive_stem") or "").strip()
+        xml_file_name = str(document_payload.get("xml_file_name") or "").strip()
+        pdf_file_name = str(document_payload.get("pdf_file_name") or "").strip()
 
-    for inspected_file in inspected_files:
+        if not archive_name:
+            raise ValueError("Cada factura debe incluir `archive_name`.")
+        if not archive_stem:
+            raise ValueError("Cada factura debe incluir `archive_stem`.")
+        if not xml_file_name.lower().endswith(".xml"):
+            raise ValueError(f"La factura `{archive_name}` debe incluir un `xml_file_name` válido.")
+        if not pdf_file_name.lower().endswith(".pdf"):
+            raise ValueError(f"La factura `{archive_name}` debe incluir un `pdf_file_name` válido.")
+
+        xml_bytes = _decode_base64_field(document_payload, "xml_content_base64")
+        pdf_bytes = _decode_base64_field(document_payload, "pdf_content_base64")
+        if not xml_bytes:
+            raise ValueError(f"La factura `{archive_name}` tiene un XML vacío.")
+        if not pdf_bytes:
+            raise ValueError(f"La factura `{archive_name}` tiene un PDF vacío.")
+
+        base_prefix = f"invoices/{captured_at.strftime('%Y/%m/%d')}/{archive_stem}"
+        xml_s3_key = f"{base_prefix}/{xml_file_name}"
+        pdf_s3_key = f"{base_prefix}/{pdf_file_name}"
+
         S3_CLIENT.put_object(
             Bucket=os.environ["SOURCE_DOCUMENTS_BUCKET"],
-            Key=inspected_file["s3_key"],
-            Body=inspected_file["raw_bytes"],
-            ContentType="application/zip",
+            Key=xml_s3_key,
+            Body=xml_bytes,
+            ContentType="application/xml",
             Metadata={
-                "xml-file-name": inspected_file["xml_file_name"],
-                "pdf-file-name": inspected_file["pdf_file_name"],
+                "archive-name": archive_name,
+                "document-type": "xml",
             },
+        )
+        S3_CLIENT.put_object(
+            Bucket=os.environ["SOURCE_DOCUMENTS_BUCKET"],
+            Key=pdf_s3_key,
+            Body=pdf_bytes,
+            ContentType="application/pdf",
+            Metadata={
+                "archive-name": archive_name,
+                "document-type": "pdf",
+            },
+        )
+        persisted_documents.append(
+            {
+                "archive_name": archive_name,
+                "xml_s3_key": xml_s3_key,
+                "pdf_s3_key": pdf_s3_key,
+            }
         )
 
     return {
         "bucket": os.environ["SOURCE_DOCUMENTS_BUCKET"],
-        "uploaded_files": len(inspected_files),
-        "keys": [inspected_file["s3_key"] for inspected_file in inspected_files],
+        "uploaded_files": len(persisted_documents) * 2,
+        "documents": persisted_documents,
     }
 
 

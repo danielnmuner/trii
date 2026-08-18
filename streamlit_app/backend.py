@@ -42,5 +42,8 @@ def get_backend_client() -> ApiGatewayClient:
 
 def _read_secret(container, key: str):
     if hasattr(container, "get"):
-        return container.get(key)
+        value = container.get(key)
+        if isinstance(value, str):
+            value = value.strip()
+        return value or None
     return None

@@ -7,6 +7,8 @@ from typing import Any
 from urllib import error, request
 from urllib.parse import urlencode
 
+from trii_ingestion.services.invoice_archives import PreparedInvoiceDocument
+
 
 class ApiGatewayClientError(RuntimeError):
     pass
@@ -40,16 +42,20 @@ class ApiGatewayClient:
             },
         )
 
-    def submit_invoice_archives(self, *, files: list[tuple[str, bytes]]) -> dict[str, Any]:
+    def submit_invoice_archives(self, *, documents: list[PreparedInvoiceDocument]) -> dict[str, Any]:
         return self._post_json(
             "/invoices",
             {
-                "files": [
+                "documents": [
                     {
-                        "file_name": file_name,
-                        "content_base64": base64.b64encode(raw_bytes).decode("utf-8"),
+                        "archive_name": document.archive_name,
+                        "archive_stem": document.archive_stem,
+                        "xml_file_name": document.xml_file_name,
+                        "xml_content_base64": base64.b64encode(document.xml_bytes).decode("utf-8"),
+                        "pdf_file_name": document.pdf_file_name,
+                        "pdf_content_base64": base64.b64encode(document.pdf_bytes).decode("utf-8"),
                     }
-                    for file_name, raw_bytes in files
+                    for document in documents
                 ]
             },
         )
