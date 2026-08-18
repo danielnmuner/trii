@@ -3,9 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
 APP_DIR = Path(__file__).resolve().parent
-SRC_DIR = ROOT_DIR / "src"
+SRC_DIR = APP_DIR / "src"
 if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 if str(SRC_DIR) not in sys.path:
@@ -18,6 +17,35 @@ from state import init_state
 st.set_page_config(page_title="Parser de contratos de Trii", page_icon="T", layout="wide")
 init_state()
 
+st.markdown(
+    """
+    <style>
+    div.stButton > button[kind="secondary"],
+    div.stFormSubmitButton > button[kind="secondary"] {
+        background-color: #02fb7e;
+        color: #000000;
+        border: 1px solid #02fb7e;
+    }
+
+    div.stButton > button[kind="secondary"]:hover,
+    div.stFormSubmitButton > button[kind="secondary"]:hover {
+        background-color: #02fb7e;
+        color: #000000;
+        border: 1px solid #02fb7e;
+        filter: brightness(0.97);
+    }
+
+    div.stButton > button[kind="secondary"]:focus,
+    div.stFormSubmitButton > button[kind="secondary"]:focus {
+        color: #000000;
+        border: 1px solid #02fb7e;
+        box-shadow: 0 0 0 0.2rem rgba(2, 251, 126, 0.25);
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 pages = {
     "": [
         st.Page(
@@ -28,8 +56,23 @@ pages = {
         ),
         st.Page(
             "app_pages/guide.py",
-            title="Guía de copiado",
+            title="Referencia visual",
             icon=":material/help_center:",
+        ),
+        st.Page(
+            "app_pages/glossary.py",
+            title="Glosario",
+            icon=":material/menu_book:",
+        ),
+        st.Page(
+            "app_pages/financial_information.py",
+            title="Movimientos",
+            icon=":material/account_balance_wallet:",
+        ),
+        st.Page(
+            "app_pages/invoices.py",
+            title="Facturas",
+            icon=":material/receipt_long:",
         ),
     ]
 }

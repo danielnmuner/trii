@@ -13,7 +13,7 @@ uv run streamlit run streamlit_app/app.py
 
 ```powershell
 $env:UV_CACHE_DIR='.uv-cache'
-uv run pytest -q
+uv run pytest -q streamlit_app/tests
 ```
 
 ## Responsabilidades
@@ -24,3 +24,4 @@ uv run pytest -q
 - Parsear el texto hacia JSON normalizado para procesamiento posterior.
 - Reconciliar los 4 contratos en un solo JSON final con timestamp de Bogota.
 - Simular un envio a DynamoDB a partir del payload consolidado.
+- Mantener el cÃ³digo, fixtures y QA de Streamlit dentro de `streamlit_app/`.

@@ -33,7 +33,7 @@ variable "cors_allow_origins" {
 variable "cors_allow_headers" {
   description = "Allowed CORS headers."
   type        = list(string)
-  default     = ["content-type", "authorization"]
+  default     = ["content-type", "authorization", "x-api-token"]
 }
 
 variable "cors_allow_methods" {

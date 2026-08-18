@@ -61,3 +61,4 @@ jobs:
         run: terraform -chdir=infra/prod destroy -input=false -auto-approve
         env:
           TF_IN_AUTOMATION: "true"
+          TF_VAR_api_gateway_shared_token: ${{ secrets.TF_VAR_API_GATEWAY_SHARED_TOKEN }}

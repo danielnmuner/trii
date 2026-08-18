@@ -5,8 +5,8 @@ import sys
 import unittest
 from pathlib import Path
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-SRC_DIR = ROOT_DIR / "src"
+APP_DIR = Path(__file__).resolve().parents[1]
+SRC_DIR = APP_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
@@ -15,7 +15,7 @@ from trii_ingestion.services.clipboard_parser import ClipboardParserService
 from trii_ingestion.services.reconciliation import ReconciliationService
 from trii_ingestion.parsers.common import parse_signal
 
-from tests.sample_inputs import (
+from .sample_inputs import (
     STOCK_SNAPSHOT_TEXT,
     SUPPORT_AND_RESISTANCE_TEXT,
     TECHNICAL_MOVING_AVERAGES_TEXT,
@@ -163,7 +163,7 @@ class ClipboardParserServiceTests(unittest.TestCase):
 
     @staticmethod
     def _load_fixture(relative_path: str) -> dict:
-        path = ROOT_DIR / relative_path
+        path = APP_DIR / relative_path
         return json.loads(path.read_text(encoding="utf-8"))
 
 

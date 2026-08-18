@@ -76,6 +76,7 @@ module "function" {
     PARSED_INVOICES_TABLE   = var.parsed_invoices_table_name
     SOURCE_DOCUMENTS_BUCKET = var.source_documents_bucket_name
     AI_HANDLER_FUNCTION     = var.ai_handler_function_name
+    API_SHARED_TOKEN        = var.api_gateway_shared_token
   }
 
   tags = var.tags

@@ -72,6 +72,7 @@ module "api_handler" {
   source_documents_bucket_name = module.source_documents_bucket.bucket_name
   ai_handler_function_name     = module.ai_handler.function_name
   ai_handler_function_arn      = module.ai_handler.function_arn
+  api_gateway_shared_token     = var.api_gateway_shared_token
 }
 
 module "http_api" {

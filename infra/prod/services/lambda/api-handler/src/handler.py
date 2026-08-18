@@ -1,12 +1,54 @@
 import base64
+import csv
+import hashlib
 import json
 import os
+from datetime import datetime
+from decimal import Decimal
+from io import BytesIO, StringIO
 from typing import Any
+from zipfile import BadZipFile, ZipFile
 
 import boto3
+from botocore.exceptions import ClientError
 
 
 LAMBDA_CLIENT = boto3.client("lambda")
+DYNAMODB_CLIENT = boto3.client("dynamodb")
+DYNAMODB_RESOURCE = boto3.resource("dynamodb")
+S3_CLIENT = boto3.client("s3")
+
+CURRENT_SNAPSHOTS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["CURRENT_SNAPSHOTS_TABLE"])
+STOCK_ORDERS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["STOCK_ORDERS_TABLE"])
+API_SHARED_TOKEN = os.environ["API_SHARED_TOKEN"]
+
+EXPECTED_STOCK_ORDER_COLUMNS = (
+    "Fecha y hora",
+    "Símbolo de la acción",
+    "Tipo de orden",
+    "Estado",
+    "Acciones completadas",
+    "Acciones pendientes",
+    "Precio por acción",
+    "Total invertido",
+    "Valor comisión",
+    "Total estimado",
+)
+
+SPANISH_MONTHS = {
+    "ene": 1,
+    "feb": 2,
+    "mar": 3,
+    "abr": 4,
+    "may": 5,
+    "jun": 6,
+    "jul": 7,
+    "ago": 8,
+    "sep": 9,
+    "oct": 10,
+    "nov": 11,
+    "dic": 12,
+}
 
 
 def _response(status_code: int, payload: dict[str, Any]) -> dict[str, Any]:
@@ -15,6 +57,25 @@ def _response(status_code: int, payload: dict[str, Any]) -> dict[str, Any]:
         "headers": {"content-type": "application/json"},
         "body": json.dumps(payload),
     }
+
+
+def _normalize_headers(headers: dict[str, Any] | None) -> dict[str, str]:
+    if not headers:
+        return {}
+    return {str(key).lower(): str(value) for key, value in headers.items() if value is not None}
+
+
+def _is_authorized(event: dict[str, Any]) -> bool:
+    headers = _normalize_headers(event.get("headers"))
+    provided_token = headers.get("x-api-token")
+    if provided_token:
+        return provided_token == API_SHARED_TOKEN
+
+    authorization_header = headers.get("authorization", "")
+    if authorization_header.lower().startswith("bearer "):
+        return authorization_header[7:] == API_SHARED_TOKEN
+
+    return False
 
 
 def _parse_body(event: dict[str, Any]) -> dict[str, Any]:
@@ -26,9 +87,25 @@ def _parse_body(event: dict[str, Any]) -> dict[str, Any]:
         raw_body = base64.b64decode(raw_body).decode("utf-8")
 
     if isinstance(raw_body, str):
-        return json.loads(raw_body)
+        try:
+            return json.loads(raw_body)
+        except json.JSONDecodeError as exc:
+            raise ValueError("El cuerpo del request no contiene un JSON válido.") from exc
 
-    return raw_body
+    if isinstance(raw_body, dict):
+        return raw_body
+
+    raise ValueError("El cuerpo del request tiene un formato no soportado.")
+
+
+def _decode_base64_field(payload: dict[str, Any], field_name: str) -> bytes:
+    value = payload.get(field_name)
+    if not value:
+        raise ValueError(f"El campo `{field_name}` es obligatorio.")
+    try:
+        return base64.b64decode(value)
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(f"El campo `{field_name}` no contiene base64 válido.") from exc
 
 
 def _invoke_ai_handler(payload: dict[str, Any]) -> dict[str, Any]:
@@ -39,6 +116,340 @@ def _invoke_ai_handler(payload: dict[str, Any]) -> dict[str, Any]:
     )
     body = response["Payload"].read().decode("utf-8")
     return json.loads(body or "{}")
+
+
+def _json_checksum(payload: dict[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _decimalize(value: Any) -> Any:
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return Decimal(str(value))
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, list):
+        return [_decimalize(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _decimalize(item) for key, item in value.items()}
+    return value
+
+
+def _persist_snapshot(body: dict[str, Any]) -> dict[str, Any]:
+    snapshot = body.get("snapshot")
+    if not isinstance(snapshot, dict):
+        raise ValueError("El payload de snapshots debe incluir un objeto `snapshot`.")
+
+    stock_snapshot = snapshot.get("stock_snapshot", {})
+    technical_oscillators = snapshot.get("technical_oscillators", {})
+    technical_moving_averages = snapshot.get("technical_moving_averages", {})
+
+    symbol = str(snapshot["symbol"]).upper()
+    captured_at = str(snapshot["captured_at"])
+    item = {
+        "symbol": symbol,
+        "captured_at": captured_at,
+        "asset_name": snapshot["asset_name"],
+        "currency": snapshot["currency"],
+        "captured_date": captured_at[:10],
+        "timezone_name": snapshot["timezone"],
+        "snapshot_checksum": _json_checksum(snapshot),
+        "symbol_captured_at": f"{symbol}#{captured_at}",
+        "last_price": stock_snapshot["last_price"],
+        "previous_close": stock_snapshot["previous_close"],
+        "best_bid_price": stock_snapshot["best_bid_price"],
+        "best_bid_quantity": stock_snapshot["best_bid_quantity"],
+        "best_ask_price": stock_snapshot["best_ask_price"],
+        "best_ask_quantity": stock_snapshot["best_ask_quantity"],
+        "mid_price": stock_snapshot["mid_price"],
+        "spread": stock_snapshot["spread"],
+        "high_price": stock_snapshot["high_price"],
+        "low_price": stock_snapshot["low_price"],
+        "traded_value": stock_snapshot["traded_value"],
+        "traded_volume": stock_snapshot["traded_volume"],
+        "oscillators_buy_signals": technical_oscillators["buy_signals"],
+        "oscillators_hold_signals": technical_oscillators["hold_signals"],
+        "oscillators_sell_signals": technical_oscillators["sell_signals"],
+        "moving_averages_buy_signals": technical_moving_averages["buy_signals"],
+        "moving_averages_hold_signals": technical_moving_averages["hold_signals"],
+        "moving_averages_sell_signals": technical_moving_averages["sell_signals"],
+    }
+
+    CURRENT_SNAPSHOTS_TABLE.put_item(
+        Item=_decimalize(item),
+        ConditionExpression="attribute_not_exists(symbol) AND attribute_not_exists(captured_at)",
+    )
+
+    return {
+        "table": os.environ["CURRENT_SNAPSHOTS_TABLE"],
+        "symbol": symbol,
+        "captured_at": captured_at,
+    }
+
+
+def _parse_spanish_datetime(raw_value: str) -> str:
+    normalized = " ".join(raw_value.replace(",", " ").split()).lower()
+    parts = normalized.split()
+    if len(parts) < 6:
+        raise ValueError(f"Fecha y hora inválida: {raw_value}")
+
+    day = int(parts[0])
+    month = SPANISH_MONTHS.get(parts[1][:3])
+    year = int(parts[2])
+    hour, minute = [int(value) for value in parts[3].split(":")]
+    meridiem = f"{parts[4]} {parts[5]}"
+
+    if month is None:
+        raise ValueError(f"Mes no soportado en fecha: {raw_value}")
+    if meridiem == "p. m." and hour != 12:
+        hour += 12
+    if meridiem == "a. m." and hour == 12:
+        hour = 0
+
+    return datetime(year, month, day, hour, minute).isoformat() + "-05:00"
+
+
+def _parse_decimal(raw_value: str) -> Decimal:
+    value = raw_value.strip().replace("$", "").replace(" ", "")
+    if not value:
+        return Decimal("0")
+    if "," in value and "." in value:
+        value = value.replace(",", "")
+    elif "," in value:
+        value = value.replace(",", ".")
+    return Decimal(value)
+
+
+def _parse_quantity(raw_value: str) -> int:
+    value = raw_value.strip()
+    if not value:
+        return 0
+    return int(value.split("/")[0])
+
+
+def _parse_requested_quantity(completed_value: str, pending_value: str) -> int:
+    pending_quantity = _parse_quantity(pending_value)
+    completed_clean = completed_value.strip()
+    requested_hint = None
+
+    if "/" in completed_clean:
+        requested_hint = int(completed_clean.split("/", maxsplit=1)[1])
+
+    filled_quantity = _parse_quantity(completed_clean)
+    requested_quantity = filled_quantity + pending_quantity
+    if requested_hint is not None:
+        requested_quantity = max(requested_quantity, requested_hint)
+    return requested_quantity
+
+
+def _normalize_status(raw_status: str) -> str:
+    mapping = {
+        "aprobado": "approved",
+        "cancelado": "cancelled",
+        "pendiente": "pending",
+        "rechazado": "rejected",
+    }
+    return mapping.get(raw_status.strip().lower(), "unknown")
+
+
+def _normalize_order_side(raw_value: str) -> str:
+    normalized = raw_value.strip().lower()
+    if normalized == "compra":
+        return "buy"
+    if normalized == "venta":
+        return "sell"
+    raise ValueError(f"Tipo de orden no soportado: {raw_value}")
+
+
+def _order_record_checksum(record: dict[str, Any]) -> str:
+    canonical_payload = {
+        "ordered_at": record["ordered_at"],
+        "symbol": record["symbol"],
+        "order_side": record["order_side"],
+        "raw_status": record["raw_status"],
+        "requested_quantity": record["requested_quantity"],
+        "filled_quantity": record["filled_quantity"],
+        "pending_quantity": record["pending_quantity"],
+        "price_per_share": str(record["price_per_share"]),
+        "gross_amount": str(record["gross_amount"]),
+        "commission_amount": str(record["commission_amount"]),
+        "net_amount": str(record["net_amount"]),
+        "currency": record["currency"],
+    }
+    return _json_checksum(canonical_payload)
+
+
+def _load_csv_rows(raw_bytes: bytes) -> list[dict[str, str]]:
+    text = raw_bytes.decode("utf-8-sig").strip()
+    if not text:
+        raise ValueError("El archivo CSV de movimientos está vacío.")
+
+    reader = csv.DictReader(StringIO(text))
+    columns = tuple(reader.fieldnames or ())
+    if columns != EXPECTED_STOCK_ORDER_COLUMNS:
+        missing = [column for column in EXPECTED_STOCK_ORDER_COLUMNS if column not in columns]
+        unexpected = [column for column in columns if column not in EXPECTED_STOCK_ORDER_COLUMNS]
+        details: list[str] = []
+        if missing:
+            details.append("faltan: " + ", ".join(missing))
+        if unexpected:
+            details.append("sobran: " + ", ".join(unexpected))
+        raise ValueError(
+            "El CSV de movimientos no coincide con la estructura esperada de Trii; "
+            + "; ".join(details)
+            + "."
+        )
+
+    rows = [{key: (value or "").strip() for key, value in row.items()} for row in reader]
+    rows = [row for row in rows if any(value for value in row.values())]
+    if not rows:
+        raise ValueError("El archivo CSV de movimientos no contiene filas válidas.")
+    return rows
+
+
+def _normalize_order_records(raw_bytes: bytes) -> list[dict[str, Any]]:
+    rows = _load_csv_rows(raw_bytes)
+    imported_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    source_file_checksum = hashlib.sha256(raw_bytes).hexdigest()
+
+    records: list[dict[str, Any]] = []
+    seen_checksums: set[str] = set()
+    for line_number, row in enumerate(rows, start=2):
+        ordered_at = _parse_spanish_datetime(row["Fecha y hora"])
+        symbol = row["Símbolo de la acción"].strip().upper()
+        record = {
+            "source_file_checksum": source_file_checksum,
+            "source_line_number": line_number,
+            "ordered_at": ordered_at,
+            "ordered_month": ordered_at[:7],
+            "ordered_at_symbol": f"{ordered_at}#{symbol}",
+            "symbol": symbol,
+            "order_side": _normalize_order_side(row["Tipo de orden"]),
+            "raw_status": row["Estado"],
+            "normalized_status": _normalize_status(row["Estado"]),
+            "requested_quantity": _parse_requested_quantity(
+                row["Acciones completadas"],
+                row["Acciones pendientes"],
+            ),
+            "filled_quantity": _parse_quantity(row["Acciones completadas"]),
+            "pending_quantity": _parse_quantity(row["Acciones pendientes"]),
+            "price_per_share": _parse_decimal(row["Precio por acción"]),
+            "gross_amount": _parse_decimal(row["Total invertido"]),
+            "commission_amount": _parse_decimal(row["Valor comisión"]),
+            "net_amount": _parse_decimal(row["Total estimado"]),
+            "currency": "COP",
+            "imported_at": imported_at,
+        }
+        record["record_checksum"] = _order_record_checksum(record)
+        if record["record_checksum"] in seen_checksums:
+            raise ValueError(
+                "El CSV de movimientos contiene checksums duplicados dentro del mismo archivo; se rechaza el lote completo."
+            )
+        seen_checksums.add(record["record_checksum"])
+        records.append(record)
+
+    return records
+
+
+def _find_existing_order_duplicates(record_checksums: list[str]) -> list[str]:
+    duplicates: list[str] = []
+    for chunk_start in range(0, len(record_checksums), 100):
+        chunk = record_checksums[chunk_start : chunk_start + 100]
+        response = DYNAMODB_CLIENT.batch_get_item(
+            RequestItems={
+                os.environ["STOCK_ORDERS_TABLE"]: {
+                    "Keys": [{"record_checksum": {"S": checksum}} for checksum in chunk],
+                    "ProjectionExpression": "record_checksum",
+                }
+            }
+        )
+        items = response.get("Responses", {}).get(os.environ["STOCK_ORDERS_TABLE"], [])
+        duplicates.extend(item["record_checksum"]["S"] for item in items)
+    return duplicates
+
+
+def _persist_orders(body: dict[str, Any]) -> dict[str, Any]:
+    file_name = str(body.get("file_name") or "").strip()
+    if not file_name:
+        raise ValueError("El payload de movimientos debe incluir `file_name`.")
+
+    raw_bytes = _decode_base64_field(body, "file_content_base64")
+    records = _normalize_order_records(raw_bytes)
+    duplicates = _find_existing_order_duplicates([record["record_checksum"] for record in records])
+    if duplicates:
+        raise ValueError("El lote fue rechazado porque uno o más movimientos ya existen en DynamoDB.")
+
+    with STOCK_ORDERS_TABLE.batch_writer() as batch:
+        for record in records:
+            batch.put_item(Item=_decimalize(record))
+
+    return {
+        "table": os.environ["STOCK_ORDERS_TABLE"],
+        "file_name": file_name,
+        "imported_records": len(records),
+        "symbols": sorted({record["symbol"] for record in records}),
+    }
+
+
+def _inspect_invoice_archive(file_name: str, raw_bytes: bytes, captured_at: datetime) -> dict[str, Any]:
+    try:
+        with ZipFile(BytesIO(raw_bytes)) as zip_file:
+            members = [member for member in zip_file.namelist() if not member.endswith("/")]
+    except BadZipFile as exc:
+        raise ValueError(f"El archivo `{file_name}` no es un ZIP válido.") from exc
+
+    xml_files = [member for member in members if member.lower().endswith(".xml")]
+    pdf_files = [member for member in members if member.lower().endswith(".pdf")]
+    if len(xml_files) != 1:
+        raise ValueError(f"El archivo `{file_name}` debe contener exactamente un XML.")
+    if len(pdf_files) != 1:
+        raise ValueError(f"El archivo `{file_name}` debe contener exactamente un PDF.")
+
+    return {
+        "file_name": file_name,
+        "raw_bytes": raw_bytes,
+        "xml_file_name": xml_files[0],
+        "pdf_file_name": pdf_files[0],
+        "s3_key": f"invoices/{captured_at.strftime('%Y/%m/%d')}/{file_name}",
+    }
+
+
+def _persist_invoices(body: dict[str, Any]) -> dict[str, Any]:
+    files = body.get("files")
+    if not isinstance(files, list) or not files:
+        raise ValueError("El payload de facturas debe incluir una lista `files` con al menos un ZIP.")
+
+    captured_at = datetime.utcnow().replace(microsecond=0)
+    inspected_files = []
+    for file_payload in files:
+        file_name = str(file_payload.get("file_name") or "").strip()
+        if not file_name:
+            raise ValueError("Cada archivo de facturas debe incluir `file_name`.")
+        raw_bytes = _decode_base64_field(file_payload, "content_base64")
+        inspected_files.append(_inspect_invoice_archive(file_name, raw_bytes, captured_at))
+
+    for inspected_file in inspected_files:
+        S3_CLIENT.put_object(
+            Bucket=os.environ["SOURCE_DOCUMENTS_BUCKET"],
+            Key=inspected_file["s3_key"],
+            Body=inspected_file["raw_bytes"],
+            ContentType="application/zip",
+            Metadata={
+                "xml-file-name": inspected_file["xml_file_name"],
+                "pdf-file-name": inspected_file["pdf_file_name"],
+            },
+        )
+
+    return {
+        "bucket": os.environ["SOURCE_DOCUMENTS_BUCKET"],
+        "uploaded_files": len(inspected_files),
+        "keys": [inspected_file["s3_key"] for inspected_file in inspected_files],
+    }
 
 
 def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
@@ -53,48 +464,93 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
             },
         )
 
-    body = _parse_body(event)
-
-    if route_key == "POST /ai/query":
-        ai_result = _invoke_ai_handler(
-            {
-                "prompt": body.get("prompt"),
-                "context": body.get("context", {}),
-                "invoke_model": body.get("invoke_model", False),
-            }
-        )
+    if not _is_authorized(event):
         return _response(
-            200,
+            401,
             {
-                "status": "ok",
-                "route": route_key,
-                "ai_result": ai_result,
+                "status": "error",
+                "message": "Unauthorized",
             },
         )
 
-    accepted_routes = {
-        "POST /snapshots": "snapshot",
-        "POST /orders": "orders",
-        "POST /invoices": "invoice",
-        "POST /documents": "document",
-    }
+    try:
+        body = _parse_body(event)
 
-    if route_key in accepted_routes:
+        if route_key == "POST /ai/query":
+            ai_result = _invoke_ai_handler(
+                {
+                    "prompt": body.get("prompt"),
+                    "context": body.get("context", {}),
+                    "invoke_model": body.get("invoke_model", False),
+                }
+            )
+            return _response(
+                200,
+                {
+                    "status": "ok",
+                    "route": route_key,
+                    "ai_result": ai_result,
+                },
+            )
+
+        if route_key == "POST /snapshots":
+            return _response(
+                201,
+                {
+                    "status": "ok",
+                    "route": route_key,
+                    "result": _persist_snapshot(body),
+                },
+            )
+
+        if route_key == "POST /orders":
+            return _response(
+                201,
+                {
+                    "status": "ok",
+                    "route": route_key,
+                    "result": _persist_orders(body),
+                },
+            )
+
+        if route_key in {"POST /invoices", "POST /documents"}:
+            return _response(
+                201,
+                {
+                    "status": "ok",
+                    "route": route_key,
+                    "result": _persist_invoices(body),
+                },
+            )
+
         return _response(
-            202,
+            404,
             {
-                "status": "accepted",
-                "route": route_key,
-                "resource_type": accepted_routes[route_key],
-                "message": "Placeholder handler deployed. Persistence logic will be implemented on top of this contract.",
-                "received_keys": sorted(body.keys()),
+                "status": "error",
+                "message": f"Unsupported route: {route_key}",
             },
         )
-
-    return _response(
-        404,
-        {
-            "status": "error",
-            "message": f"Unsupported route: {route_key}",
-        },
-    )
+    except ValueError as exc:
+        return _response(
+            400,
+            {
+                "status": "error",
+                "message": str(exc),
+            },
+        )
+    except ClientError as exc:
+        return _response(
+            500,
+            {
+                "status": "error",
+                "message": exc.response.get("Error", {}).get("Message", "AWS client error"),
+            },
+        )
+    except Exception:
+        return _response(
+            500,
+            {
+                "status": "error",
+                "message": "Internal server error",
+            },
+        )

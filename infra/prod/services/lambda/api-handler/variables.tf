@@ -58,6 +58,12 @@ variable "ai_handler_function_arn" {
   type        = string
 }
 
+variable "api_gateway_shared_token" {
+  description = "Shared token required by API Gateway clients."
+  type        = string
+  sensitive   = true
+}
+
 variable "tags" {
   description = "Resource tags."
   type        = map(string)

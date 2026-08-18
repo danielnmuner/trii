@@ -77,9 +77,11 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
         env:
           TF_IN_AUTOMATION: "true"
+          TF_VAR_api_gateway_shared_token: ${{ secrets.TF_VAR_API_GATEWAY_SHARED_TOKEN }}
 
       - name: Terraform apply prod
         if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.terraform_action == 'apply')
         run: terraform -chdir=infra/prod apply -input=false -auto-approve tfplan
         env:
           TF_IN_AUTOMATION: "true"
+          TF_VAR_api_gateway_shared_token: ${{ secrets.TF_VAR_API_GATEWAY_SHARED_TOKEN }}
