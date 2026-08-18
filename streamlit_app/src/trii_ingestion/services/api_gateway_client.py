@@ -5,6 +5,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 from urllib import error, request
+from urllib.parse import urlencode
 
 
 class ApiGatewayClientError(RuntimeError):
@@ -19,6 +20,16 @@ class ApiGatewayClient:
 
     def submit_snapshot(self, snapshot: dict[str, Any]) -> dict[str, Any]:
         return self._post_json("/snapshots", {"snapshot": snapshot})
+
+    def get_recent_snapshots(self, *, days: int = 7) -> dict[str, Any]:
+        response = self._perform_request(
+            request.Request(
+                url=f"{self.base_url.rstrip('/')}/snapshots?{urlencode({'days': days})}",
+                headers={"X-Api-Token": self.token},
+                method="GET",
+            )
+        )
+        return self._decode_response(response)
 
     def submit_stock_orders(self, *, file_name: str, raw_bytes: bytes) -> dict[str, Any]:
         return self._post_json(

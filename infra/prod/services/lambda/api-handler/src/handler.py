@@ -3,14 +3,16 @@ import csv
 import hashlib
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from io import BytesIO, StringIO
 from typing import Any
 from zipfile import BadZipFile, ZipFile
 
 import boto3
+from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
+from zoneinfo import ZoneInfo
 
 
 LAMBDA_CLIENT = boto3.client("lambda")
@@ -21,6 +23,7 @@ S3_CLIENT = boto3.client("s3")
 CURRENT_SNAPSHOTS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["CURRENT_SNAPSHOTS_TABLE"])
 STOCK_ORDERS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["STOCK_ORDERS_TABLE"])
 API_SHARED_TOKEN = os.environ["API_SHARED_TOKEN"]
+BOGOTA_TIMEZONE = ZoneInfo("America/Bogota")
 
 EXPECTED_STOCK_ORDER_COLUMNS = (
     "Fecha y hora",
@@ -59,10 +62,27 @@ def _response(status_code: int, payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _json_ready(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        if value % 1 == 0:
+            return int(value)
+        return float(value)
+    if isinstance(value, list):
+        return [_json_ready(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _json_ready(item) for key, item in value.items()}
+    return value
+
+
 def _normalize_headers(headers: dict[str, Any] | None) -> dict[str, str]:
     if not headers:
         return {}
     return {str(key).lower(): str(value) for key, value in headers.items() if value is not None}
+
+
+def _query_params(event: dict[str, Any]) -> dict[str, str]:
+    raw_params = event.get("queryStringParameters") or {}
+    return {str(key): str(value) for key, value in raw_params.items() if value is not None}
 
 
 def _is_authorized(event: dict[str, Any]) -> bool:
@@ -145,40 +165,14 @@ def _persist_snapshot(body: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(snapshot, dict):
         raise ValueError("El payload de snapshots debe incluir un objeto `snapshot`.")
 
-    stock_snapshot = snapshot.get("stock_snapshot", {})
-    technical_oscillators = snapshot.get("technical_oscillators", {})
-    technical_moving_averages = snapshot.get("technical_moving_averages", {})
-
     symbol = str(snapshot["symbol"]).upper()
     captured_at = str(snapshot["captured_at"])
-    item = {
-        "symbol": symbol,
-        "captured_at": captured_at,
-        "asset_name": snapshot["asset_name"],
-        "currency": snapshot["currency"],
-        "captured_date": captured_at[:10],
-        "timezone_name": snapshot["timezone"],
-        "snapshot_checksum": _json_checksum(snapshot),
-        "symbol_captured_at": f"{symbol}#{captured_at}",
-        "last_price": stock_snapshot["last_price"],
-        "previous_close": stock_snapshot["previous_close"],
-        "best_bid_price": stock_snapshot["best_bid_price"],
-        "best_bid_quantity": stock_snapshot["best_bid_quantity"],
-        "best_ask_price": stock_snapshot["best_ask_price"],
-        "best_ask_quantity": stock_snapshot["best_ask_quantity"],
-        "mid_price": stock_snapshot["mid_price"],
-        "spread": stock_snapshot["spread"],
-        "high_price": stock_snapshot["high_price"],
-        "low_price": stock_snapshot["low_price"],
-        "traded_value": stock_snapshot["traded_value"],
-        "traded_volume": stock_snapshot["traded_volume"],
-        "oscillators_buy_signals": technical_oscillators["buy_signals"],
-        "oscillators_hold_signals": technical_oscillators["hold_signals"],
-        "oscillators_sell_signals": technical_oscillators["sell_signals"],
-        "moving_averages_buy_signals": technical_moving_averages["buy_signals"],
-        "moving_averages_hold_signals": technical_moving_averages["hold_signals"],
-        "moving_averages_sell_signals": technical_moving_averages["sell_signals"],
-    }
+    item = dict(snapshot)
+    item["symbol"] = symbol
+    item["captured_at"] = captured_at
+    item["captured_date"] = captured_at[:10]
+    item["snapshot_checksum"] = _json_checksum(snapshot)
+    item["symbol_captured_at"] = f"{symbol}#{captured_at}"
 
     CURRENT_SNAPSHOTS_TABLE.put_item(
         Item=_decimalize(item),
@@ -189,6 +183,46 @@ def _persist_snapshot(body: dict[str, Any]) -> dict[str, Any]:
         "table": os.environ["CURRENT_SNAPSHOTS_TABLE"],
         "symbol": symbol,
         "captured_at": captured_at,
+    }
+
+
+def _parse_positive_int(raw_value: str | None, *, default: int) -> int:
+    if raw_value is None or raw_value == "":
+        return default
+    parsed = int(raw_value)
+    if parsed <= 0:
+        raise ValueError("El parámetro `days` debe ser un entero positivo.")
+    return parsed
+
+
+def _list_recent_snapshots(event: dict[str, Any]) -> dict[str, Any]:
+    params = _query_params(event)
+    days = _parse_positive_int(params.get("days"), default=7)
+    now_bogota = datetime.now(BOGOTA_TIMEZONE)
+
+    items: list[dict[str, Any]] = []
+    for offset in range(days):
+        target_date = (now_bogota - timedelta(days=offset)).date().isoformat()
+        query_kwargs = {
+            "IndexName": "captured-date-index",
+            "KeyConditionExpression": Key("captured_date").eq(target_date),
+        }
+        while True:
+            response = CURRENT_SNAPSHOTS_TABLE.query(**query_kwargs)
+            items.extend(response.get("Items", []))
+            last_evaluated_key = response.get("LastEvaluatedKey")
+            if not last_evaluated_key:
+                break
+            query_kwargs["ExclusiveStartKey"] = last_evaluated_key
+
+    items.sort(key=lambda item: item["captured_at"], reverse=True)
+
+    return {
+        "timezone": "America/Bogota",
+        "from_date": (now_bogota - timedelta(days=days - 1)).date().isoformat(),
+        "to_timestamp": now_bogota.isoformat(),
+        "records": _json_ready(items),
+        "record_count": len(items),
     }
 
 
@@ -474,6 +508,16 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
         )
 
     try:
+        if route_key == "GET /snapshots":
+            return _response(
+                200,
+                {
+                    "status": "ok",
+                    "route": route_key,
+                    "result": _list_recent_snapshots(event),
+                },
+            )
+
         body = _parse_body(event)
 
         if route_key == "POST /ai/query":

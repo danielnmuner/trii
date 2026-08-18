@@ -49,6 +49,11 @@ st.markdown(
 pages = {
     "": [
         st.Page(
+            "app_pages/analytics.py",
+            title="Analytics",
+            icon=":material/analytics:",
+        ),
+        st.Page(
             "app_pages/capture.py",
             title="Captura",
             icon=":material/data_object:",
@@ -73,6 +78,11 @@ pages = {
             "app_pages/invoices.py",
             title="Facturas",
             icon=":material/receipt_long:",
+        ),
+        st.Page(
+            "app_pages/faqs.py",
+            title="FAQS",
+            icon=":material/live_help:",
         ),
     ]
 }

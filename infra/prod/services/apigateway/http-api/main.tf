@@ -6,6 +6,7 @@ module "http_api" {
   lambda_invoke_arn    = var.api_handler_invoke_arn
   route_keys = toset([
     "GET /health",
+    "GET /snapshots",
     "POST /snapshots",
     "POST /orders",
     "POST /invoices",
