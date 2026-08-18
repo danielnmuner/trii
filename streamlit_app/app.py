@@ -60,16 +60,6 @@ pages = {
             default=True,
         ),
         st.Page(
-            "app_pages/guide.py",
-            title="Referencia visual",
-            icon=":material/help_center:",
-        ),
-        st.Page(
-            "app_pages/glossary.py",
-            title="Glosario",
-            icon=":material/menu_book:",
-        ),
-        st.Page(
             "app_pages/financial_information.py",
             title="Movimientos",
             icon=":material/account_balance_wallet:",
@@ -83,6 +73,16 @@ pages = {
             "app_pages/faqs.py",
             title="FAQS",
             icon=":material/live_help:",
+        ),
+        st.Page(
+            "app_pages/glossary.py",
+            title="Glosario",
+            icon=":material/menu_book:",
+        ),
+        st.Page(
+            "app_pages/guide.py",
+            title="Referencia visual",
+            icon=":material/help_center:",
         ),
     ]
 }

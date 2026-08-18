@@ -1,5 +1,17 @@
 data "aws_iam_policy_document" "inline" {
   statement {
+    sid    = "ReadCurrentSnapshots"
+    effect = "Allow"
+    actions = [
+      "dynamodb:Query",
+    ]
+    resources = [
+      var.current_snapshots_table_arn,
+      "${var.current_snapshots_table_arn}/index/*",
+    ]
+  }
+
+  statement {
     sid    = "WriteCurrentSnapshots"
     effect = "Allow"
     actions = [
