@@ -1,7 +1,7 @@
 table_name: trii-prod-current-snapshots
 
 purpose:
-- store the latest parsed and enriched market snapshots as a time series per symbol
+- store the latest parsed market snapshots from the primary indicators contract as a time series per symbol
 - support calculations and historical analysis mainly by time
 
 primary_key:
@@ -23,10 +23,23 @@ record_type:
 - timezone: string
 - snapshot_checksum: string
 - symbol_captured_at: string, materialized gsi sort key formatted as SYMBOL#captured_at
-- stock_snapshot: map, full nested payload from the consolidated snapshot
-- technical_oscillators: map, full nested payload from the consolidated snapshot
-- technical_moving_averages: map, full nested payload from the consolidated snapshot
-- support_and_resistance: map, full nested payload from the consolidated snapshot
+- last_price: number
+- daily_change_amount: number
+- daily_change_percent: number
+- daily_change_direction: string
+- previous_close: number
+- best_bid_price: number
+- best_bid_quantity: number
+- best_ask_price: number
+- best_ask_quantity: number
+- spread: number
+- mid_price: number
+- high_price: number
+- low_price: number
+- traded_value: number
+- traded_volume: number
+- bid_levels: list<map>, up to five visible bid depth levels with level, quantity, price
+- ask_levels: list<map>, up to five visible ask depth levels with level, quantity, price
 
 query_patterns:
 - latest snapshot by symbol

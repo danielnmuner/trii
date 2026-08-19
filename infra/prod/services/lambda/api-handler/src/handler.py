@@ -159,10 +159,79 @@ def _decimalize(value: Any) -> Any:
     return value
 
 
+def _validate_snapshot_levels(levels: Any, *, field_name: str) -> None:
+    if not isinstance(levels, list):
+        raise ValueError(f"El campo `{field_name}` debe ser una lista.")
+    if not levels:
+        raise ValueError(f"El campo `{field_name}` no puede estar vacio.")
+
+    for index, level in enumerate(levels, start=1):
+        if not isinstance(level, dict):
+            raise ValueError(f"Cada item de `{field_name}` debe ser un objeto.")
+        required_level_keys = {"level", "quantity", "price"}
+        missing_level_keys = required_level_keys - level.keys()
+        if missing_level_keys:
+            raise ValueError(
+                f"El item {index} de `{field_name}` no incluye: {', '.join(sorted(missing_level_keys))}."
+            )
+
+
+def _validate_snapshot_schema(snapshot: dict[str, Any]) -> None:
+    disallowed_legacy_keys = {
+        "stock_snapshot",
+        "technical_oscillators",
+        "technical_moving_averages",
+        "support_and_resistance",
+    }
+    legacy_keys_present = sorted(disallowed_legacy_keys & snapshot.keys())
+    if legacy_keys_present:
+        raise ValueError(
+            "El payload de snapshots ya no soporta contratos tecnicos legacy: "
+            + ", ".join(legacy_keys_present)
+            + "."
+        )
+
+    required_keys = {
+        "symbol",
+        "asset_name",
+        "currency",
+        "captured_at",
+        "timezone",
+        "last_price",
+        "daily_change_amount",
+        "daily_change_percent",
+        "daily_change_direction",
+        "previous_close",
+        "best_bid_price",
+        "best_bid_quantity",
+        "best_ask_price",
+        "best_ask_quantity",
+        "spread",
+        "mid_price",
+        "high_price",
+        "low_price",
+        "traded_value",
+        "traded_volume",
+        "bid_levels",
+        "ask_levels",
+    }
+    missing_keys = sorted(required_keys - snapshot.keys())
+    if missing_keys:
+        raise ValueError(
+            "El payload de snapshots no incluye todos los campos requeridos: "
+            + ", ".join(missing_keys)
+            + "."
+        )
+
+    _validate_snapshot_levels(snapshot.get("bid_levels"), field_name="bid_levels")
+    _validate_snapshot_levels(snapshot.get("ask_levels"), field_name="ask_levels")
+
+
 def _persist_snapshot(body: dict[str, Any]) -> dict[str, Any]:
     snapshot = body.get("snapshot")
     if not isinstance(snapshot, dict):
         raise ValueError("El payload de snapshots debe incluir un objeto `snapshot`.")
+    _validate_snapshot_schema(snapshot)
 
     symbol = str(snapshot["symbol"]).upper()
     captured_at = str(snapshot["captured_at"])

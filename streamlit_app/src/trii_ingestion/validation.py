@@ -45,7 +45,7 @@ class StockSnapshotValidator(ContractValidator):
                 issues=[
                     ValidationIssue(
                         code="empty_text",
-                        message="No se detectó texto para el contrato de resumen de la acción.",
+                        message="No se detecto texto para el contrato de indicadores principales.",
                         hint="Copia desde el ticker y el precio actual hasta el final del bloque de indicadores.",
                     )
                 ],
@@ -90,7 +90,7 @@ class StockSnapshotValidator(ContractValidator):
                 issues.append(
                     ValidationIssue(
                         code="invalid_best_bid_row",
-                        message="La fila de `Mejor compra` está incompleta o tiene un formato no reconocido.",
+                        message="La fila de `Mejor compra` esta incompleta o tiene un formato no reconocido.",
                         hint="La línea esperada debe parecerse a `33636 • $ 822,00`.",
                     )
                 )
@@ -101,7 +101,7 @@ class StockSnapshotValidator(ContractValidator):
                 issues.append(
                     ValidationIssue(
                         code="invalid_best_ask_row",
-                        message="La fila de `Mejor venta` está incompleta o tiene un formato no reconocido.",
+                        message="La fila de `Mejor venta` esta incompleta o tiene un formato no reconocido.",
                         hint="La línea esperada debe parecerse a `43067 • $ 846,00`.",
                     )
                 )
@@ -109,7 +109,7 @@ class StockSnapshotValidator(ContractValidator):
         self._require_side_table(lines, "Mejor compra", "Mejor venta", "Compra", "bid", issues)
         self._require_side_table(lines, "Mejor venta", "Indicadores", "Venta", "ask", issues)
 
-        required_indicators = [
+        for indicator in (
             "Cierre anterior",
             "Mejor compra",
             "Mejor venta",
@@ -117,8 +117,7 @@ class StockSnapshotValidator(ContractValidator):
             "Precio mínimo",
             "Valor volumen",
             "Volumen",
-        ]
-        for indicator in required_indicators:
+        ):
             if indicator not in lines:
                 issues.append(
                     ValidationIssue(
@@ -185,189 +184,9 @@ class StockSnapshotValidator(ContractValidator):
             )
 
 
-class TechnicalOscillatorsValidator(ContractValidator):
-    section = SectionType.TECHNICAL_OSCILLATORS
-
-    def validate(self, text: str) -> ValidationReport:
-        issues: list[ValidationIssue] = []
-        lines = clean_lines(text)
-        if not lines:
-            return ValidationReport(
-                section=self.section,
-                issues=[
-                    ValidationIssue(
-                        code="empty_text",
-                        message="No se detectó texto para el contrato de osciladores.",
-                        hint="Copia todo el bloque desde `Osciladores` hasta la última fila del cuadro.",
-                    )
-                ],
-            )
-
-        expected_lines = [
-            ("Osciladores", "missing_heading", "Falta el encabezado `Osciladores`."),
-            ("Actualizado el", "missing_updated_at", "Falta la línea de actualización."),
-            ("Compra", "missing_buy_summary", "Falta el total de señales de compra."),
-            ("Mantener", "missing_hold_summary", "Falta el total de señales de mantener."),
-            ("Venta", "missing_sell_summary", "Falta el total de señales de venta."),
-            ("Detalles técnicos", "missing_details_heading", "Falta el encabezado `Detalles técnicos`."),
-        ]
-        for expected, code, message in expected_lines:
-            if not any(line.startswith(expected) for line in lines):
-                issues.append(
-                    ValidationIssue(
-                        code=code,
-                        message=message,
-                        hint="Copia el bloque completo de osciladores, incluyendo el resumen superior y la tabla.",
-                    )
-                )
-
-        expected_indicators = [
-            "RSI 7",
-            "RSI 21",
-            "RSI 50",
-            "RSI 200",
-            "Estocástico Lento D",
-            "Estocástico Rápido D",
-            "MACD",
-            "Williams %R",
-        ]
-        for indicator in expected_indicators:
-            if not any(line.startswith(indicator) for line in lines):
-                issues.append(
-                    ValidationIssue(
-                        code=f"missing_{indicator}",
-                        message=f"Falta la fila del indicador `{indicator}`.",
-                        hint="Evita copiar solo una parte de la tabla; incluye todas las filas del cuadro técnico.",
-                    )
-                )
-
-        return ValidationReport(section=self.section, issues=issues)
-
-
-class TechnicalMovingAveragesValidator(ContractValidator):
-    section = SectionType.TECHNICAL_MOVING_AVERAGES
-
-    def validate(self, text: str) -> ValidationReport:
-        issues: list[ValidationIssue] = []
-        lines = clean_lines(text)
-        if not lines:
-            return ValidationReport(
-                section=self.section,
-                issues=[
-                    ValidationIssue(
-                        code="empty_text",
-                        message="No se detectó texto para el contrato de medias móviles.",
-                        hint="Copia todo el bloque desde `Media Móvil` hasta `Bollinger Down`.",
-                    )
-                ],
-            )
-
-        expected_lines = [
-            ("Media Móvil", "missing_heading", "Falta el encabezado `Media Móvil`."),
-            ("Actualizado el", "missing_updated_at", "Falta la línea de actualización."),
-            ("Compra", "missing_buy_summary", "Falta el total de señales de compra."),
-            ("Mantener", "missing_hold_summary", "Falta el total de señales de mantener."),
-            ("Venta", "missing_sell_summary", "Falta el total de señales de venta."),
-            ("Detalles técnicos", "missing_details_heading", "Falta el encabezado `Detalles técnicos`."),
-        ]
-        for expected, code, message in expected_lines:
-            if not any(line.startswith(expected) for line in lines):
-                issues.append(
-                    ValidationIssue(
-                        code=code,
-                        message=message,
-                        hint="Copia el bloque completo de medias móviles, incluyendo resumen y tabla.",
-                    )
-                )
-
-        expected_indicators = [
-            "MMS 7",
-            "MMS 21",
-            "MMS 200",
-            "Momento 14",
-            "Bollinger Up",
-            "Bollinger Down",
-        ]
-        for indicator in expected_indicators:
-            if not any(line.startswith(indicator) for line in lines):
-                issues.append(
-                    ValidationIssue(
-                        code=f"missing_{indicator}",
-                        message=f"Falta la fila del indicador `{indicator}`.",
-                        hint="La selección debe incluir todas las filas visibles de la tabla técnica.",
-                    )
-                )
-
-        return ValidationReport(section=self.section, issues=issues)
-
-
-class SupportAndResistanceValidator(ContractValidator):
-    section = SectionType.SUPPORT_AND_RESISTANCE
-
-    def validate(self, text: str) -> ValidationReport:
-        issues: list[ValidationIssue] = []
-        lines = clean_lines(text)
-        if not lines:
-            return ValidationReport(
-                section=self.section,
-                issues=[
-                    ValidationIssue(
-                        code="empty_text",
-                        message="No se detectó texto para el contrato de soportes y resistencias.",
-                        hint="Copia desde `Soporte y resistencia diario` hasta el final del comentario de largo plazo.",
-                    )
-                ],
-            )
-
-        if "Soporte y resistencia diario" not in lines:
-            issues.append(
-                ValidationIssue(
-                    code="missing_daily_heading",
-                    message="Falta el encabezado `Soporte y resistencia diario`.",
-                    hint="Este contrato siempre debe incluir primero el bloque diario.",
-                )
-            )
-        if "Soporte y resistencia a largo plazo" not in lines:
-            issues.append(
-                ValidationIssue(
-                    code="missing_long_term_heading",
-                    message="Falta el encabezado `Soporte y resistencia a largo plazo`.",
-                    hint="No cortes el texto antes del segundo bloque de análisis.",
-                )
-            )
-
-        close_price_lines = [line for line in lines if line.startswith("Precio de cierre")]
-        if len(close_price_lines) < 2:
-            issues.append(
-                ValidationIssue(
-                    code="missing_close_prices",
-                    message="Se esperaban dos líneas de `Precio de cierre` y no se encontraron completas.",
-                    hint="Debe haber una para el bloque diario y otra para el bloque de largo plazo.",
-                )
-            )
-
-        row_pattern = re.compile(r"^(Resistencia|Soporte)\s+\d\s+\$\s*[\d\.,]+\s+[+-]?[\d\.,]+%$")
-        valid_rows = [line for line in lines if row_pattern.match(line)]
-        if len(valid_rows) < 8:
-            issues.append(
-                ValidationIssue(
-                    code="insufficient_level_rows",
-                    message=f"Se detectaron solo {len(valid_rows)} filas válidas de soportes y resistencias.",
-                    hint="La captura esperada incluye cuatro niveles del bloque diario y cuatro del bloque de largo plazo.",
-                )
-            )
-
-        return ValidationReport(section=self.section, issues=issues)
-
-
 class ValidationService:
     def __init__(self, validators: list[ContractValidator] | None = None) -> None:
-        self._validators = validators or [
-            StockSnapshotValidator(),
-            TechnicalOscillatorsValidator(),
-            TechnicalMovingAveragesValidator(),
-            SupportAndResistanceValidator(),
-        ]
+        self._validators = validators or [StockSnapshotValidator()]
 
     def validate(self, text: str, section: SectionType) -> ValidationReport:
         validator = self._validator_by_section(section)

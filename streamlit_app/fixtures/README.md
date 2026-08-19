@@ -17,7 +17,7 @@ fixtures/
   trii/
     stocks/
       <symbol_lower>/
-        <section_name>/
+        stock_snapshot/
           <symbol_lower>-<asset_name_snake_case>.json
 ```
 
@@ -38,6 +38,3 @@ fixtures/
 ## Current sections
 
 - `stock_snapshot`
-- `technical_oscillators`
-- `technical_moving_averages`
-- `support_and_resistance`

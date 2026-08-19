@@ -18,10 +18,10 @@ uv run pytest -q streamlit_app/tests
 
 ## Responsabilidades
 
-- Guiar al usuario con 4 contratos explicitos.
-- Permitir pegado manual con Ctrl + V dentro de cada contrato.
-- Validar cada contrato con reglas especializadas y errores claros.
+- Guiar al usuario con un contrato explicito de indicadores principales.
+- Permitir pegado manual con Ctrl + V dentro del contrato.
+- Validar el contrato con reglas especializadas y errores claros.
 - Parsear el texto hacia JSON normalizado para procesamiento posterior.
-- Reconciliar los 4 contratos en un solo JSON final con timestamp de Bogota.
-- Simular un envio a DynamoDB a partir del payload consolidado.
-- Mantener el cÃ³digo, fixtures y QA de Streamlit dentro de `streamlit_app/`.
+- Construir el JSON final del snapshot con timestamp de Bogota.
+- Enviar el snapshot validado hacia DynamoDB.
+- Mantener el codigo, fixtures y QA de Streamlit dentro de `streamlit_app/`.

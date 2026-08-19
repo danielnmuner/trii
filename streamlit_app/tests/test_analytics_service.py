@@ -21,32 +21,32 @@ def _sample_records() -> list[dict]:
         {
             "symbol": "PFAVAL",
             "captured_at": "2026-08-17T20:30:00-05:00",
-            "stock_snapshot": {
-                "bid_levels": [
-                    {"level": 1, "quantity": 33636, "price": 822},
-                    {"level": 2, "quantity": 142000, "price": 820},
-                    {"level": 3, "quantity": 10140, "price": 803},
-                    {"level": 4, "quantity": 20000, "price": 794},
-                    {"level": 5, "quantity": 96896, "price": 791},
-                ],
-                "ask_levels": [
-                    {"level": 1, "quantity": 40000, "price": 855},
-                    {"level": 2, "quantity": 72631, "price": 860},
-                    {"level": 3, "quantity": 2630, "price": 863},
-                    {"level": 4, "quantity": 33100, "price": 864},
-                    {"level": 5, "quantity": 36439, "price": 865},
-                ],
-            },
+            "bid_levels": [
+                {"level": 1, "quantity": 33636, "price": 822},
+                {"level": 2, "quantity": 142000, "price": 820},
+                {"level": 3, "quantity": 10140, "price": 803},
+                {"level": 4, "quantity": 20000, "price": 794},
+                {"level": 5, "quantity": 96896, "price": 791},
+            ],
+            "ask_levels": [
+                {"level": 1, "quantity": 40000, "price": 855},
+                {"level": 2, "quantity": 72631, "price": 860},
+                {"level": 3, "quantity": 2630, "price": 863},
+                {"level": 4, "quantity": 33100, "price": 864},
+                {"level": 5, "quantity": 36439, "price": 865},
+            ],
         },
         {
             "symbol": "BOGOTA",
             "captured_at": "2026-08-17T16:30:00-05:00",
-            "stock_snapshot": {"bid_levels": [], "ask_levels": []},
+            "bid_levels": [],
+            "ask_levels": [],
         },
         {
             "symbol": "PFAVAL",
             "captured_at": "2026-08-17T14:00:00-05:00",
-            "stock_snapshot": {"bid_levels": [], "ask_levels": []},
+            "bid_levels": [],
+            "ask_levels": [],
         },
     ]
 

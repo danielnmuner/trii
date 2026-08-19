@@ -6,12 +6,7 @@ from trii_ingestion.models.types import SectionType
 
 
 def test_contract_specs_keep_required_order() -> None:
-    assert [spec.section for spec in CONTRACT_SPECS] == [
-        SectionType.STOCK_SNAPSHOT,
-        SectionType.TECHNICAL_OSCILLATORS,
-        SectionType.TECHNICAL_MOVING_AVERAGES,
-        SectionType.SUPPORT_AND_RESISTANCE,
-    ]
+    assert [spec.section for spec in CONTRACT_SPECS] == [SectionType.STOCK_SNAPSHOT]
 
 
 def test_contract_specs_have_practical_copy_notes() -> None:
@@ -23,7 +18,7 @@ def test_contract_specs_have_practical_copy_notes() -> None:
 
 def test_glossary_sections_are_not_empty() -> None:
     assert GLOSSARY_SECTIONS
-    assert len(GLOSSARY_SECTIONS) == 4
+    assert len(GLOSSARY_SECTIONS) == 2
     for section in GLOSSARY_SECTIONS:
         assert section.title
         assert section.summary

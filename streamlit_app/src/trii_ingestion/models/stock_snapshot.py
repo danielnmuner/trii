@@ -32,3 +32,10 @@ class StockSnapshot(BaseModel):
     traded_volume: int = Field(ge=0)
     bid_levels: list[OrderBookLevel]
     ask_levels: list[OrderBookLevel]
+
+
+class CapturedStockSnapshot(StockSnapshot):
+    model_config = ConfigDict(extra="forbid")
+
+    captured_at: str
+    timezone: str

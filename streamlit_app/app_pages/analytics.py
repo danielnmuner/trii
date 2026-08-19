@@ -151,10 +151,8 @@ try:
                     "captured_date": None,
                     "snapshot_checksum": None,
                     "symbol_captured_at": None,
-                    "stock_snapshot": st.column_config.JsonColumn("Stock snapshot"),
-                    "technical_oscillators": st.column_config.JsonColumn("Osciladores"),
-                    "technical_moving_averages": st.column_config.JsonColumn("Medias moviles"),
-                    "support_and_resistance": st.column_config.JsonColumn("Soportes y resistencias"),
+                    "bid_levels": st.column_config.JsonColumn("Bid levels"),
+                    "ask_levels": st.column_config.JsonColumn("Ask levels"),
                 },
             )
 

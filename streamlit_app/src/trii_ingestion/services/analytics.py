@@ -134,12 +134,8 @@ def build_depth_history_rows(records: list[dict[str, Any]]) -> list[dict[str, An
 
     for record in records:
         captured_at = record.get("captured_at")
-        stock_snapshot = record.get("stock_snapshot")
-        if not isinstance(stock_snapshot, dict):
-            continue
-
         for side, levels_key in (("Bid", "bid_levels"), ("Ask", "ask_levels")):
-            levels = stock_snapshot.get(levels_key, [])
+            levels = record.get(levels_key, [])
             if not isinstance(levels, list):
                 continue
 

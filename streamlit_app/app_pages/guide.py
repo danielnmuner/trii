@@ -15,7 +15,7 @@ import streamlit as st
 from contract_specs import CONTRACT_SPECS
 
 st.write(
-    "Esta referencia visual ubica cada bloque dentro de Trii y resume por qué cada contrato aporta contexto operativo distinto al snapshot consolidado."
+    "Esta referencia visual ubica el bloque que hoy alimenta el snapshot persistido y resume por que sus campos son suficientes para construir el registro principal de mercado."
 )
 
 for row_start in range(0, len(CONTRACT_SPECS), 2):

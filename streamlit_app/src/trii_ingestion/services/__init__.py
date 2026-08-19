@@ -12,7 +12,7 @@ from trii_ingestion.services.analytics import (
 from trii_ingestion.services.clipboard_parser import ClipboardParserService
 from trii_ingestion.services.invoice_archives import InvoiceArchivesService
 from trii_ingestion.services.json_exporter import JsonExporterService
-from trii_ingestion.services.reconciliation import ReconciliationService
+from trii_ingestion.services.snapshot_payload import SnapshotPayloadService
 from trii_ingestion.services.stock_orders_csv import StockOrdersCsvService
 
 __all__ = [
@@ -29,6 +29,6 @@ __all__ = [
     "InvoiceArchivesService",
     "JsonExporterService",
     "now_in_bogota",
-    "ReconciliationService",
+    "SnapshotPayloadService",
     "StockOrdersCsvService",
 ]
