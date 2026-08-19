@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import base64
 import sys
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parents[1]
 SRC_DIR = APP_DIR / "src"
+ICON_PATH = APP_DIR / "icon.png"
 if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 if str(SRC_DIR) not in sys.path:
@@ -77,7 +79,15 @@ def _format_metric_delta(metric_key: str, current: float | None, previous: float
     return f"{delta:+,.2f}"
 
 
-def _build_kpi_definitions() -> list[dict[str, str]]:
+def _build_primary_kpi_definitions() -> list[dict[str, str]]:
+    return [
+        {"key": "last_price", "label": "Ultimo precio"},
+        {"key": "traded_volume", "label": "Volumen negociado"},
+        {"key": "traded_value", "label": "Valor negociado"},
+    ]
+
+
+def _build_microstructure_kpi_definitions() -> list[dict[str, str]]:
     return [
         {"key": "spread", "label": "Spread"},
         {"key": "spread_bps", "label": "Spread bps"},
@@ -85,22 +95,16 @@ def _build_kpi_definitions() -> list[dict[str, str]]:
         {"key": "microprice", "label": "Microprice"},
         {"key": "obi_l1", "label": "OBI L1"},
         {"key": "obi_top_5", "label": "OBI top 5"},
-        {"key": "bid_depth_total_5", "label": "Bid depth 5"},
-        {"key": "ask_depth_total_5", "label": "Ask depth 5"},
-        {"key": "book_pressure_ratio", "label": "Pressure ratio"},
-        {
-            "key": "depth_weighted_microprice_deviation",
-            "label": "Microprice dev",
-        },
     ]
 
 
-def _render_kpi_card(*, label: str, value: str, delta: str | None) -> None:
+def _render_kpi_card(*, label: str, value: str, delta: str | None, tone: str = "green") -> None:
     delta_text = delta if delta is not None else "No prior point"
     delta_class = "analytics-kpi-delta analytics-kpi-delta-empty" if delta is None else "analytics-kpi-delta"
+    tone_class = f"analytics-kpi-card analytics-kpi-card-{tone}"
     st.markdown(
         f"""
-        <div class="analytics-kpi-card">
+        <div class="{tone_class}">
             <div class="analytics-kpi-header">
                 <span class="analytics-kpi-accent"></span>
                 <div class="analytics-kpi-label">{label}</div>
@@ -119,11 +123,42 @@ def _render_kpi_card(*, label: str, value: str, delta: str | None) -> None:
 def _render_kpis(records: list[dict]) -> None:
     latest_record = records[0]
     previous_record = records[1] if len(records) > 1 else None
-    kpi_definitions = _build_kpi_definitions()
+    primary_kpis = _build_primary_kpi_definitions()
+    microstructure_kpis = _build_microstructure_kpi_definitions()
 
-    for row_start in range(0, len(kpi_definitions), 5):
-        columns = st.columns(5, gap="medium")
-        for column, metric in zip(columns, kpi_definitions[row_start : row_start + 5], strict=False):
+    hero_columns = st.columns([0.62, 1, 1, 1, 1.55], gap="medium")
+    with hero_columns[0]:
+        _render_brand_badge()
+    for index, metric in enumerate(primary_kpis, start=1):
+        current_value = _safe_float(latest_record, metric["key"])
+        if metric["key"] == "last_price":
+            previous_value = _safe_float(latest_record, "previous_close")
+        else:
+            previous_value = _safe_float(previous_record, metric["key"]) if previous_record else None
+        with hero_columns[index]:
+            _render_kpi_card(
+                label=metric["label"],
+                value=_format_metric_value(metric["key"], current_value),
+                delta=_format_metric_delta(metric["key"], current_value, previous_value),
+                tone="blue",
+            )
+
+    st.markdown("<div class='analytics-kpi-row-spacer'></div>", unsafe_allow_html=True)
+
+    ordered_microstructure = [
+        "obi_l1",
+        "obi_top_5",
+        "spread",
+        "spread_bps",
+        "mid_price",
+        "microprice",
+    ]
+    definitions_by_key = {metric["key"]: metric for metric in microstructure_kpis}
+    display_metrics = [definitions_by_key[key] for key in ordered_microstructure]
+
+    for row_start in range(0, len(display_metrics), 3):
+        columns = st.columns(3, gap="medium")
+        for column, metric in zip(columns, display_metrics[row_start : row_start + 3], strict=False):
             current_value = _safe_float(latest_record, metric["key"])
             previous_value = _safe_float(previous_record, metric["key"]) if previous_record else None
             with column:
@@ -132,17 +167,8 @@ def _render_kpis(records: list[dict]) -> None:
                     value=_format_metric_value(metric["key"], current_value),
                     delta=_format_metric_delta(metric["key"], current_value, previous_value),
                 )
-        if row_start + 5 < len(kpi_definitions):
+        if row_start + 3 < len(display_metrics):
             st.markdown("<div class='analytics-kpi-row-spacer'></div>", unsafe_allow_html=True)
-
-
-@st.fragment(run_every="1s")
-def _render_live_status() -> None:
-    current_time = now_in_bogota()
-    st.markdown(
-        f":green[:material/schedule: **Hora actual**] **{current_time.strftime('%d-%m-%Y %H:%M:%S')}**",
-        text_alignment="right",
-    )
 
 
 def _render_summary_line(summary: dict[str, str]) -> None:
@@ -165,15 +191,9 @@ def _build_depth_chart(depth_history: pd.DataFrame, side: str, metric: str) -> a
         legend=legend,
     )
     metric_config = {
-        "price": {
-            "title": f"{side} Price Levels",
-            "subtitle": f"Shows visible {side.lower()} prices across the top 5 levels.",
-            "y_field": "price:Q",
-            "y_title": "Price",
-        },
         "quantity": {
-            "title": f"{side} Size Levels",
-            "subtitle": f"Tracks visible {side.lower()} size across the top 5 levels.",
+            "title": f"{side} Volume",
+            "subtitle": f"Visible size across the top 5 {side.lower()} levels.",
             "y_field": "quantity:Q",
             "y_title": "Volume",
         },
@@ -195,13 +215,93 @@ def _build_depth_chart(depth_history: pd.DataFrame, side: str, metric: str) -> a
             tooltip=tooltip,
         )
         .properties(
-            height=340,
+            height=410,
             title=alt.TitleParams(
                 text=metric_config["title"],
                 subtitle=metric_config["subtitle"],
                 anchor="start",
             ),
         )
+    )
+
+
+def _build_activity_table(records: list[dict]) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+
+    for record in records:
+        rows.append(
+            {
+                "Hora": str(record.get("captured_at", "")),
+                "Simbolo": str(record.get("symbol", "")),
+                "Cambio COP": _safe_float(record, "daily_change_amount"),
+                "Cambio %": _safe_float(record, "daily_change_percent"),
+                "_daily_change_direction": str(record.get("daily_change_direction", "")).strip().lower(),
+                "OBI L1": _safe_float(record, "obi_l1"),
+                "OBI Top 5": _safe_float(record, "obi_top_5"),
+                "Spread": _safe_float(record, "spread"),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def _render_activity_table(records: list[dict]) -> None:
+    frame = _build_activity_table(records)
+    if frame.empty:
+        st.info("No hay registros disponibles para construir la tabla operativa.")
+        return
+
+    display_frame = frame.copy()
+    display_frame["Hora"] = pd.to_datetime(display_frame["Hora"], errors="coerce").dt.strftime("%d-%m-%Y %H:%M")
+    display_frame["Hora"] = display_frame["Hora"].fillna("n/a")
+    direction_values = display_frame["_daily_change_direction"].tolist()
+    display_frame = display_frame.drop(columns=["_daily_change_direction"])
+
+    def _color_percent(row: pd.Series) -> list[str]:
+        styles = [""] * len(row)
+        direction = str(direction_values[row.name]).lower() if row.name < len(direction_values) else ""
+        color = "#082114"
+        if direction == "up":
+            color = "#0f9d58"
+        elif direction == "down":
+            color = "#d93025"
+
+        if "Cambio %" in row.index:
+            percent_index = row.index.get_loc("Cambio %")
+            styles[percent_index] = f"color: {color}; font-weight: 600;"
+        return styles
+
+    styled = (
+        display_frame.style.apply(_color_percent, axis=1)
+        .format(
+            {
+                "Cambio COP": "{:,.2f}",
+                "Cambio %": "{:,.2f}%",
+                "OBI L1": "{:,.2f}",
+                "OBI Top 5": "{:,.2f}",
+                "Spread": "{:,.0f}",
+            },
+            na_rep="n/a",
+        )
+    )
+
+    st.dataframe(styled, width="stretch", hide_index=True)
+
+
+def _render_brand_badge() -> None:
+    if not ICON_PATH.exists():
+        return
+
+    encoded_icon = base64.b64encode(ICON_PATH.read_bytes()).decode("utf-8")
+    st.markdown(
+        f"""
+        <div class="analytics-brand-badge-shell">
+            <div class="analytics-brand-badge">
+                <img src="data:image/png;base64,{encoded_icon}" alt="Trii" />
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
 st.session_state.setdefault("analytics_last_manual_refresh", None)
@@ -220,6 +320,10 @@ st.markdown(
         flex-direction: column;
         justify-content: space-between;
     }
+    .analytics-kpi-card-blue {
+        border-color: rgba(26, 115, 232, 0.14);
+        box-shadow: 0 1px 2px rgba(26, 115, 232, 0.08);
+    }
     .analytics-kpi-header {
         display: flex;
         align-items: center;
@@ -233,6 +337,10 @@ st.markdown(
         background: #02fb7e;
         box-shadow: 0 0 0 4px rgba(2, 251, 126, 0.14);
         flex-shrink: 0;
+    }
+    .analytics-kpi-card-blue .analytics-kpi-accent {
+        background: #1a73e8;
+        box-shadow: 0 0 0 4px rgba(26, 115, 232, 0.14);
     }
     .analytics-kpi-label {
         color: #082114;
@@ -275,6 +383,30 @@ st.markdown(
     .analytics-kpi-row-spacer {
         height: 0.5rem;
     }
+    .analytics-brand-badge-shell {
+        min-height: 92px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .analytics-brand-badge {
+        width: 84px;
+        height: 84px;
+        border-radius: 999px;
+        background: #ffffff;
+        border: 1px solid rgba(8, 33, 20, 0.08);
+        box-shadow: 0 10px 24px rgba(8, 33, 20, 0.08);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+    }
+    .analytics-brand-badge img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
     [data-testid="column"] .analytics-kpi-card {
         height: 100%;
     }
@@ -301,8 +433,6 @@ try:
 
         with st.sidebar:
             with st.container(border=True):
-                st.subheader("Filtros")
-                st.caption("*Estos controles actualizan toda la vista analitica.*")
                 selected_window = st.selectbox(
                     "Ventana de tiempo",
                     options=time_window_options,
@@ -345,39 +475,37 @@ try:
             )
 
         _render_summary_line(summary)
-        _render_live_status()
 
         if not filtered_records:
             st.info("No hay snapshots para ese simbolo dentro de la ventana seleccionada.")
         else:
             _render_kpis(filtered_records)
+            table_tab, chart_tab = st.tabs(["Actividad reciente", "Bid / Ask volume"])
 
-            depth_history = pd.DataFrame(build_depth_history_rows(filtered_records))
-            if not depth_history.empty:
-                depth_history["captured_at"] = pd.to_datetime(depth_history["captured_at"], errors="coerce")
-                depth_history = depth_history.dropna(subset=["captured_at"])
+            with table_tab:
+                _render_activity_table(filtered_records)
 
+            with chart_tab:
+                depth_history = pd.DataFrame(build_depth_history_rows(filtered_records))
                 if not depth_history.empty:
-                    st.subheader("Depth charts")
-                    st.caption(
-                        "*These charts separate price and visible size so the operator can read structure first and execution pressure second without mixing scales.*"
-                    )
-                    top_row = st.columns(2, gap="large")
-                    bottom_row = st.columns(2, gap="large")
-                    with top_row[0]:
-                        st.altair_chart(_build_depth_chart(depth_history, "Bid", "price"), width="stretch")
-                    with top_row[1]:
-                        st.altair_chart(_build_depth_chart(depth_history, "Ask", "price"), width="stretch")
-                    with bottom_row[0]:
-                        st.altair_chart(_build_depth_chart(depth_history, "Bid", "quantity"), width="stretch")
-                    with bottom_row[1]:
-                        st.altair_chart(_build_depth_chart(depth_history, "Ask", "quantity"), width="stretch")
+                    depth_history["captured_at"] = pd.to_datetime(depth_history["captured_at"], errors="coerce")
+                    depth_history = depth_history.dropna(subset=["captured_at"])
+
+                    if not depth_history.empty:
+                        bid_chart_slot = st.container()
+                        ask_chart_slot = st.container()
+                        with bid_chart_slot:
+                            st.altair_chart(_build_depth_chart(depth_history, "Bid", "quantity"), width="stretch")
+                        with ask_chart_slot:
+                            st.altair_chart(_build_depth_chart(depth_history, "Ask", "quantity"), width="stretch")
+                    else:
+                        st.info(
+                            "Los snapshots consultados no trajeron timestamps validos para construir las series de profundidad."
+                        )
                 else:
-                    st.info("Los snapshots consultados no trajeron timestamps validos para construir las series de profundidad.")
-            else:
-                st.info(
-                    "Los snapshots consultados no trajeron `bid_levels` y `ask_levels` en un formato graficable."
-                )
+                    st.info(
+                        "Los snapshots consultados no trajeron `bid_levels` y `ask_levels` en un formato graficable."
+                    )
 except (BackendConfigurationError, ApiGatewayClientError) as exc:
     st.error("No fue posible consultar los snapshots recientes.")
     st.caption("Referencia interna: `analytics_recent_snapshots`")
