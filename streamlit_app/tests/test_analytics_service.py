@@ -129,3 +129,58 @@ def test_build_depth_history_rows_extracts_five_levels_per_side() -> None:
         "price": 865.0,
         "quantity": 36439.0,
     }
+
+
+def test_build_depth_history_rows_supports_json_string_levels() -> None:
+    rows = build_depth_history_rows(
+        [
+            {
+                "symbol": "PFAVAL",
+                "captured_at": "2026-08-17T20:30:00-05:00",
+                "bid_levels": '[{"level":1,"quantity":33636,"price":822}]',
+                "ask_levels": '[{"level":1,"quantity":40000,"price":855}]',
+            }
+        ]
+    )
+
+    assert len(rows) == 2
+    assert rows[0]["level"] == 1
+    assert rows[0]["price"] == 822.0
+    assert rows[1]["quantity"] == 40000.0
+
+
+def test_build_depth_history_rows_supports_dynamo_json_levels() -> None:
+    rows = build_depth_history_rows(
+        [
+            {
+                "symbol": "PFAVAL",
+                "captured_at": "2026-08-17T20:30:00-05:00",
+                "bid_levels": {
+                    "L": [
+                        {
+                            "M": {
+                                "level": {"N": "1"},
+                                "quantity": {"N": "33636"},
+                                "price": {"N": "822"},
+                            }
+                        }
+                    ]
+                },
+                "ask_levels": {
+                    "L": [
+                        {
+                            "M": {
+                                "level": {"N": "1"},
+                                "quantity": {"N": "40000"},
+                                "price": {"N": "855"},
+                            }
+                        }
+                    ]
+                },
+            }
+        ]
+    )
+
+    assert len(rows) == 2
+    assert rows[0]["price"] == 822.0
+    assert rows[1]["price"] == 855.0

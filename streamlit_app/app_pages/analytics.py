@@ -372,6 +372,12 @@ try:
                         st.altair_chart(_build_depth_chart(depth_history, "Bid", "quantity"), width="stretch")
                     with bottom_row[1]:
                         st.altair_chart(_build_depth_chart(depth_history, "Ask", "quantity"), width="stretch")
+                else:
+                    st.info("Los snapshots consultados no trajeron timestamps validos para construir las series de profundidad.")
+            else:
+                st.info(
+                    "Los snapshots consultados no trajeron `bid_levels` y `ask_levels` en un formato graficable."
+                )
 except (BackendConfigurationError, ApiGatewayClientError) as exc:
     st.error("No fue posible consultar los snapshots recientes.")
     st.caption("Referencia interna: `analytics_recent_snapshots`")

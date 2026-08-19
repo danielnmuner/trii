@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -147,14 +148,11 @@ def build_depth_history_rows(records: list[dict[str, Any]]) -> list[dict[str, An
     for record in records:
         captured_at = record.get("captured_at")
         for side, levels_key in (("Bid", "bid_levels"), ("Ask", "ask_levels")):
-            levels = record.get(levels_key, [])
-            if not isinstance(levels, list):
+            levels = _normalize_depth_levels(record.get(levels_key))
+            if not levels:
                 continue
 
             for level in levels[:5]:
-                if not isinstance(level, dict):
-                    continue
-
                 level_number = int(level.get("level", 0) or 0)
                 rows.append(
                     {
@@ -168,3 +166,70 @@ def build_depth_history_rows(records: list[dict[str, Any]]) -> list[dict[str, An
                 )
 
     return rows
+
+
+def _normalize_depth_levels(raw_levels: Any) -> list[dict[str, Any]]:
+    if isinstance(raw_levels, str):
+        try:
+            raw_levels = json.loads(raw_levels)
+        except json.JSONDecodeError:
+            return []
+
+    if isinstance(raw_levels, dict) and "L" in raw_levels:
+        raw_levels = raw_levels.get("L", [])
+
+    if not isinstance(raw_levels, list):
+        return []
+
+    normalized_levels: list[dict[str, Any]] = []
+    for level in raw_levels:
+        normalized_level = _normalize_single_level(level)
+        if normalized_level is not None:
+            normalized_levels.append(normalized_level)
+
+    return normalized_levels
+
+
+def _normalize_single_level(raw_level: Any) -> dict[str, Any] | None:
+    if isinstance(raw_level, dict) and "M" in raw_level:
+        raw_level = raw_level.get("M", {})
+
+    if not isinstance(raw_level, dict):
+        return None
+
+    normalized = {
+        "level": _unwrap_dynamo_value(raw_level.get("level")),
+        "price": _unwrap_dynamo_value(raw_level.get("price")),
+        "quantity": _unwrap_dynamo_value(raw_level.get("quantity")),
+    }
+
+    if normalized["level"] is None:
+        return None
+    return normalized
+
+
+def _unwrap_dynamo_value(value: Any) -> Any:
+    if not isinstance(value, dict) or len(value) != 1:
+        return value
+
+    if "N" in value:
+        raw_number = value["N"]
+        try:
+            numeric_value = float(raw_number)
+        except (TypeError, ValueError):
+            return raw_number
+        return int(numeric_value) if numeric_value.is_integer() else numeric_value
+
+    if "S" in value:
+        return value["S"]
+
+    if "M" in value:
+        return {
+            key: _unwrap_dynamo_value(item)
+            for key, item in value["M"].items()
+        }
+
+    if "L" in value:
+        return [_unwrap_dynamo_value(item) for item in value["L"]]
+
+    return value

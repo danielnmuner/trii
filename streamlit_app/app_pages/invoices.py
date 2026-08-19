@@ -28,17 +28,17 @@ def _render_processing_error(title: str, *, error_code: str, hint: str, exc: Exc
     st.write(hint)
 
 
-def _process_invoice_submission(*, send_requested: bool) -> None:
+def _process_invoice_submission(*, uploaded_files, send_requested: bool) -> None:
     st.session_state["invoice_archives_upload_result"] = None
     st.session_state["invoice_archives_send_message"] = None
 
-    uploaded_files = st.session_state.get("invoice_archives_uploaded_files") or []
-    if not uploaded_files:
+    normalized_uploaded_files = uploaded_files or []
+    if not normalized_uploaded_files:
         st.error("Debes cargar al menos un archivo ZIP de factura antes de continuar.")
         return
 
     try:
-        archives = [(uploaded_file.name, uploaded_file.getvalue()) for uploaded_file in uploaded_files]
+        archives = [(uploaded_file.name, uploaded_file.getvalue()) for uploaded_file in normalized_uploaded_files]
         prepared_archives = INVOICE_ARCHIVES_SERVICE.prepare_archives(archives=archives)
         st.session_state["invoice_archives_upload_result"] = prepared_archives.upload_result
         if send_requested:
@@ -46,19 +46,19 @@ def _process_invoice_submission(*, send_requested: bool) -> None:
             response = client.submit_invoice_archives(documents=list(prepared_archives.documents))
             persisted_result = response.get("result", {})
             st.session_state["invoice_archives_send_message"] = (
-                "Envío completado hacia S3. "
+                "Envio completado hacia S3. "
                 f"Archivos cargados: {persisted_result.get('uploaded_files', 0)}."
             )
             st.success("Lote validado y enviado correctamente.")
         else:
-            st.success("Lote validado correctamente. Ahora ya está listo para envío.")
+            st.success("Lote validado correctamente. Ahora ya esta listo para envio.")
     except (BackendConfigurationError, ApiGatewayClientError) as exc:
         _render_processing_error(
-            "El lote es válido, pero no fue posible enviarlo al backend.",
+            "El lote es valido, pero no fue posible enviarlo al backend.",
             error_code="send_invoice_archives_api",
             hint=(
-                "Revisa la configuración de `api_gateway_url` y `api_gateway_token` en Streamlit secrets, "
-                "o confirma que el API Gateway y la Lambda estén desplegados."
+                "Revisa la configuracion de `api_gateway_url` y `api_gateway_token` en Streamlit secrets, "
+                "o confirma que el API Gateway y la Lambda esten desplegados."
             ),
             exc=exc,
         )
@@ -67,27 +67,27 @@ def _process_invoice_submission(*, send_requested: bool) -> None:
             "No fue posible procesar el lote de facturas.",
             error_code="inspect_invoice_archives",
             hint=(
-                "Verifica que cada archivo sea un ZIP válido y que dentro contenga exactamente un XML y un PDF por factura."
+                "Verifica que cada archivo sea un ZIP valido y que dentro contenga exactamente un XML y un PDF por factura."
             ),
             exc=exc,
         )
 
 
 st.write(
-    "Carga los archivos fuente de facturas para conservar respaldo documental antes del procesamiento contable y de reconciliación. "
-    "En esta etapa el objetivo es validar el lote, descomprimir cada ZIP en memoria y dejar el XML y el PDF listos para envío hacia S3."
+    "Carga los archivos fuente de facturas para conservar respaldo documental antes del procesamiento contable y de reconciliacion. "
+    "En esta etapa el objetivo es validar el lote, descomprimir cada ZIP en memoria y dejar el XML y el PDF listos para envio hacia S3."
 )
 st.caption(
-    "*Estas facturas son la evidencia documental de las operaciones. La app extrae el XML y el PDF antes del envío para que S3 conserve los archivos fuente finales "
-    "que luego alimentarán el parseo y la reconciliación financiera, sin depender del ZIP original como formato de almacenamiento.*"
+    "*Estas facturas son la evidencia documental de las operaciones. La app extrae el XML y el PDF antes del envio para que S3 conserve los archivos fuente finales "
+    "que luego alimentaran el parseo y la reconciliacion financiera, sin depender del ZIP original como formato de almacenamiento.*"
 )
 
 with st.form("invoice_archives_upload_form", clear_on_submit=False, border=True):
     st.subheader("Facturas fuente")
     st.caption(
-        "*Se esperan archivos ZIP de factura como los de la carpeta `invoices`. Cada ZIP debe contener exactamente un XML y un PDF, y ambos archivos serán enviados por separado a S3.*"
+        "*Se esperan archivos ZIP de factura como los de la carpeta `invoices`. Cada ZIP debe contener exactamente un XML y un PDF, y ambos archivos seran enviados por separado a S3.*"
     )
-    st.file_uploader(
+    uploaded_files = st.file_uploader(
         "Archivos ZIP de facturas",
         type="zip",
         accept_multiple_files=True,
@@ -115,13 +115,13 @@ with st.form("invoice_archives_upload_form", clear_on_submit=False, border=True)
         )
 
 if validate_requested or send_requested:
-    _process_invoice_submission(send_requested=send_requested)
+    _process_invoice_submission(uploaded_files=uploaded_files, send_requested=send_requested)
 
 upload_result = st.session_state.get("invoice_archives_upload_result")
 if upload_result is not None:
-    st.header("Resultado de validación")
+    st.header("Resultado de validacion")
     metrics_columns = st.columns(3, gap="small")
-    metrics_columns[0].metric("ZIP válidos", upload_result.archive_count)
+    metrics_columns[0].metric("ZIP validos", upload_result.archive_count)
     metrics_columns[1].metric("XML detectados", upload_result.xml_count)
     metrics_columns[2].metric("PDF detectados", upload_result.pdf_count)
 

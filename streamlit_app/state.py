@@ -16,7 +16,5 @@ if str(SRC_DIR) not in sys.path:
 def init_state() -> None:
     st.session_state.setdefault("stock_orders_upload_result", None)
     st.session_state.setdefault("stock_orders_send_message", None)
-    st.session_state.setdefault("stock_orders_uploaded_file", None)
     st.session_state.setdefault("invoice_archives_upload_result", None)
     st.session_state.setdefault("invoice_archives_send_message", None)
-    st.session_state.setdefault("invoice_archives_uploaded_files", [])

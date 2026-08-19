@@ -27,12 +27,12 @@ for section in GLOSSARY_SECTIONS:
             pd.DataFrame(
                 [
                     {
-                        "Metrica / concepto": entry.term,
-                        "Formula": entry.formula,
-                        "Variables": entry.variables,
-                        "Definicion practica": entry.practical_definition,
-                        "Como usarlo": entry.how_to_use,
-                        "Que decision soporta": entry.decision_support,
+                        "Metrica / concepto": getattr(entry, "term", ""),
+                        "Formula": getattr(entry, "formula", ""),
+                        "Variables": getattr(entry, "variables", ""),
+                        "Definicion practica": getattr(entry, "practical_definition", ""),
+                        "Como usarlo": getattr(entry, "how_to_use", ""),
+                        "Que decision soporta": getattr(entry, "decision_support", ""),
                     }
                     for entry in section.entries
                 ]
