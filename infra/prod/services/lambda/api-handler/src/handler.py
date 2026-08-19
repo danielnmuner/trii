@@ -3,7 +3,7 @@ import csv
 import hashlib
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from io import StringIO
 from typing import Any
@@ -263,14 +263,36 @@ def _parse_positive_int(raw_value: str | None, *, default: int) -> int:
     return parsed
 
 
+def _parse_snapshot_timestamp(raw_value: str) -> datetime:
+    normalized = raw_value.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+
+    timestamp = datetime.fromisoformat(normalized)
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    return timestamp.astimezone(BOGOTA_TIMEZONE)
+
+
+def _date_range(start_date, end_date) -> list[str]:
+    total_days = (end_date - start_date).days
+    return [(start_date + timedelta(days=offset)).isoformat() for offset in range(total_days + 1)]
+
+
 def _list_recent_snapshots(event: dict[str, Any]) -> dict[str, Any]:
     params = _query_params(event)
     days = _parse_positive_int(params.get("days"), default=7)
     now_bogota = datetime.now(BOGOTA_TIMEZONE)
+    from_bogota = now_bogota - timedelta(days=days)
+    now_utc = now_bogota.astimezone(timezone.utc)
+    from_utc = from_bogota.astimezone(timezone.utc)
+    candidate_dates = sorted(
+        set(_date_range(from_bogota.date(), now_bogota.date()))
+        | set(_date_range(from_utc.date(), now_utc.date()))
+    )
 
     items: list[dict[str, Any]] = []
-    for offset in range(days):
-        target_date = (now_bogota - timedelta(days=offset)).date().isoformat()
+    for target_date in candidate_dates:
         query_kwargs = {
             "IndexName": "captured-date-index",
             "KeyConditionExpression": Key("captured_date").eq(target_date),
@@ -283,14 +305,23 @@ def _list_recent_snapshots(event: dict[str, Any]) -> dict[str, Any]:
                 break
             query_kwargs["ExclusiveStartKey"] = last_evaluated_key
 
-    items.sort(key=lambda item: item["captured_at"], reverse=True)
+    filtered_items = []
+    for item in items:
+        try:
+            captured_at = _parse_snapshot_timestamp(str(item["captured_at"]))
+        except Exception:
+            continue
+        if from_bogota <= captured_at <= now_bogota:
+            filtered_items.append((captured_at, item))
+
+    filtered_items.sort(key=lambda pair: pair[0], reverse=True)
 
     return {
         "timezone": "America/Bogota",
-        "from_date": (now_bogota - timedelta(days=days - 1)).date().isoformat(),
+        "from_date": from_bogota.date().isoformat(),
         "to_timestamp": now_bogota.isoformat(),
-        "records": _json_ready(items),
-        "record_count": len(items),
+        "records": _json_ready([item for _, item in filtered_items]),
+        "record_count": len(filtered_items),
     }
 
 
