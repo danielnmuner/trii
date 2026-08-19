@@ -147,6 +147,51 @@ def _render_symbol_chip(symbol: str) -> None:
     st.markdown(f"<div class='analytics-symbol-chip'>{symbol}</div>", unsafe_allow_html=True)
 
 
+def _render_microstructure_tape(symbol: str, records: list[dict]) -> None:
+    latest_record = records[0]
+    previous_record = records[1] if len(records) > 1 else None
+    items: list[str] = [
+        (
+            "<div class='analytics-light-tape-item analytics-light-tape-symbol'>"
+            f"<div class='analytics-light-tape-main'>{escape(symbol)}</div>"
+            "</div>"
+        )
+    ]
+
+    for key, label in (
+        ("obi_l1", "OBI L1"),
+        ("obi_top_5", "OBI TOP 5"),
+        ("spread", "SPREAD"),
+        ("spread_bps", "SPREAD BPS"),
+        ("mid_price", "MID PRICE"),
+        ("microprice", "MICROPRICE"),
+    ):
+        current_value = _safe_float(latest_record, key)
+        previous_value = _safe_float(previous_record, key) if previous_record else None
+        delta = _format_metric_delta(key, current_value, previous_value) or "No prior point"
+        items.append(
+            "".join(
+                [
+                    "<div class='analytics-light-tape-item'>",
+                    "<div class='analytics-light-tape-eyebrow'>",
+                    "<span class='analytics-light-tape-dot'></span>",
+                    f"<span class='analytics-light-tape-label'>{escape(label)}</span>",
+                    "</div>",
+                    f"<div class='analytics-light-tape-main'>{escape(_format_metric_value(key, current_value))}</div>",
+                    f"<div class='analytics-light-tape-sub'>{escape(delta)}</div>",
+                    "</div>",
+                ]
+            )
+        )
+
+    st.markdown(
+        "<div class='analytics-light-tape'>"
+        + "".join(items)
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def _render_market_tape(records: list[dict]) -> None:
     latest_record = records[0]
     previous_record = records[1] if len(records) > 1 else None
@@ -203,40 +248,9 @@ def _render_market_tape(records: list[dict]) -> None:
 
 
 def _render_kpis(symbol_record_groups: list[tuple[str, list[dict]]]) -> None:
-    microstructure_kpis = _build_microstructure_kpi_definitions()
-
-    ordered_microstructure = [
-        "obi_l1",
-        "obi_top_5",
-        "spread",
-        "spread_bps",
-        "mid_price",
-        "microprice",
-    ]
-    definitions_by_key = {metric["key"]: metric for metric in microstructure_kpis}
-    display_metrics = [definitions_by_key[key] for key in ordered_microstructure]
-
     for symbol, records in symbol_record_groups:
-        latest_record = records[0]
-        previous_record = records[1] if len(records) > 1 else None
-        columns = st.columns([0.78, 1, 1, 1, 1, 1, 1], gap="small")
-        with columns[0]:
-            _render_symbol_chip(symbol)
-        for column, metric in zip(columns[1:], display_metrics, strict=False):
-            current_value = _safe_float(latest_record, metric["key"])
-            previous_value = _safe_float(previous_record, metric["key"]) if previous_record else None
-            with column:
-                _render_kpi_card(
-                    label=metric["label"],
-                    value=_format_metric_value(metric["key"], current_value),
-                    delta=_format_metric_delta(metric["key"], current_value, previous_value),
-                )
-
-        tape_columns = st.columns([0.78, 6], gap="small")
-        with tape_columns[0]:
-            st.markdown("<div class='analytics-symbol-spacer'></div>", unsafe_allow_html=True)
-        with tape_columns[1]:
-            _render_market_tape(records)
+        _render_microstructure_tape(symbol, records)
+        _render_market_tape(records)
         st.markdown("<div class='analytics-kpi-row-spacer'></div>", unsafe_allow_html=True)
 
 
@@ -339,29 +353,28 @@ st.markdown(
     """
     <style>
     .analytics-kpi-card {
-        background: #ffffff;
+        background: linear-gradient(180deg, #ffffff 0%, #f7f9fb 100%);
         border: 1px solid rgba(8, 33, 20, 0.08);
-        border-radius: 14px;
-        padding: 0.42rem 0.5rem 0.38rem 0.5rem;
-        min-height: 58px;
-        box-shadow: 0 1px 2px rgba(8, 33, 20, 0.05);
+        border-radius: 10px;
+        padding: 0.32rem 0.44rem 0.28rem 0.44rem;
+        min-height: 42px;
         display: flex;
         flex-direction: column;
         justify-content: space-between;
+        overflow: hidden;
     }
     .analytics-kpi-card-blue {
         border-color: rgba(26, 115, 232, 0.14);
-        box-shadow: 0 1px 2px rgba(26, 115, 232, 0.08);
     }
     .analytics-kpi-header {
         display: flex;
         align-items: center;
-        gap: 0.28rem;
-        margin-bottom: 0.12rem;
+        gap: 0.24rem;
+        margin-bottom: 0.05rem;
     }
     .analytics-kpi-accent {
-        width: 0.34rem;
-        height: 0.34rem;
+        width: 0.32rem;
+        height: 0.32rem;
         border-radius: 999px;
         background: #02fb7e;
         box-shadow: 0 0 0 3px rgba(2, 251, 126, 0.14);
@@ -373,38 +386,45 @@ st.markdown(
     }
     .analytics-kpi-label {
         color: #082114;
-        font-size: 0.58rem;
+        font-size: 0.5rem;
         font-weight: 600;
-        letter-spacing: -0.01em;
+        letter-spacing: 0.02em;
         line-height: 1.0;
+        text-transform: uppercase;
+        white-space: nowrap;
     }
     .analytics-kpi-value {
         color: #000000;
-        font-size: 0.92rem;
+        font-size: 0.88rem;
         font-weight: 700;
         line-height: 0.95;
         letter-spacing: -0.02em;
-        margin-bottom: 0.12rem;
-        word-break: break-word;
+        margin-bottom: 0.05rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     .analytics-kpi-delta {
-        color: #082114;
+        color: rgba(8, 33, 20, 0.62);
         display: flex;
         align-items: baseline;
-        gap: 0.16rem;
-        font-size: 0.56rem;
-        font-weight: 300;
+        gap: 0.1rem;
+        font-size: 0.46rem;
+        font-weight: 500;
         line-height: 0.98;
         letter-spacing: -0.01em;
-        opacity: 0.88;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     .analytics-kpi-delta-prefix {
         color: rgba(8, 33, 20, 0.48);
-        font-weight: 400;
+        font-weight: 500;
+        text-transform: lowercase;
     }
     .analytics-kpi-delta-value {
         color: #082114;
-        font-weight: 300;
+        font-weight: 500;
     }
     .analytics-kpi-delta-empty {
         color: rgba(8, 33, 20, 0.52);
@@ -413,20 +433,109 @@ st.markdown(
         height: 0.24rem;
     }
     .analytics-symbol-chip {
-        min-height: 58px;
+        min-height: 42px;
         display: flex;
         align-items: center;
         justify-content: center;
-        border-radius: 14px;
+        border-radius: 10px;
         border: 1px solid rgba(8, 33, 20, 0.08);
-        background: #ffffff;
+        background: linear-gradient(180deg, #ffffff 0%, #fbfcfd 100%);
         color: #082114;
-        font-size: 0.74rem;
+        font-size: 0.8rem;
         font-weight: 700;
         letter-spacing: -0.01em;
     }
-    .analytics-symbol-spacer {
-        min-height: 48px;
+    .analytics-kpi-card .analytics-kpi-accent {
+        box-shadow: none;
+    }
+    .analytics-kpi-card .analytics-kpi-delta-prefix {
+        display: none;
+    }
+    .analytics-kpi-card .analytics-kpi-delta-value::before {
+        content: "";
+    }
+    .analytics-kpi-card .analytics-kpi-delta-value {
+        color: rgba(8, 33, 20, 0.62);
+    }
+    .analytics-kpi-card-green {
+        position: relative;
+    }
+    .analytics-kpi-card-green::after {
+        content: "";
+        position: absolute;
+        inset: auto 0 0 0;
+        height: 1px;
+        background: rgba(8, 33, 20, 0.05);
+        opacity: 0;
+    }
+    .analytics-light-tape {
+        min-height: 42px;
+        border-radius: 10px;
+        background: linear-gradient(180deg, #ffffff 0%, #f7f9fb 100%);
+        border: 1px solid rgba(8, 33, 20, 0.08);
+        display: flex;
+        align-items: stretch;
+        overflow: hidden;
+        margin-bottom: 6px;
+    }
+    .analytics-light-tape-item {
+        flex: 1 1 0;
+        min-width: 0;
+        padding: 0.3rem 0.46rem 0.26rem 0.46rem;
+        border-right: 1px solid rgba(8, 33, 20, 0.08);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+    .analytics-light-tape-item:last-child {
+        border-right: none;
+    }
+    .analytics-light-tape-symbol {
+        max-width: 120px;
+        align-items: center;
+        justify-content: center;
+    }
+    .analytics-light-tape-eyebrow {
+        display: flex;
+        align-items: center;
+        gap: 0.22rem;
+        margin-bottom: 0.06rem;
+    }
+    .analytics-light-tape-dot {
+        width: 0.28rem;
+        height: 0.28rem;
+        border-radius: 999px;
+        background: #02fb7e;
+        flex-shrink: 0;
+    }
+    .analytics-light-tape-label {
+        color: #082114;
+        font-size: 0.48rem;
+        font-weight: 600;
+        line-height: 1.0;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+    .analytics-light-tape-main {
+        color: #000000;
+        font-size: 0.92rem;
+        font-weight: 700;
+        line-height: 0.94;
+        letter-spacing: -0.01em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        margin-bottom: 0.04rem;
+    }
+    .analytics-light-tape-sub {
+        color: rgba(8, 33, 20, 0.62);
+        font-size: 0.5rem;
+        font-weight: 500;
+        line-height: 0.98;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     .analytics-market-tape {
         min-height: 42px;
