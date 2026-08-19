@@ -14,7 +14,7 @@ import streamlit as st
 
 from state import init_state
 
-st.set_page_config(page_title="Parser de contratos de Trii", page_icon="T", layout="wide")
+st.set_page_config(page_title="Consola operativa de Trii", page_icon="T", layout="wide")
 init_state()
 
 st.markdown(
@@ -52,11 +52,6 @@ pages = {
             "app_pages/analytics.py",
             title="Analytics",
             icon=":material/analytics:",
-        ),
-        st.Page(
-            "app_pages/capture.py",
-            title="Captura",
-            icon=":material/data_object:",
             default=True,
         ),
         st.Page(
@@ -79,15 +74,10 @@ pages = {
             title="Glosario",
             icon=":material/menu_book:",
         ),
-        st.Page(
-            "app_pages/guide.py",
-            title="Referencia visual",
-            icon=":material/help_center:",
-        ),
     ]
 }
 
 page = st.navigation(pages, position="sidebar")
 
-st.title("Parser de contratos de Trii")
+st.title("Consola operativa de Trii")
 page.run()
