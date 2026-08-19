@@ -120,12 +120,24 @@ def build_analytics_summary(
     current_time: datetime | None = None,
 ) -> dict[str, Any]:
     now_value = current_time or now_in_bogota()
-    from_timestamp = now_value - resolve_time_window(window_label)
+    fallback_from_timestamp = now_value - resolve_time_window(window_label)
+    parsed_timestamps = [
+        timestamp
+        for record in records
+        if (timestamp := parse_record_timestamp(record)) is not None
+    ]
+
+    if parsed_timestamps:
+        from_timestamp = min(parsed_timestamps)
+        to_timestamp = max(parsed_timestamps)
+    else:
+        from_timestamp = fallback_from_timestamp
+        to_timestamp = now_value
 
     return {
         "record_count": len(records),
         "from_timestamp": format_datetime_label(from_timestamp),
-        "to_timestamp": format_datetime_label(now_value),
+        "to_timestamp": format_datetime_label(to_timestamp),
     }
 
 

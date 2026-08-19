@@ -14,8 +14,11 @@ import streamlit as st
 
 from state import init_state
 
-st.set_page_config(page_title="Consola operativa de Trii", page_icon="T", layout="wide")
+ICON_PATH = APP_DIR / "icon.png"
+
+st.set_page_config(page_title="Consola operativa de Trii", page_icon=str(ICON_PATH), layout="wide")
 init_state()
+st.logo(str(ICON_PATH))
 
 st.markdown(
     """
@@ -79,5 +82,4 @@ pages = {
 
 page = st.navigation(pages, position="sidebar")
 
-st.title("Consola operativa de Trii")
 page.run()

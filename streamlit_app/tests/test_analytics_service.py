@@ -78,7 +78,24 @@ def test_filter_records_applies_symbol_and_time_window() -> None:
     assert [record["captured_at"] for record in filtered] == ["2026-08-17T20:30:00-05:00"]
 
 
-def test_build_analytics_summary_formats_selected_window() -> None:
+def test_build_analytics_summary_uses_real_record_bounds_when_available() -> None:
+    summary = build_analytics_summary(
+        [
+            {"symbol": "PFAVAL", "captured_at": "2026-08-17T20:30:00-05:00"},
+            {"symbol": "PFAVAL", "captured_at": "2026-08-17T14:00:00-05:00"},
+        ],
+        window_label="6h",
+        current_time=datetime(2026, 8, 17, 21, 14, tzinfo=BOGOTA),
+    )
+
+    assert summary == {
+        "record_count": 2,
+        "from_timestamp": "17-08-2026 14:00",
+        "to_timestamp": "17-08-2026 20:30",
+    }
+
+
+def test_build_analytics_summary_falls_back_to_selected_window_when_records_are_missing_timestamps() -> None:
     summary = build_analytics_summary(
         [{"symbol": "PFAVAL"}],
         window_label="6h",

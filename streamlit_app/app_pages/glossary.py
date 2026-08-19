@@ -10,13 +10,13 @@ if str(APP_DIR) not in sys.path:
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-import streamlit as st
 import pandas as pd
+import streamlit as st
 
 from glossary_specs import GLOSSARY_SECTIONS
 
 st.write(
-    "Este glosario traduce los términos técnicos de Trii a una lectura práctica para operación, validación de señales y toma de decisiones."
+    "Este glosario traduce los terminos tecnicos de Trii a una lectura practica para operacion, validacion de senales y toma de decisiones."
 )
 
 for section in GLOSSARY_SECTIONS:
@@ -27,10 +27,12 @@ for section in GLOSSARY_SECTIONS:
             pd.DataFrame(
                 [
                     {
-                        "Métrica / concepto": entry.term,
-                        "Definición práctica": entry.practical_definition,
-                        "Cómo usarlo": entry.how_to_use,
-                        "Qué decisión soporta": entry.decision_support,
+                        "Metrica / concepto": entry.term,
+                        "Formula": entry.formula,
+                        "Variables": entry.variables,
+                        "Definicion practica": entry.practical_definition,
+                        "Como usarlo": entry.how_to_use,
+                        "Que decision soporta": entry.decision_support,
                     }
                     for entry in section.entries
                 ]
