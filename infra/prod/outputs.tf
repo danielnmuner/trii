@@ -67,8 +67,3 @@ output "historic_stats_updater_function_name" {
   description = "Historic stats updater Lambda function name."
   value       = module.historic_stats_updater.function_name
 }
-
-output "historic_stats_rebuilder_function_name" {
-  description = "Historic stats rebuilder Lambda function name."
-  value       = module.historic_stats_rebuilder.function_name
-}
