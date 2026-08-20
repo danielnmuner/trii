@@ -60,7 +60,7 @@ def test_format_timestamp_label_supports_iso_datetimes() -> None:
 def test_build_analytics_summary_uses_real_record_bounds_when_available() -> None:
     summary = build_analytics_summary(
         [
-            {"symbol": "PFAVAL", "captured_at": "2026-08-17T20:30:00-05:00"},
+            {"symbol": "PFAVAL", "captured_at": "2026-08-17T20:30:00-05:00", "trigger_reason": "live-mode"},
             {"symbol": "PFAVAL", "captured_at": "2026-08-17T14:00:00-05:00"},
         ],
         current_time=datetime(2026, 8, 17, 21, 14, tzinfo=BOGOTA),
@@ -71,6 +71,7 @@ def test_build_analytics_summary_uses_real_record_bounds_when_available() -> Non
         "from_timestamp": "17-08-2026 14:00:00",
         "to_timestamp": "17-08-2026 20:30:00",
         "tw_seconds": 23400,
+        "trigger_reason": "live-mode",
     }
 
 
@@ -85,6 +86,7 @@ def test_build_analytics_summary_falls_back_to_current_time_when_records_are_mis
         "from_timestamp": "17-08-2026 21:14:00",
         "to_timestamp": "17-08-2026 21:14:00",
         "tw_seconds": 0,
+        "trigger_reason": "",
     }
 
 

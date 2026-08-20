@@ -75,6 +75,14 @@ def _format_metric_value(metric_key: str, value: float | None) -> str:
     return f"{value:,.2f}"
 
 
+def _format_cop_price(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    formatted = f"{value:,.2f}"
+    formatted = formatted.replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"$ {formatted}"
+
+
 def _format_metric_delta(metric_key: str, current: float | None, previous: float | None) -> str | None:
     if current is None or previous is None:
         return None
@@ -87,13 +95,23 @@ def _format_metric_delta(metric_key: str, current: float | None, previous: float
     return f"{delta:+,.2f}"
 
 
+def _format_metric_delta_with_relative(metric_key: str, current: float | None, previous: float | None) -> str | None:
+    absolute_delta = _format_metric_delta(metric_key, current, previous)
+    if absolute_delta is None or previous in (None, 0):
+        return absolute_delta
+
+    relative_delta = ((current - previous) / previous) * 100
+    return f"{absolute_delta} | {relative_delta:+.2f}%"
+
+
 def _build_market_kpi_definitions() -> list[dict[str, str]]:
     return [
         {"key": "last_price", "label": "Ultimo precio"},
-        {"key": "daily_change_percent", "label": "Cambio %"},
         {"key": "spread", "label": "Spread"},
         {"key": "traded_volume", "label": "Volumen negociado"},
         {"key": "traded_value", "label": "Valor negociado"},
+        {"key": "best_prices", "label": "Mejor compra / venta"},
+        {"key": "price_range", "label": "Maximo / minimo"},
     ]
 
 
@@ -154,6 +172,15 @@ def _refresh_tone(total_seconds: int) -> str:
     if total_seconds <= 300:
         return "orange"
     return "red"
+
+
+def _format_trigger_reason(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = value.strip().replace("-", " ").replace("_", " ")
+    if not normalized:
+        return None
+    return normalized.title()
 
 
 def _resolve_symbol_sample_count(current_stats: dict) -> int:
@@ -255,22 +282,94 @@ def _render_market_tape(records: list[dict]) -> None:
     items: list[str] = []
 
     for metric in _build_market_kpi_definitions():
-        current_value = _safe_float(latest_record, metric["key"])
+        metric_key = metric["key"]
+        current_value = _safe_float(latest_record, metric_key)
         tone = "neutral"
-        if metric["key"] == "last_price":
+
+        if metric_key == "last_price":
             previous_value = _safe_float(latest_record, "previous_close")
-            delta = _format_metric_delta(metric["key"], current_value, previous_value)
+            delta = _format_metric_delta(metric_key, current_value, previous_value)
             if current_value is not None and previous_value is not None:
                 tone = "positive" if current_value >= previous_value else "negative"
-        elif metric["key"] == "daily_change_percent":
-            daily_change_amount = _safe_float(latest_record, "daily_change_amount")
-            delta = None if current_value is None else f"{daily_change_amount or 0:+,.2f} COP"
-            if current_value is not None:
-                tone = "positive" if current_value >= 0 else "negative"
-        else:
-            previous_value = _safe_float(previous_record, metric["key"]) if previous_record else None
-            delta = _format_metric_delta(metric["key"], current_value, previous_value)
+
+            daily_change_percent = _safe_float(latest_record, "daily_change_percent")
+            percent_markup = ""
+            if daily_change_percent is not None:
+                percent_value = daily_change_percent / 100
+                percent_tone = "positive" if percent_value >= 0 else "negative"
+                percent_markup = (
+                    f"<span class='analytics-market-tape-inline-percent analytics-market-tape-inline-percent-{percent_tone}'>"
+                    f"{escape(_format_metric_value('daily_change_percent', daily_change_percent))}</span>"
+                )
+
+            items.append(
+                "".join(
+                    [
+                        f"<div class='analytics-market-tape-item analytics-market-tape-item-{tone}'>",
+                        "<div class='analytics-market-tape-eyebrow'>",
+                        f"<span class='analytics-market-tape-label'>{escape(metric['label'])}</span>",
+                        "</div>",
+                        "<div class='analytics-market-tape-main-row'>",
+                        f"<div class='analytics-market-tape-main'>{escape(_format_metric_value(metric_key, current_value))}</div>",
+                        percent_markup,
+                        "</div>",
+                        f"<div class='analytics-market-tape-sub'>{escape(delta or 'No prior point')}</div>",
+                        "</div>",
+                    ]
+                )
+            )
+            continue
+
+        if metric_key in {"traded_volume", "traded_value"}:
+            previous_value = _safe_float(previous_record, metric_key) if previous_record else None
+            delta = _format_metric_delta_with_relative(metric_key, current_value, previous_value)
             tone = "market"
+        elif metric_key == "spread":
+            previous_value = _safe_float(previous_record, metric_key) if previous_record else None
+            delta = _format_metric_delta(metric_key, current_value, previous_value)
+            tone = "market"
+        elif metric_key == "best_prices":
+            best_bid_price = _safe_float(latest_record, "best_bid_price")
+            best_ask_price = _safe_float(latest_record, "best_ask_price")
+            items.append(
+                "".join(
+                    [
+                        "<div class='analytics-market-tape-item analytics-market-tape-item-market analytics-market-tape-item-paired'>",
+                        "<div class='analytics-market-tape-pair'>",
+                        "<div class='analytics-market-tape-pair-label'>Mejor compra</div>",
+                        f"<div class='analytics-market-tape-pair-value'>{escape(_format_cop_price(best_bid_price))}</div>",
+                        "</div>",
+                        "<div class='analytics-market-tape-pair'>",
+                        "<div class='analytics-market-tape-pair-label'>Mejor venta</div>",
+                        f"<div class='analytics-market-tape-pair-value'>{escape(_format_cop_price(best_ask_price))}</div>",
+                        "</div>",
+                        "</div>",
+                    ]
+                )
+            )
+            continue
+        elif metric_key == "price_range":
+            high_price = _safe_float(latest_record, "high_price")
+            low_price = _safe_float(latest_record, "low_price")
+            items.append(
+                "".join(
+                    [
+                        "<div class='analytics-market-tape-item analytics-market-tape-item-market analytics-market-tape-item-paired'>",
+                        "<div class='analytics-market-tape-pair'>",
+                        "<div class='analytics-market-tape-pair-label'>Precio maximo</div>",
+                        f"<div class='analytics-market-tape-pair-value'>{escape(_format_cop_price(high_price))}</div>",
+                        "</div>",
+                        "<div class='analytics-market-tape-pair'>",
+                        "<div class='analytics-market-tape-pair-label'>Precio minimo</div>",
+                        f"<div class='analytics-market-tape-pair-value'>{escape(_format_cop_price(low_price))}</div>",
+                        "</div>",
+                        "</div>",
+                    ]
+                )
+            )
+            continue
+        else:
+            delta = None
 
         items.append(
             "".join(
@@ -346,13 +445,19 @@ def _render_summary_line(summary: dict[str, str]) -> None:
     )
     refresh_age_seconds = max(int((current_time - refresh_reference).total_seconds()), 0)
     refresh_tone = _refresh_tone(refresh_age_seconds)
+    trigger_reason = _format_trigger_reason(summary.get("trigger_reason"))
+    summary_parts = [
+        f":green[:material/event_available: **Desde**] **{summary['from_timestamp']}**",
+        f":green[:material/flag: **Hasta**] **{summary['to_timestamp']}**",
+        f":green[:material/timer: **TW**] **{summary['tw_seconds']:,}s**",
+    ]
+    if trigger_reason is not None:
+        summary_parts.append(f":green[:material/rss_feed: **Feed**] **{trigger_reason}**")
+    summary_parts.append(
+        f":{refresh_tone}[:material/history: **Last Refresh**] **{_format_elapsed_seconds(refresh_age_seconds)}**"
+    )
     st.markdown(
-        (
-            f":green[:material/event_available: **Desde**] **{summary['from_timestamp']}**"
-            f"  |  :green[:material/flag: **Hasta**] **{summary['to_timestamp']}**"
-            f"  |  :green[:material/timer: **TW**] **{summary['tw_seconds']:,}s**"
-            f"  |  :{refresh_tone}[:material/history: **Last Refresh**] **{_format_elapsed_seconds(refresh_age_seconds)}**"
-        ),
+        "  |  ".join(summary_parts),
         text_alignment="right",
     )
 
@@ -591,6 +696,12 @@ st.markdown(
         text-transform: uppercase;
         white-space: nowrap;
     }
+    .analytics-market-tape-main-row {
+        display: flex;
+        align-items: baseline;
+        gap: 0.34rem;
+        min-width: 0;
+    }
     .analytics-market-tape-main {
         color: #f8fafc;
         font-size: 0.8rem;
@@ -601,6 +712,19 @@ st.markdown(
         overflow: hidden;
         text-overflow: ellipsis;
         margin-bottom: 0.05rem;
+    }
+    .analytics-market-tape-inline-percent {
+        font-size: 0.54rem;
+        font-weight: 700;
+        line-height: 1;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+    .analytics-market-tape-inline-percent-positive {
+        color: #02fb7e;
+    }
+    .analytics-market-tape-inline-percent-negative {
+        color: #ff5f57;
     }
     .analytics-market-tape-sub {
         color: rgba(255, 255, 255, 0.58);
@@ -621,6 +745,32 @@ st.markdown(
     }
     .analytics-market-tape-item-market .analytics-market-tape-main {
         color: #8ab4f8;
+    }
+    .analytics-market-tape-item-paired {
+        gap: 0.18rem;
+    }
+    .analytics-market-tape-pair {
+        display: flex;
+        flex-direction: column;
+        gap: 0.02rem;
+    }
+    .analytics-market-tape-pair-label {
+        color: rgba(255, 255, 255, 0.72);
+        font-size: 0.45rem;
+        font-weight: 600;
+        line-height: 1;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+    .analytics-market-tape-pair-value {
+        color: #8ab4f8;
+        font-size: 0.66rem;
+        font-weight: 700;
+        line-height: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     .analytics-recommendation-strip {
         margin-top: 6px;

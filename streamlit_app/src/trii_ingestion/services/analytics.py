@@ -66,12 +66,15 @@ def build_analytics_summary(
         to_timestamp = now_value
 
     tw_seconds = max(int((to_timestamp - from_timestamp).total_seconds()), 0)
+    latest_record = records[0] if records else {}
+    trigger_reason = str(latest_record.get("trigger_reason") or "").strip()
 
     return {
         "record_count": len(records),
         "from_timestamp": format_datetime_label(from_timestamp),
         "to_timestamp": format_datetime_label(to_timestamp),
         "tw_seconds": tw_seconds,
+        "trigger_reason": trigger_reason,
     }
 
 
