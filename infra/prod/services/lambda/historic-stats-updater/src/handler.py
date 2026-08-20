@@ -232,7 +232,7 @@ def _transact_snapshot(snapshot: dict[str, Any], source_event_id: str) -> str:
 
         for metric_name in metric_names:
             previous_item = previous_items.get(metric_name)
-            updated_item = _build_stat_item(
+            updated_item = build_stat_item(
                 previous_item,
                 symbol=symbol,
                 metric=metric_name,
