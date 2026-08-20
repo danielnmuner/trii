@@ -72,6 +72,7 @@ def test_build_analytics_summary_uses_real_record_bounds_when_available() -> Non
         "to_timestamp": "17-08-2026 20:30:00",
         "tw_seconds": 23400,
         "trigger_reason": "live-mode",
+        "latest_captured_at": "2026-08-17T20:30:00-05:00",
     }
 
 
@@ -87,6 +88,7 @@ def test_build_analytics_summary_falls_back_to_current_time_when_records_are_mis
         "to_timestamp": "17-08-2026 21:14:00",
         "tw_seconds": 0,
         "trigger_reason": "",
+        "latest_captured_at": "",
     }
 
 

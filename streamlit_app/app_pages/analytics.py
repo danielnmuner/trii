@@ -174,6 +174,14 @@ def _refresh_tone(total_seconds: int) -> str:
     return "red"
 
 
+def _feed_age_tone(total_seconds: int) -> str:
+    if total_seconds > 600:
+        return "red"
+    if total_seconds > 300:
+        return "orange"
+    return "green"
+
+
 def _format_trigger_reason(value: str | None) -> str | None:
     if not value:
         return None
@@ -450,6 +458,14 @@ def _render_summary_line(summary: dict[str, str]) -> None:
     refresh_age_seconds = max(int((current_time - refresh_reference).total_seconds()), 0)
     refresh_tone = _refresh_tone(refresh_age_seconds)
     trigger_reason = _format_trigger_reason(summary.get("trigger_reason"))
+    latest_captured_at = str(summary.get("latest_captured_at") or "").strip()
+    sample_age_seconds = None
+    if latest_captured_at:
+        latest_timestamp = datetime.fromisoformat(latest_captured_at)
+        if latest_timestamp.tzinfo is None:
+            latest_timestamp = latest_timestamp.replace(tzinfo=BOGOTA_TIMEZONE)
+        latest_timestamp = latest_timestamp.astimezone(BOGOTA_TIMEZONE)
+        sample_age_seconds = max(int((current_time - latest_timestamp).total_seconds()), 0)
     summary_parts = [
         f":green[:material/event_available: **Desde**] **{summary['from_timestamp']}**",
         f":green[:material/flag: **Hasta**] **{summary['to_timestamp']}**",
@@ -457,6 +473,11 @@ def _render_summary_line(summary: dict[str, str]) -> None:
     ]
     if trigger_reason is not None:
         summary_parts.append(f":green[:material/rss_feed: **Feed**] **{trigger_reason}**")
+    if sample_age_seconds is not None:
+        sample_tone = _feed_age_tone(sample_age_seconds)
+        summary_parts.append(
+            f":{sample_tone}[:material/av_timer: **Lag**] **{_format_elapsed_seconds(sample_age_seconds)}**"
+        )
     summary_parts.append(
         f":{refresh_tone}[:material/history: **Last Refresh**] **{_format_elapsed_seconds(refresh_age_seconds)}**"
     )
