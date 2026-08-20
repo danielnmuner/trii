@@ -38,7 +38,7 @@ def format_timestamp_label(raw_value: str | None, *, fallback_time: str = "00:00
 def format_datetime_label(value: datetime | None) -> str:
     if value is None:
         return "n/a"
-    return value.astimezone(BOGOTA_TIMEZONE).strftime("%d-%m-%Y %H:%M")
+    return value.astimezone(BOGOTA_TIMEZONE).strftime("%d-%m-%Y %H:%M:%S")
 
 
 def get_time_window_labels() -> list[str]:

@@ -65,7 +65,7 @@ def _format_metric_value(metric_key: str, value: float | None) -> str:
     if metric_key == "daily_change_amount":
         return f"{value:,.2f}"
     if metric_key == "daily_change_percent":
-        return f"{value:,.2f}%"
+        return f"{(value / 100):,.2f}%"
     if metric_key in {"mid_price", "microprice"}:
         return f"{value:,.2f}"
     if metric_key == "spread_bps":
@@ -92,8 +92,8 @@ def _format_metric_delta(metric_key: str, current: float | None, previous: float
 def _build_market_kpi_definitions() -> list[dict[str, str]]:
     return [
         {"key": "last_price", "label": "Ultimo precio"},
-        {"key": "daily_change_amount", "label": "Cambio COP"},
         {"key": "daily_change_percent", "label": "Cambio %"},
+        {"key": "spread", "label": "Spread"},
         {"key": "traded_volume", "label": "Volumen negociado"},
         {"key": "traded_value", "label": "Valor negociado"},
     ]
@@ -140,17 +140,33 @@ def _signal_tone(label: str) -> str:
 def _sample_count_label(sample_count: int) -> str | None:
     if sample_count <= 0:
         return None
-    return f"{sample_count} samples"
+    return f"{sample_count:,}"
+
+
+def _resolve_symbol_sample_count(current_stats: dict) -> int:
+    counts = [
+        int(stat_item.get("sample_count", 0) or 0)
+        for stat_item in current_stats.values()
+        if isinstance(stat_item, dict)
+    ]
+    return max(counts, default=0)
 
 
 def _render_microstructure_tape(symbol: str, payload: dict, records: list[dict]) -> None:
     latest_record = records[0]
     previous_record = records[1] if len(records) > 1 else None
     current_stats = payload.get("current_stats", {})
+    symbol_sample_count = _resolve_symbol_sample_count(current_stats)
+    symbol_sample_count_markup = (
+        ""
+        if symbol_sample_count <= 0
+        else f"<div class='analytics-light-tape-sub'>{escape(_sample_count_label(symbol_sample_count) or '')}</div>"
+    )
     items: list[str] = [
         (
             "<div class='analytics-light-tape-item analytics-light-tape-symbol'>"
             f"<div class='analytics-light-tape-main'>{escape(symbol)}</div>"
+            f"{symbol_sample_count_markup}"
             "</div>"
         )
     ]
@@ -158,7 +174,6 @@ def _render_microstructure_tape(symbol: str, payload: dict, records: list[dict])
     for key, label in (
         ("obi_l1", "OBI L1"),
         ("obi_top_5", "OBI TOP 5"),
-        ("spread", "SPREAD"),
         ("spread_bps", "SPREAD BPS"),
         ("mid_price", "MID PRICE"),
         ("microprice", "MICROPRICE"),
@@ -172,8 +187,6 @@ def _render_microstructure_tape(symbol: str, payload: dict, records: list[dict])
             z_score_context = build_historic_z_score_context(current_stats.get(key))
             z_score_value = z_score_context["z_score"]
             z_score_label = None if z_score_value is None else f"{z_score_value:+.1f}"
-            sample_count = int(z_score_context["sample_count"] or 0)
-            sample_label = _sample_count_label(sample_count)
             signal_label = z_score_context["signal_label"]
             z_score_markup = "".join(
                 [
@@ -184,12 +197,6 @@ def _render_microstructure_tape(symbol: str, payload: dict, records: list[dict])
                         else f"<span class='analytics-light-tape-zscore'>{escape(z_score_label)}&sigma;</span>"
                     ),
                     "<div class='analytics-light-tape-zmeta'>",
-                    (
-                        ""
-                        if sample_label is None
-                        else "<span class='analytics-light-tape-zmeta-line analytics-light-tape-zmeta-line-gray'>"
-                        f"{escape(sample_label)}</span>"
-                    ),
                     (
                         ""
                         if signal_label is None
@@ -247,17 +254,6 @@ def _render_market_tape(records: list[dict]) -> None:
             delta = None if current_value is None else f"{daily_change_amount or 0:+,.2f} COP"
             if current_value is not None:
                 tone = "positive" if current_value >= 0 else "negative"
-        elif metric["key"] == "daily_change_amount":
-            delta = str(latest_record.get("daily_change_direction", "")).strip().lower()
-            if delta == "up":
-                delta = "sesgo alcista"
-                tone = "positive"
-            elif delta == "down":
-                delta = "sesgo bajista"
-                tone = "negative"
-            else:
-                delta = "sesgo neutral"
-                tone = "neutral"
         else:
             previous_value = _safe_float(previous_record, metric["key"]) if previous_record else None
             delta = _format_metric_delta(metric["key"], current_value, previous_value)
@@ -331,8 +327,7 @@ def _render_kpis(symbol_record_groups: list[tuple[str, dict, list[dict]]]) -> No
 def _render_summary_line(summary: dict[str, str]) -> None:
     st.markdown(
         (
-            f":green[:material/database: **Registros**] **{summary['record_count']}**"
-            f"  |  :green[:material/event_available: **Desde**] **{summary['from_timestamp']}**"
+            f":green[:material/event_available: **Desde**] **{summary['from_timestamp']}**"
             f"  |  :green[:material/flag: **Hasta**] **{summary['to_timestamp']}**"
         ),
         text_alignment="right",
@@ -382,45 +377,6 @@ def _build_depth_chart(depth_history: pd.DataFrame, side: str, metric: str) -> a
     )
 
 
-def _build_activity_table(records: list[dict]) -> pd.DataFrame:
-    rows: list[dict[str, object]] = []
-
-    for record in records:
-        rows.append(
-            {
-                "Hora": str(record.get("captured_at", "")),
-                "Simbolo": str(record.get("symbol", "")),
-                "OBI L1": _safe_float(record, "obi_l1"),
-                "OBI Top 5": _safe_float(record, "obi_top_5"),
-                "Spread": _safe_float(record, "spread"),
-            }
-        )
-
-    return pd.DataFrame(rows)
-
-
-def _render_activity_table(records: list[dict]) -> None:
-    frame = _build_activity_table(records)
-    if frame.empty:
-        st.info("No hay registros disponibles para construir la tabla operativa.")
-        return
-
-    display_frame = frame.copy()
-    display_frame["Hora"] = pd.to_datetime(display_frame["Hora"], errors="coerce").dt.strftime("%d-%m-%Y %H:%M")
-    display_frame["Hora"] = display_frame["Hora"].fillna("n/a")
-
-    styled = (
-        display_frame.style.format(
-            {
-                "OBI L1": "{:,.2f}",
-                "OBI Top 5": "{:,.2f}",
-                "Spread": "{:,.0f}",
-            },
-            na_rep="n/a",
-        )
-    )
-
-    st.dataframe(styled, width="stretch", hide_index=True)
 st.session_state.setdefault("analytics_last_manual_refresh", None)
 
 st.markdown(
@@ -747,35 +703,25 @@ try:
         else:
             symbol_record_groups = _build_symbol_analytics_groups(analytics_payloads, selected_symbols)
             _render_kpis(symbol_record_groups)
-            table_tab, chart_tab = st.tabs(["Actividad reciente", "Bid / Ask volume"])
+            if len(selected_symbols) != 1:
+                st.info("Selecciona un solo simbolo para inspeccionar las curvas de Bid / Ask volume.")
+            else:
+                depth_history = pd.DataFrame(build_depth_history_rows(filtered_records))
+                if not depth_history.empty:
+                    depth_history["captured_at"] = pd.to_datetime(depth_history["captured_at"], errors="coerce")
+                    depth_history = depth_history.dropna(subset=["captured_at"])
 
-            with table_tab:
-                _render_activity_table(filtered_records)
-
-            with chart_tab:
-                if len(selected_symbols) != 1:
-                    st.info("Selecciona un solo simbolo para inspeccionar las curvas de Bid / Ask volume.")
-                else:
-                    depth_history = pd.DataFrame(build_depth_history_rows(filtered_records))
                     if not depth_history.empty:
-                        depth_history["captured_at"] = pd.to_datetime(depth_history["captured_at"], errors="coerce")
-                        depth_history = depth_history.dropna(subset=["captured_at"])
-
-                        if not depth_history.empty:
-                            bid_chart_slot = st.container()
-                            ask_chart_slot = st.container()
-                            with bid_chart_slot:
-                                st.altair_chart(_build_depth_chart(depth_history, "Bid", "quantity"), width="stretch")
-                            with ask_chart_slot:
-                                st.altair_chart(_build_depth_chart(depth_history, "Ask", "quantity"), width="stretch")
-                        else:
-                            st.info(
-                                "Los snapshots consultados no trajeron timestamps validos para construir las series de profundidad."
-                            )
+                        st.altair_chart(_build_depth_chart(depth_history, "Bid", "quantity"), width="stretch")
+                        st.altair_chart(_build_depth_chart(depth_history, "Ask", "quantity"), width="stretch")
                     else:
                         st.info(
-                            "Los snapshots consultados no trajeron `bid_levels` y `ask_levels` en un formato graficable."
+                            "Los snapshots consultados no trajeron timestamps validos para construir las series de profundidad."
                         )
+                else:
+                    st.info(
+                        "Los snapshots consultados no trajeron `bid_levels` y `ask_levels` en un formato graficable."
+                    )
 except (BackendConfigurationError, ApiGatewayClientError) as exc:
     st.error("No fue posible consultar los snapshots recientes.")
     st.caption("Referencia interna: `analytics_recent_snapshots`")

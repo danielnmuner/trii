@@ -74,8 +74,8 @@ def test_build_analytics_summary_uses_real_record_bounds_when_available() -> Non
 
     assert summary == {
         "record_count": 2,
-        "from_timestamp": "17-08-2026 14:00",
-        "to_timestamp": "17-08-2026 20:30",
+        "from_timestamp": "17-08-2026 14:00:00",
+        "to_timestamp": "17-08-2026 20:30:00",
     }
 
 
@@ -88,8 +88,8 @@ def test_build_analytics_summary_falls_back_to_selected_window_when_records_are_
 
     assert summary == {
         "record_count": 1,
-        "from_timestamp": "17-08-2026 15:14",
-        "to_timestamp": "17-08-2026 21:14",
+        "from_timestamp": "17-08-2026 15:14:00",
+        "to_timestamp": "17-08-2026 21:14:00",
     }
 
 
