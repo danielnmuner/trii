@@ -8,7 +8,6 @@ from trii_ingestion.services.analytics import (
     build_depth_history_rows,
     build_historic_z_score_context,
     format_timestamp_label,
-    get_time_window_labels,
 )
 
 
@@ -50,10 +49,6 @@ def _sample_records() -> list[dict]:
     ]
 
 
-def test_time_window_labels_include_expected_default_options() -> None:
-    assert get_time_window_labels() == ["1h", "3h", "6h", "1d", "3d", "7d"]
-
-
 def test_format_timestamp_label_supports_date_only_values() -> None:
     assert format_timestamp_label("2026-08-11") == "11-08-2026 00:00"
 
@@ -68,7 +63,6 @@ def test_build_analytics_summary_uses_real_record_bounds_when_available() -> Non
             {"symbol": "PFAVAL", "captured_at": "2026-08-17T20:30:00-05:00"},
             {"symbol": "PFAVAL", "captured_at": "2026-08-17T14:00:00-05:00"},
         ],
-        window_label="6h",
         current_time=datetime(2026, 8, 17, 21, 14, tzinfo=BOGOTA),
     )
 
@@ -76,20 +70,21 @@ def test_build_analytics_summary_uses_real_record_bounds_when_available() -> Non
         "record_count": 2,
         "from_timestamp": "17-08-2026 14:00:00",
         "to_timestamp": "17-08-2026 20:30:00",
+        "tw_seconds": 23400,
     }
 
 
-def test_build_analytics_summary_falls_back_to_selected_window_when_records_are_missing_timestamps() -> None:
+def test_build_analytics_summary_falls_back_to_current_time_when_records_are_missing_timestamps() -> None:
     summary = build_analytics_summary(
         [{"symbol": "PFAVAL"}],
-        window_label="6h",
         current_time=datetime(2026, 8, 17, 21, 14, tzinfo=BOGOTA),
     )
 
     assert summary == {
         "record_count": 1,
-        "from_timestamp": "17-08-2026 15:14:00",
+        "from_timestamp": "17-08-2026 21:14:00",
         "to_timestamp": "17-08-2026 21:14:00",
+        "tw_seconds": 0,
     }
 
 

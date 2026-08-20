@@ -59,16 +59,6 @@ SPANISH_MONTHS = {
     "dic": 12,
 }
 
-ANALYTICS_WINDOWS = {
-    "1h": timedelta(hours=1),
-    "3h": timedelta(hours=3),
-    "6h": timedelta(hours=6),
-    "1d": timedelta(days=1),
-    "3d": timedelta(days=3),
-    "7d": timedelta(days=7),
-}
-
-
 def _response(status_code: int, payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "statusCode": status_code,
@@ -415,15 +405,6 @@ def _latest_snapshot_for_symbol(symbol: str) -> dict[str, Any] | None:
     return items[0]
 
 
-def _resolve_analytics_window(window_label: str) -> timedelta:
-    try:
-        return ANALYTICS_WINDOWS[window_label]
-    except KeyError as exc:
-        raise ValueError(
-            "El parametro `window` debe ser uno de: 1h, 3h, 6h, 1d, 3d, 7d."
-        ) from exc
-
-
 def _query_snapshots_for_symbol(
     symbol: str,
     *,
@@ -499,11 +480,6 @@ def _get_analytics_snapshot(event: dict[str, Any]) -> dict[str, Any]:
     if not symbol:
         raise ValueError("El parametro `symbol` es obligatorio para consultar analytics.")
 
-    window_label = str(params.get("window") or "6h").strip().lower()
-    window_delta = _resolve_analytics_window(window_label)
-    now_bogota = datetime.now(BOGOTA_TIMEZONE)
-    from_bogota = now_bogota - window_delta
-
     captured_at = str(params.get("captured_at") or "").strip()
     if captured_at:
         response = CURRENT_SNAPSHOTS_TABLE.get_item(
@@ -517,15 +493,12 @@ def _get_analytics_snapshot(event: dict[str, Any]) -> dict[str, Any]:
         if snapshot:
             previous_snapshots = _query_snapshots_for_symbol(
                 symbol,
-                from_timestamp=from_bogota,
                 to_timestamp=_parse_snapshot_timestamp(captured_at),
                 limit=2,
             )
     else:
         previous_snapshots = _query_snapshots_for_symbol(
             symbol,
-            from_timestamp=from_bogota,
-            to_timestamp=now_bogota,
             limit=2,
         )
         snapshot = previous_snapshots[0] if previous_snapshots else None
@@ -560,7 +533,6 @@ def _get_analytics_snapshot(event: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "symbol": symbol,
-        "window": window_label,
         "record_count": len(snapshots),
         "from_timestamp": str((previous_snapshot or current_snapshot).get("captured_at", "")),
         "to_timestamp": str(current_snapshot.get("captured_at", "")),

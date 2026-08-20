@@ -43,13 +43,10 @@ class ApiGatewayClient:
         )
         return self._decode_response(response)
 
-    def get_analytics_snapshot(self, *, symbol: str, window: str = "6h") -> dict[str, Any]:
+    def get_analytics_snapshot(self, *, symbol: str) -> dict[str, Any]:
         response = self._perform_request(
             request.Request(
-                url=(
-                    f"{self.base_url.rstrip('/')}/analytics/snapshot?"
-                    f"{urlencode({'symbol': symbol, 'window': window})}"
-                ),
+                url=f"{self.base_url.rstrip('/')}/analytics/snapshot?{urlencode({'symbol': symbol})}",
                 headers={"X-Api-Token": self.token},
                 method="GET",
             )

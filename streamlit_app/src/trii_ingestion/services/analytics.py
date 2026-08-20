@@ -1,21 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
 
 BOGOTA_TIMEZONE = ZoneInfo("America/Bogota")
-TIME_WINDOW_OPTIONS: tuple[tuple[str, str, timedelta], ...] = (
-    ("1h", "Ultima hora", timedelta(hours=1)),
-    ("3h", "Ultimas 3 horas", timedelta(hours=3)),
-    ("6h", "Ultimas 6 horas", timedelta(hours=6)),
-    ("1d", "Ultimo dia", timedelta(days=1)),
-    ("3d", "Ultimos 3 dias", timedelta(days=3)),
-    ("7d", "Ultimos 7 dias", timedelta(days=7)),
-)
-
-
 def now_in_bogota() -> datetime:
     return datetime.now(BOGOTA_TIMEZONE)
 
@@ -41,23 +31,6 @@ def format_datetime_label(value: datetime | None) -> str:
     return value.astimezone(BOGOTA_TIMEZONE).strftime("%d-%m-%Y %H:%M:%S")
 
 
-def get_time_window_labels() -> list[str]:
-    return [label for label, _, _ in TIME_WINDOW_OPTIONS]
-
-
-def resolve_time_window(label: str) -> timedelta:
-    for option_label, _, delta in TIME_WINDOW_OPTIONS:
-        if option_label == label:
-            return delta
-    raise ValueError(f"Unsupported analytics time window: {label}")
-
-
-def get_time_window_help_text(label: str) -> str:
-    for option_label, description, _ in TIME_WINDOW_OPTIONS:
-        if option_label == label:
-            return description
-    raise ValueError(f"Unsupported analytics time window: {label}")
-
 def parse_record_timestamp(record: dict[str, Any]) -> datetime | None:
     raw_value = record.get("captured_at")
     if not isinstance(raw_value, str) or not raw_value.strip():
@@ -76,11 +49,9 @@ def parse_record_timestamp(record: dict[str, Any]) -> datetime | None:
 def build_analytics_summary(
     records: list[dict[str, Any]],
     *,
-    window_label: str,
     current_time: datetime | None = None,
 ) -> dict[str, Any]:
     now_value = current_time or now_in_bogota()
-    fallback_from_timestamp = now_value - resolve_time_window(window_label)
     parsed_timestamps = [
         timestamp
         for record in records
@@ -91,13 +62,16 @@ def build_analytics_summary(
         from_timestamp = min(parsed_timestamps)
         to_timestamp = max(parsed_timestamps)
     else:
-        from_timestamp = fallback_from_timestamp
+        from_timestamp = now_value
         to_timestamp = now_value
+
+    tw_seconds = max(int((to_timestamp - from_timestamp).total_seconds()), 0)
 
     return {
         "record_count": len(records),
         "from_timestamp": format_datetime_label(from_timestamp),
         "to_timestamp": format_datetime_label(to_timestamp),
+        "tw_seconds": tw_seconds,
     }
 
 

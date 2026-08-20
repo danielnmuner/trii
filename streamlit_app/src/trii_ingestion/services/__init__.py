@@ -4,8 +4,6 @@ from trii_ingestion.services.analytics import (
     build_depth_history_rows,
     build_historic_z_score_context,
     format_timestamp_label,
-    get_time_window_help_text,
-    get_time_window_labels,
     now_in_bogota,
 )
 from trii_ingestion.services.invoice_archives import InvoiceArchivesService
@@ -18,8 +16,6 @@ __all__ = [
     "build_depth_history_rows",
     "build_historic_z_score_context",
     "format_timestamp_label",
-    "get_time_window_help_text",
-    "get_time_window_labels",
     "InvoiceArchivesService",
     "now_in_bogota",
     "StockOrdersCsvService",

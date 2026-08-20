@@ -20,8 +20,6 @@ from trii_ingestion.services import (
     build_analytics_summary,
     build_depth_history_rows,
     build_historic_z_score_context,
-    get_time_window_help_text,
-    get_time_window_labels,
     now_in_bogota,
 )
 
@@ -33,9 +31,9 @@ def _load_analytics_catalog(days: int) -> dict:
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def _load_analytics_snapshot(symbol: str, window: str) -> dict:
+def _load_analytics_snapshot(symbol: str) -> dict:
     client = get_backend_client()
-    return client.get_analytics_snapshot(symbol=symbol, window=window)
+    return client.get_analytics_snapshot(symbol=symbol)
 
 
 def _refresh_recent_snapshots_cache() -> None:
@@ -141,6 +139,21 @@ def _sample_count_label(sample_count: int) -> str | None:
     if sample_count <= 0:
         return None
     return f"{sample_count:,}"
+
+
+def _format_elapsed_seconds(total_seconds: int) -> str:
+    if total_seconds < 60:
+        return f"{total_seconds}s"
+    minutes, seconds = divmod(total_seconds, 60)
+    return f"{minutes}m {seconds:02d}s"
+
+
+def _refresh_tone(total_seconds: int) -> str:
+    if total_seconds < 60:
+        return "green"
+    if total_seconds <= 300:
+        return "orange"
+    return "red"
 
 
 def _resolve_symbol_sample_count(current_stats: dict) -> int:
@@ -325,13 +338,31 @@ def _render_kpis(symbol_record_groups: list[tuple[str, dict, list[dict]]]) -> No
 
 
 def _render_summary_line(summary: dict[str, str]) -> None:
+    current_time = now_in_bogota()
+    refresh_reference = (
+        st.session_state.get("analytics_last_manual_refresh")
+        or st.session_state.get("analytics_session_loaded_at")
+        or current_time
+    )
+    refresh_age_seconds = max(int((current_time - refresh_reference).total_seconds()), 0)
+    refresh_tone = _refresh_tone(refresh_age_seconds)
     st.markdown(
         (
             f":green[:material/event_available: **Desde**] **{summary['from_timestamp']}**"
             f"  |  :green[:material/flag: **Hasta**] **{summary['to_timestamp']}**"
+            f"  |  :green[:material/timer: **TW**] **{summary['tw_seconds']:,}s**"
+            f"  |  :{refresh_tone}[:material/history: **Last Refresh**] **{_format_elapsed_seconds(refresh_age_seconds)}**"
         ),
         text_alignment="right",
     )
+
+
+@st.fragment(run_every=1)
+def _render_summary_line_fragment() -> None:
+    summary = st.session_state.get("analytics_summary")
+    if not isinstance(summary, dict) or not summary:
+        return
+    _render_summary_line(summary)
 
 
 def _build_depth_chart(depth_history: pd.DataFrame, side: str, metric: str) -> alt.Chart:
@@ -378,6 +409,8 @@ def _build_depth_chart(depth_history: pd.DataFrame, side: str, metric: str) -> a
 
 
 st.session_state.setdefault("analytics_last_manual_refresh", None)
+st.session_state.setdefault("analytics_session_loaded_at", now_in_bogota())
+st.session_state.setdefault("analytics_summary", {})
 
 st.markdown(
     """
@@ -461,15 +494,16 @@ st.markdown(
     }
     .analytics-light-tape-zscore-stack {
         display: flex;
-        align-items: center;
-        gap: 0.22rem;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.04rem;
         min-width: 0;
         flex-shrink: 0;
     }
     .analytics-light-tape-zmeta {
         display: flex;
         flex-direction: column;
-        gap: 0.02rem;
+        gap: 0.01rem;
         min-width: 0;
     }
     .analytics-light-tape-zmeta-line {
@@ -634,19 +668,8 @@ try:
     if not symbols:
         st.info("No se encontraron snapshots disponibles para construir filtros operativos.")
     else:
-        time_window_options = get_time_window_labels()
-
-        filter_columns = st.columns([1.05, 1.55, 0.7], gap="medium")
+        filter_columns = st.columns([2.2, 0.7], gap="medium")
         with filter_columns[0]:
-            st.markdown("*Time window*")
-            selected_window = st.selectbox(
-                "Time window",
-                options=time_window_options,
-                index=time_window_options.index("6h"),
-                help=get_time_window_help_text("6h"),
-                label_visibility="collapsed",
-            )
-        with filter_columns[1]:
             st.markdown("*Symbols*")
             selected_symbols = st.multiselect(
                 "Symbols",
@@ -655,7 +678,7 @@ try:
                 help="Select one or more symbols for the analytics view.",
                 label_visibility="collapsed",
             )
-        with filter_columns[2]:
+        with filter_columns[1]:
             st.markdown("*Refresh*")
             refresh_requested = st.button(
                 "Refresh query",
@@ -670,7 +693,7 @@ try:
 
         analytics_payloads: list[dict] = []
         for selected_symbol in selected_symbols:
-            analytics_response = _load_analytics_snapshot(selected_symbol, selected_window)
+            analytics_response = _load_analytics_snapshot(selected_symbol)
             analytics_result = analytics_response.get("result", {})
             if analytics_result.get("current_snapshot"):
                 analytics_payloads.append(analytics_result)
@@ -684,22 +707,16 @@ try:
         filtered_records.sort(key=lambda item: str(item.get("captured_at", "")), reverse=True)
         summary = build_analytics_summary(
             filtered_records,
-            window_label=selected_window,
             current_time=now_in_bogota(),
         )
 
-        last_manual_refresh = st.session_state.get("analytics_last_manual_refresh")
-        if last_manual_refresh is not None:
-            st.caption(
-                f"*Ultima recarga manual: {last_manual_refresh.strftime('%d-%m-%Y %H:%M')} (America/Bogota).*"
-            )
-
-        _render_summary_line(summary)
+        st.session_state["analytics_summary"] = summary
+        _render_summary_line_fragment()
 
         if not selected_symbols:
             st.info("Selecciona al menos un simbolo para cargar la vista analitica.")
         elif not analytics_payloads:
-            st.info("No hay snapshots para los simbolos elegidos dentro de la ventana seleccionada.")
+            st.info("No hay snapshots disponibles para los simbolos elegidos.")
         else:
             symbol_record_groups = _build_symbol_analytics_groups(analytics_payloads, selected_symbols)
             _render_kpis(symbol_record_groups)
