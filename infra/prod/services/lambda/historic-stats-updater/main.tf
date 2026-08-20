@@ -12,6 +12,16 @@ data "aws_iam_policy_document" "inline" {
   }
 
   statement {
+    sid    = "ReadCurrentSnapshotsTable"
+    effect = "Allow"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:Query",
+    ]
+    resources = [var.current_snapshots_table_arn]
+  }
+
+  statement {
     sid    = "ReadWriteHistoricStats"
     effect = "Allow"
     actions = [
@@ -49,6 +59,7 @@ module "function" {
   policy_json   = data.aws_iam_policy_document.inline.json
 
   environment_variables = {
+    CURRENT_SNAPSHOTS_TABLE                   = var.current_snapshots_table_name
     HISTORIC_STATS_TABLE                      = var.historic_stats_table_name
     PROCESSED_STATS_EVENTS_TABLE              = var.processed_stats_events_table_name
     MARKET_AI_RECOMMENDATION_HANDLER_FUNCTION = var.market_ai_recommendation_handler_function_name

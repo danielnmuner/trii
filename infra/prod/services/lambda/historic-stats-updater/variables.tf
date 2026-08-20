@@ -13,6 +13,16 @@ variable "current_snapshots_stream_arn" {
   type        = string
 }
 
+variable "current_snapshots_table_name" {
+  description = "Current snapshots table name."
+  type        = string
+}
+
+variable "current_snapshots_table_arn" {
+  description = "Current snapshots table ARN."
+  type        = string
+}
+
 variable "historic_stats_table_name" {
   description = "Historic stats table name."
   type        = string

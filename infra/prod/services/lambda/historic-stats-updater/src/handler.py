@@ -7,17 +7,22 @@ import hashlib
 from typing import Any
 
 import boto3
+from boto3.dynamodb.conditions import Key
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 from botocore.exceptions import ClientError
+from data_quality import build_data_quality_item, parse_captured_at
 from snapshot_metrics import extract_metric_values, to_decimal
+from stats_engine import build_stat_item
 from zoneinfo import ZoneInfo
 
 
 DYNAMODB_CLIENT = boto3.client("dynamodb")
+DYNAMODB_RESOURCE = boto3.resource("dynamodb")
 LAMBDA_CLIENT = boto3.client("lambda")
 DESERIALIZER = TypeDeserializer()
 SERIALIZER = TypeSerializer()
 BOGOTA_TIMEZONE = ZoneInfo("America/Bogota")
+CURRENT_SNAPSHOTS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["CURRENT_SNAPSHOTS_TABLE"])
 HISTORIC_STATS_TABLE = os.environ["HISTORIC_STATS_TABLE"]
 PROCESSED_STATS_EVENTS_TABLE = os.environ["PROCESSED_STATS_EVENTS_TABLE"]
 MARKET_AI_RECOMMENDATION_HANDLER_FUNCTION = os.environ["MARKET_AI_RECOMMENDATION_HANDLER_FUNCTION"]
@@ -33,17 +38,6 @@ def _serialize_item(item: dict[str, Any]) -> dict[str, Any]:
 
 def _serialize_values(values: dict[str, Any]) -> dict[str, Any]:
     return {key: SERIALIZER.serialize(value) for key, value in values.items()}
-
-
-def _parse_captured_at(raw_value: str) -> datetime:
-    timestamp = datetime.fromisoformat(raw_value)
-    if timestamp.tzinfo is None:
-        timestamp = timestamp.replace(tzinfo=BOGOTA_TIMEZONE)
-    return timestamp.astimezone(BOGOTA_TIMEZONE)
-
-
-def _build_bucket_time(captured_at: datetime) -> str:
-    return captured_at.strftime("%H:%M:%S")
 
 
 def _extract_metric_values(snapshot: dict[str, Any]) -> dict[str, Decimal]:
@@ -110,12 +104,9 @@ def _build_ai_trigger_payload(
 
     symbol = str(snapshot["symbol"]).strip().upper()
     captured_at = str(snapshot["captured_at"]).strip()
-    bucket_time = _build_bucket_time(_parse_captured_at(captured_at))
-
     return {
         "symbol": symbol,
         "captured_at": captured_at,
-        "bucket_time": bucket_time,
         "snapshot_checksum": str(snapshot.get("snapshot_checksum") or "").strip(),
         "triggered_rules": sorted(triggered_rules),
         "trigger_signature": _build_trigger_signature(symbol, captured_at, triggered_rules),
@@ -135,10 +126,6 @@ def _invoke_market_ai_recommendation_handler(payload: dict[str, Any]) -> None:
         InvocationType="Event",
         Payload=json.dumps(payload).encode("utf-8"),
     )
-
-
-def _load_current_stat_items(pk: str, metrics: list[str]) -> dict[str, dict[str, Any]]:
-    return _load_existing_stat_items(pk, metrics)
 
 
 def _load_existing_stat_items(pk: str, metrics: list[str]) -> dict[str, dict[str, Any]]:
@@ -171,63 +158,31 @@ def _processed_event_exists(snapshot_checksum: str) -> bool:
     return "Item" in response
 
 
-def _build_stat_item(
-    previous_item: dict[str, Any] | None,
-    *,
-    symbol: str,
-    metric: str,
-    bucket_time: str,
-    captured_at: str,
-    snapshot_checksum: str,
-    value: Decimal,
-) -> dict[str, Any]:
-    previous_count = int(previous_item["sample_count"]) if previous_item else 0
-    previous_mean = _to_decimal(previous_item["mean"]) if previous_item else Decimal("0")
-    previous_m2 = _to_decimal(previous_item["m2"]) if previous_item else Decimal("0")
-    previous_min = _to_decimal(previous_item["min_value"]) if previous_item else value
-    previous_max = _to_decimal(previous_item["max_value"]) if previous_item else value
+def _load_previous_snapshot(symbol: str, captured_at: str) -> dict[str, Any] | None:
+    response = CURRENT_SNAPSHOTS_TABLE.query(
+        KeyConditionExpression=Key("symbol").eq(symbol) & Key("captured_at").lte(captured_at),
+        ScanIndexForward=False,
+        Limit=2,
+    )
+    items = response.get("Items", [])
+    if len(items) < 2:
+        return None
+    return items[1]
 
-    sample_count = previous_count + 1
-    delta = value - previous_mean
-    mean = previous_mean + (delta / Decimal(sample_count))
-    delta_2 = value - mean
-    m2 = previous_m2 + (delta * delta_2)
 
-    if sample_count > 1:
-        variance = m2 / Decimal(sample_count - 1)
-        stddev = variance.sqrt()
-    else:
-        stddev = Decimal("0")
-
-    stats_version = int(previous_item["stats_version"]) + 1 if previous_item else 1
-
-    return {
-        "pk": f"{symbol}#{bucket_time}",
-        "sk": metric,
-        "symbol": symbol,
-        "metric": metric,
-        "bucket_time": bucket_time,
-        "symbol_metric": f"{symbol}#{metric}",
-        "sample_count": sample_count,
-        "mean": mean,
-        "m2": m2,
-        "stddev": stddev,
-        "min_value": value if previous_min is None else min(previous_min, value),
-        "max_value": value if previous_max is None else max(previous_max, value),
-        "latest_value": value,
-        "last_source_captured_at": captured_at,
-        "last_source_checksum": snapshot_checksum,
-        "last_updated_at": datetime.now(BOGOTA_TIMEZONE).isoformat(),
-        "stats_scope": "all_time_intraday_bucket",
-        "stats_version": stats_version,
-    }
+def _load_existing_data_quality_item(symbol: str, trading_date: str) -> dict[str, Any] | None:
+    response = DYNAMODB_CLIENT.get_item(
+        TableName=HISTORIC_STATS_TABLE,
+        Key=_serialize_item({"pk": symbol, "sk": f"data_quality#{trading_date}"}),
+    )
+    item = response.get("Item")
+    return None if item is None else _deserialize_item(item)
 
 
 def _transact_snapshot(snapshot: dict[str, Any], source_event_id: str) -> str:
     symbol = str(snapshot["symbol"]).strip().upper()
     captured_at = str(snapshot["captured_at"]).strip()
-    captured_timestamp = _parse_captured_at(captured_at)
-    bucket_time = _build_bucket_time(captured_timestamp)
+    captured_timestamp = parse_captured_at(captured_at)
     snapshot_checksum = str(snapshot.get("snapshot_checksum") or "").strip()
     if not snapshot_checksum:
         raise ValueError("Snapshot checksum is required for idempotent historic stats updates.")
@@ -238,9 +193,22 @@ def _transact_snapshot(snapshot: dict[str, Any], source_event_id: str) -> str:
 
     metric_names = sorted(metrics.keys())
     updated_items: dict[str, dict[str, Any]] = {}
+    updated_at = datetime.now(BOGOTA_TIMEZONE)
+    previous_snapshot = _load_previous_snapshot(symbol, captured_at)
+    previous_timestamp = None
+    if previous_snapshot is not None:
+        previous_timestamp = parse_captured_at(str(previous_snapshot["captured_at"]))
 
     for _attempt in range(3):
-        previous_items = _load_existing_stat_items(f"{symbol}#{bucket_time}", metric_names)
+        previous_items = _load_existing_stat_items(symbol, metric_names)
+        previous_data_quality_item = _load_existing_data_quality_item(symbol, captured_at[:10])
+        data_quality_item = build_data_quality_item(
+            previous_data_quality_item,
+            symbol=symbol,
+            current_timestamp=captured_timestamp,
+            previous_timestamp=previous_timestamp,
+            updated_at=updated_at,
+        )
         transact_items = [
             {
                 "Put": {
@@ -252,7 +220,6 @@ def _transact_snapshot(snapshot: dict[str, Any], source_event_id: str) -> str:
                             "symbol": symbol,
                             "captured_at": captured_at,
                             "symbol_captured_at": f"{symbol}#{captured_at}",
-                            "bucket_time": bucket_time,
                             "processed_at": datetime.now(BOGOTA_TIMEZONE).isoformat(),
                             "source_event_id": source_event_id,
                             "metrics_processed": metric_names,
@@ -269,10 +236,10 @@ def _transact_snapshot(snapshot: dict[str, Any], source_event_id: str) -> str:
                 previous_item,
                 symbol=symbol,
                 metric=metric_name,
-                bucket_time=bucket_time,
                 captured_at=captured_at,
                 snapshot_checksum=snapshot_checksum,
                 value=metrics[metric_name],
+                updated_at=updated_at,
             )
             updated_items[metric_name] = updated_item
             put_request = {
@@ -288,6 +255,20 @@ def _transact_snapshot(snapshot: dict[str, Any], source_event_id: str) -> str:
                 )
             transact_items.append({"Put": put_request})
 
+        if data_quality_item is not None:
+            data_quality_put_request = {
+                "TableName": HISTORIC_STATS_TABLE,
+                "Item": _serialize_item(data_quality_item),
+            }
+            if previous_data_quality_item is None:
+                data_quality_put_request["ConditionExpression"] = "attribute_not_exists(pk) AND attribute_not_exists(sk)"
+            else:
+                data_quality_put_request["ConditionExpression"] = "stats_version = :expected_version"
+                data_quality_put_request["ExpressionAttributeValues"] = _serialize_values(
+                    {":expected_version": int(previous_data_quality_item["stats_version"])}
+                )
+            transact_items.append({"Put": data_quality_put_request})
+
         try:
             DYNAMODB_CLIENT.transact_write_items(TransactItems=transact_items)
             trigger_payload = _build_ai_trigger_payload(snapshot, updated_items)
@@ -298,7 +279,7 @@ def _transact_snapshot(snapshot: dict[str, Any], source_event_id: str) -> str:
             if exc.response.get("Error", {}).get("Code") != "TransactionCanceledException":
                 raise
             if _processed_event_exists(snapshot_checksum):
-                current_items = _load_current_stat_items(f"{symbol}#{bucket_time}", metric_names)
+                current_items = _load_existing_stat_items(symbol, metric_names)
                 trigger_payload = _build_ai_trigger_payload(snapshot, current_items)
                 if trigger_payload is not None:
                     _invoke_market_ai_recommendation_handler(trigger_payload)

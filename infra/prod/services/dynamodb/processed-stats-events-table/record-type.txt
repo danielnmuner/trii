@@ -19,7 +19,6 @@ record_type:
 - symbol: string, uppercase stock symbol
 - captured_at: string, iso-8601 timestamp with timezone
 - symbol_captured_at: string, formatted as SYMBOL#captured_at
-- bucket_time: string, hh:mm:ss in America/Bogota
 - processed_at: string, iso-8601 timestamp with timezone
 - source_event_id: string, DynamoDB Streams event identifier when available
 - metrics_processed: list<string>

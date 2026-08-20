@@ -31,7 +31,6 @@ BOGOTA_TIMEZONE = ZoneInfo("America/Bogota")
 RAW_SNAPSHOT_TTL_SECONDS = 72 * 60 * 60
 CURRENT_SNAPSHOT_TTL_SECONDS = 365 * 24 * 60 * 60
 ANALYTICS_SYMBOL_CATALOG_DAYS = 7
-
 EXPECTED_STOCK_ORDER_COLUMNS = (
     "Fecha y hora",
     "Símbolo de la acción",
@@ -452,17 +451,12 @@ def _query_snapshots_for_symbol(
     return response.get("Items", [])
 
 
-def _bucket_time_from_captured_at(captured_at: str) -> str:
-    return _parse_snapshot_timestamp(captured_at).strftime("%H:%M:%S")
-
-
 def _load_historic_stats_for_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     symbol = str(snapshot["symbol"]).strip().upper()
     captured_at = str(snapshot["captured_at"]).strip()
-    bucket_time = _bucket_time_from_captured_at(captured_at)
 
     response = HISTORIC_STATS_TABLE.query(
-        KeyConditionExpression=Key("pk").eq(f"{symbol}#{bucket_time}"),
+        KeyConditionExpression=Key("pk").eq(symbol),
     )
     items = response.get("Items", [])
     metrics = {
@@ -474,7 +468,6 @@ def _load_historic_stats_for_snapshot(snapshot: dict[str, Any]) -> dict[str, Any
     return {
         "symbol": symbol,
         "captured_at": captured_at,
-        "bucket_time": bucket_time,
         "snapshot": _json_ready(snapshot),
         "stats": metrics,
         "stats_count": len(metrics),
@@ -556,11 +549,6 @@ def _get_analytics_snapshot(event: dict[str, Any]) -> dict[str, Any]:
             previous_snapshot = previous_snapshots[1]
 
     current_stats = _load_historic_stats_for_snapshot(current_snapshot)
-    previous_stats = (
-        _load_historic_stats_for_snapshot(previous_snapshot)
-        if previous_snapshot is not None
-        else None
-    )
     market_ai_recommendation = _load_market_ai_recommendation(
         symbol,
         str(current_snapshot.get("captured_at", "")).strip(),
@@ -579,7 +567,7 @@ def _get_analytics_snapshot(event: dict[str, Any]) -> dict[str, Any]:
         "current_snapshot": _json_ready(current_snapshot),
         "previous_snapshot": None if previous_snapshot is None else _json_ready(previous_snapshot),
         "current_stats": current_stats.get("stats", {}),
-        "previous_stats": {} if previous_stats is None else previous_stats.get("stats", {}),
+        "previous_stats": {},
         "market_ai_recommendation": market_ai_recommendation,
         "snapshots": snapshots,
     }

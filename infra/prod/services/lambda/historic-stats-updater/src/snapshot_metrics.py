@@ -2,12 +2,14 @@ from decimal import Decimal
 from typing import Any
 
 
-PASS_THROUGH_METRIC_KEYS = (
-    "last_price",
-    "daily_change_amount",
-    "daily_change_percent",
-    "traded_volume",
-    "traded_value",
+# Official historic stats should be limited to normalized microstructure signals
+# that benefit from an incremental market-wide sample per symbol.
+STATISTICAL_METRIC_KEYS = (
+    "spread_bps",
+    "obi_l1",
+    "obi_top_5",
+    "book_pressure_ratio",
+    "depth_weighted_microprice_deviation",
 )
 
 
@@ -117,11 +119,9 @@ def derive_metric_values(snapshot: dict[str, Any]) -> dict[str, Decimal]:
 
 
 def extract_metric_values(snapshot: dict[str, Any]) -> dict[str, Decimal]:
-    metrics = derive_metric_values(snapshot)
-
-    for key in PASS_THROUGH_METRIC_KEYS:
-        value = to_decimal(snapshot.get(key))
-        if value is not None:
-            metrics[key] = value
-
-    return metrics
+    derived_metrics = derive_metric_values(snapshot)
+    return {
+        key: value
+        for key, value in derived_metrics.items()
+        if key in STATISTICAL_METRIC_KEYS
+    }

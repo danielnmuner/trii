@@ -30,13 +30,6 @@ def _json_ready(value: Any) -> Any:
     return value
 
 
-def _parse_timestamp(raw_value: str) -> datetime:
-    timestamp = datetime.fromisoformat(raw_value)
-    if timestamp.tzinfo is None:
-        timestamp = timestamp.replace(tzinfo=BOGOTA_TIMEZONE)
-    return timestamp.astimezone(BOGOTA_TIMEZONE)
-
-
 def _safe_decimal(value: Any) -> Decimal | None:
     if value is None:
         return None
@@ -85,9 +78,9 @@ def _get_previous_snapshot(symbol: str, captured_at: str) -> dict[str, Any] | No
     return items[1]
 
 
-def _load_stats(symbol: str, bucket_time: str) -> dict[str, Any]:
+def _load_stats(symbol: str) -> dict[str, Any]:
     response = HISTORIC_STATS_TABLE.query(
-        KeyConditionExpression=Key("pk").eq(f"{symbol}#{bucket_time}"),
+        KeyConditionExpression=Key("pk").eq(symbol),
     )
     items = response.get("Items", [])
     return {
@@ -150,7 +143,6 @@ def _build_placeholder_summary(symbol: str, triggered_rules: list[str]) -> str:
 def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
     symbol = str(event.get("symbol") or "").strip().upper()
     captured_at = str(event.get("captured_at") or "").strip()
-    bucket_time = str(event.get("bucket_time") or "").strip()
     trigger_signature = str(event.get("trigger_signature") or "").strip()
     triggered_rules = [
         str(rule).strip()
@@ -159,17 +151,12 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
     ]
     snapshot_checksum = str(event.get("snapshot_checksum") or "").strip()
 
-    if not symbol or not captured_at or not bucket_time or not trigger_signature:
-        raise ValueError("symbol, captured_at, bucket_time, and trigger_signature are required.")
+    if not symbol or not captured_at or not trigger_signature:
+        raise ValueError("symbol, captured_at, and trigger_signature are required.")
 
     current_snapshot = _get_current_snapshot(symbol, captured_at)
     previous_snapshot = _get_previous_snapshot(symbol, captured_at)
-    current_stats = _load_stats(symbol, bucket_time)
-    previous_bucket_time = None
-    previous_stats = {}
-    if previous_snapshot is not None:
-        previous_bucket_time = _parse_timestamp(str(previous_snapshot["captured_at"])).strftime("%H:%M:%S")
-        previous_stats = _load_stats(symbol, previous_bucket_time)
+    current_stats = _load_stats(symbol)
 
     zscore_context = _build_zscore_context(current_stats, ("obi_l1", "obi_top_5", "spread_bps"))
     created_at = datetime.now(BOGOTA_TIMEZONE).isoformat()
@@ -203,7 +190,6 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
         "trigger_signature": trigger_signature,
         "symbol": symbol,
         "captured_at": captured_at,
-        "bucket_time": bucket_time,
         "snapshot_checksum": snapshot_checksum,
         "current_snapshot_key": {
             "symbol": symbol,
@@ -215,8 +201,7 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
             "symbol": symbol,
             "captured_at": str(previous_snapshot["captured_at"]),
         },
-        "current_stats_bucket_pk": f"{symbol}#{bucket_time}",
-        "previous_stats_bucket_pk": None if previous_bucket_time is None else f"{symbol}#{previous_bucket_time}",
+        "current_stats_pk": symbol,
         "triggered_rules": triggered_rules,
         "zscore_context": zscore_context,
         "recommendation_status": recommendation_status,
@@ -226,7 +211,6 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
             "current_snapshot": _json_ready(current_snapshot),
             "previous_snapshot": _json_ready(previous_snapshot),
             "current_stats": _json_ready(current_stats),
-            "previous_stats": _json_ready(previous_stats),
         },
         "model_id": os.environ["BEDROCK_MODEL_ID"],
         "model_invoked": invoke_model,

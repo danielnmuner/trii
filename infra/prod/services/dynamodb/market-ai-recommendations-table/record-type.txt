@@ -18,12 +18,10 @@ record_type:
 - trigger_signature: string, deterministic signature built from symbol, captured_at, and triggered rule bundle
 - symbol: string, uppercase stock symbol
 - captured_at: string, iso-8601 timestamp with timezone for the triggering snapshot
-- bucket_time: string, hh:mm:ss in America/Bogota
 - snapshot_checksum: string
 - current_snapshot_key: map, symbol and captured_at of the triggering snapshot
 - previous_snapshot_key: map, symbol and captured_at of the immediately previous snapshot when available
-- current_stats_bucket_pk: string, formatted as SYMBOL#HH:MM:SS
-- previous_stats_bucket_pk: string, formatted as SYMBOL#HH:MM:SS when previous snapshot exists
+- current_stats_pk: string, formatted as SYMBOL
 - triggered_rules: list<string>, full rule bundle that triggered the recommendation
 - zscore_context: map, selected z-score, mean, stddev, latest_value, and sample_count details when available
 - recommendation_status: string, placeholder, generated, or failed
