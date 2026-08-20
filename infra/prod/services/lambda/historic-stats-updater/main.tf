@@ -63,6 +63,7 @@ module "function" {
     HISTORIC_STATS_TABLE                      = var.historic_stats_table_name
     PROCESSED_STATS_EVENTS_TABLE              = var.processed_stats_events_table_name
     MARKET_AI_RECOMMENDATION_HANDLER_FUNCTION = var.market_ai_recommendation_handler_function_name
+    ENABLED_STATISTICAL_METRICS               = join(",", var.enabled_statistical_metrics)
   }
 
   tags = var.tags

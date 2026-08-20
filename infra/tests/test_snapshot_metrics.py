@@ -17,7 +17,7 @@ LAMBDA_SRC = (
 if str(LAMBDA_SRC) not in sys.path:
     sys.path.insert(0, str(LAMBDA_SRC))
 
-from snapshot_metrics import extract_metric_values
+from snapshot_metrics import extract_metric_values, parse_metric_keys
 from stats_engine import build_stat_item
 
 
@@ -110,3 +110,24 @@ def test_build_stat_item_uses_welford_incrementally_for_market_sample() -> None:
     assert second["mean"] == Decimal("0.20")
     assert second["m2"] == Decimal("0.0200")
     assert second["stddev"] == Decimal("0.1414213562373095048801688724")
+
+
+def test_extract_metric_values_can_be_filtered_by_enabled_metric_keys() -> None:
+    metrics = extract_metric_values(
+        _sample_snapshot(),
+        ("obi_l1", "spread_bps"),
+    )
+
+    assert set(metrics) == {"obi_l1", "spread_bps"}
+
+
+def test_parse_metric_keys_defaults_to_all_supported_metrics() -> None:
+    metric_keys = parse_metric_keys(None)
+
+    assert metric_keys == (
+        "spread_bps",
+        "obi_l1",
+        "obi_top_5",
+        "book_pressure_ratio",
+        "depth_weighted_microprice_deviation",
+    )

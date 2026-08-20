@@ -11,7 +11,7 @@ from boto3.dynamodb.conditions import Key
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 from botocore.exceptions import ClientError
 from data_quality import build_data_quality_item, parse_captured_at
-from snapshot_metrics import extract_metric_values, to_decimal
+from snapshot_metrics import extract_metric_values, parse_metric_keys, to_decimal
 from stats_engine import build_stat_item
 from zoneinfo import ZoneInfo
 
@@ -26,6 +26,7 @@ CURRENT_SNAPSHOTS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["CURRENT_SNAPSHOTS_
 HISTORIC_STATS_TABLE = os.environ["HISTORIC_STATS_TABLE"]
 PROCESSED_STATS_EVENTS_TABLE = os.environ["PROCESSED_STATS_EVENTS_TABLE"]
 MARKET_AI_RECOMMENDATION_HANDLER_FUNCTION = os.environ["MARKET_AI_RECOMMENDATION_HANDLER_FUNCTION"]
+ENABLED_STATISTICAL_METRICS = parse_metric_keys(os.environ.get("ENABLED_STATISTICAL_METRICS"))
 
 
 def _deserialize_item(raw_item: dict[str, Any]) -> dict[str, Any]:
@@ -41,7 +42,7 @@ def _serialize_values(values: dict[str, Any]) -> dict[str, Any]:
 
 
 def _extract_metric_values(snapshot: dict[str, Any]) -> dict[str, Decimal]:
-    return extract_metric_values(snapshot)
+    return extract_metric_values(snapshot, ENABLED_STATISTICAL_METRICS)
 
 
 def _compute_z_score(stat_item: dict[str, Any]) -> Decimal | None:

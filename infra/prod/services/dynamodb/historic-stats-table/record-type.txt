@@ -85,3 +85,8 @@ query_patterns:
 - fetch the full incremental market sample for one symbol
 - fetch the current trading-day data quality record for one symbol
 - fetch one metric timeline for one symbol through gsi1
+
+backfill_policy:
+- historical rebuilds for newly introduced metrics are executed manually through historic-stats-backfill
+- current-snapshots remains the deduplicated raw source of truth for any backfill
+- live writes stay controlled by local.enabled_statistical_metrics so a new metric can be backfilled before it is enabled in real time

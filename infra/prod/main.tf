@@ -93,6 +93,20 @@ module "historic_stats_updater" {
   processed_stats_events_index_arns              = module.processed_stats_events_table.index_arns
   market_ai_recommendation_handler_function_name = module.market_ai_recommendation_handler.function_name
   market_ai_recommendation_handler_function_arn  = module.market_ai_recommendation_handler.function_arn
+  enabled_statistical_metrics                    = local.enabled_statistical_metrics
+}
+
+module "historic_stats_backfill" {
+  source = "./services/lambda/historic-stats-backfill"
+
+  environment                  = local.environment
+  project_name                 = local.project_name
+  tags                         = local.common_tags
+  current_snapshots_table_name = module.current_snapshots_table.name
+  current_snapshots_table_arn  = module.current_snapshots_table.arn
+  historic_stats_table_name    = module.historic_stats_table.name
+  historic_stats_table_arn     = module.historic_stats_table.arn
+  enabled_statistical_metrics  = local.enabled_statistical_metrics
 }
 
 module "market_ai_recommendation_handler" {

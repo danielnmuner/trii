@@ -68,6 +68,11 @@ output "historic_stats_updater_function_name" {
   value       = module.historic_stats_updater.function_name
 }
 
+output "historic_stats_backfill_function_name" {
+  description = "Historic stats backfill Lambda function name."
+  value       = module.historic_stats_backfill.function_name
+}
+
 output "market_ai_recommendation_handler_function_name" {
   description = "Market AI recommendation handler Lambda function name."
   value       = module.market_ai_recommendation_handler.function_name

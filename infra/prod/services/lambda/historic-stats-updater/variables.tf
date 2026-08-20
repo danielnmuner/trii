@@ -63,6 +63,11 @@ variable "market_ai_recommendation_handler_function_arn" {
   type        = string
 }
 
+variable "enabled_statistical_metrics" {
+  description = "Statistical metrics that the live updater is allowed to persist."
+  type        = list(string)
+}
+
 variable "tags" {
   description = "Resource tags."
   type        = map(string)

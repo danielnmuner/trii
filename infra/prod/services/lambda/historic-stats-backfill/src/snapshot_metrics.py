@@ -2,8 +2,6 @@ from decimal import Decimal
 from typing import Any
 
 
-# Official historic stats should be limited to normalized microstructure signals
-# that benefit from an incremental market-wide sample per symbol.
 SUPPORTED_STATISTICAL_METRIC_KEYS = (
     "spread_bps",
     "obi_l1",
