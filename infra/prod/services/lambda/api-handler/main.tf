@@ -82,15 +82,6 @@ data "aws_iam_policy_document" "inline" {
     resources = [var.source_documents_bucket_arn]
   }
 
-  statement {
-    sid     = "InvokeAiHandler"
-    effect  = "Allow"
-    actions = ["lambda:InvokeFunction"]
-    resources = [
-      var.ai_handler_function_arn,
-      "${var.ai_handler_function_arn}:*",
-    ]
-  }
 }
 
 module "function" {
@@ -111,7 +102,6 @@ module "function" {
     STOCK_ORDERS_TABLE                 = var.stock_orders_table_name
     PARSED_INVOICES_TABLE              = var.parsed_invoices_table_name
     SOURCE_DOCUMENTS_BUCKET            = var.source_documents_bucket_name
-    AI_HANDLER_FUNCTION                = var.ai_handler_function_name
     API_SHARED_TOKEN                   = var.api_gateway_shared_token
   }
 

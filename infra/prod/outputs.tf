@@ -18,11 +18,6 @@ output "api_handler_function_name" {
   value       = module.api_handler.function_name
 }
 
-output "ai_handler_function_name" {
-  description = "AI handler Lambda function name."
-  value       = module.ai_handler.function_name
-}
-
 output "current_snapshots_table_name" {
   description = "Current snapshots DynamoDB table name."
   value       = module.current_snapshots_table.name

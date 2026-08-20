@@ -98,16 +98,6 @@ variable "source_documents_bucket_arn" {
   type        = string
 }
 
-variable "ai_handler_function_name" {
-  description = "AI handler Lambda function name."
-  type        = string
-}
-
-variable "ai_handler_function_arn" {
-  description = "AI handler Lambda function ARN."
-  type        = string
-}
-
 variable "api_gateway_shared_token" {
   description = "Shared token required by API Gateway clients."
   type        = string

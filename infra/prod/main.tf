@@ -76,26 +76,6 @@ module "bedrock_nova_pro" {
   source = "./services/bedrock/nova-pro"
 }
 
-module "ai_handler" {
-  source = "./services/lambda/ai-handler"
-
-  environment                  = local.environment
-  project_name                 = local.project_name
-  tags                         = local.common_tags
-  current_snapshots_table_arn  = module.current_snapshots_table.arn
-  current_snapshots_index_arns = module.current_snapshots_table.index_arns
-  stock_orders_table_arn       = module.stock_orders_table.arn
-  stock_orders_index_arns      = module.stock_orders_table.index_arns
-  parsed_invoices_table_arn    = module.parsed_invoices_table.arn
-  parsed_invoices_index_arns   = module.parsed_invoices_table.index_arns
-  source_documents_bucket_arn  = module.source_documents_bucket.bucket_arn
-  source_documents_bucket_name = module.source_documents_bucket.bucket_name
-  current_snapshots_table_name = module.current_snapshots_table.name
-  stock_orders_table_name      = module.stock_orders_table.name
-  parsed_invoices_table_name   = module.parsed_invoices_table.name
-  bedrock_model_id             = module.bedrock_nova_pro.model_id
-}
-
 module "historic_stats_updater" {
   source = "./services/lambda/historic-stats-updater"
 
@@ -154,8 +134,6 @@ module "api_handler" {
   historic_stats_table_name               = module.historic_stats_table.name
   historic_stats_table_arn                = module.historic_stats_table.arn
   historic_stats_index_arns               = module.historic_stats_table.index_arns
-  ai_handler_function_name                = module.ai_handler.function_name
-  ai_handler_function_arn                 = module.ai_handler.function_arn
   api_gateway_shared_token                = var.api_gateway_shared_token
 }
 

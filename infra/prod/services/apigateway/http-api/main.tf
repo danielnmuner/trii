@@ -12,7 +12,6 @@ module "http_api" {
     "POST /orders",
     "POST /invoices",
     "POST /documents",
-    "POST /ai/query",
   ])
   tags = var.tags
 }

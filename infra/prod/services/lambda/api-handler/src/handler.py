@@ -15,7 +15,6 @@ from botocore.exceptions import ClientError
 from zoneinfo import ZoneInfo
 
 
-LAMBDA_CLIENT = boto3.client("lambda")
 DYNAMODB_CLIENT = boto3.client("dynamodb")
 DYNAMODB_RESOURCE = boto3.resource("dynamodb")
 S3_CLIENT = boto3.client("s3")
@@ -132,16 +131,6 @@ def _decode_base64_field(payload: dict[str, Any], field_name: str) -> bytes:
         return base64.b64decode(value)
     except Exception as exc:  # noqa: BLE001
         raise ValueError(f"El campo `{field_name}` no contiene base64 válido.") from exc
-
-
-def _invoke_ai_handler(payload: dict[str, Any]) -> dict[str, Any]:
-    response = LAMBDA_CLIENT.invoke(
-        FunctionName=os.environ["AI_HANDLER_FUNCTION"],
-        InvocationType="RequestResponse",
-        Payload=json.dumps(payload).encode("utf-8"),
-    )
-    body = response["Payload"].read().decode("utf-8")
-    return json.loads(body or "{}")
 
 
 def _json_checksum(payload: dict[str, Any]) -> str:
@@ -758,23 +747,6 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
             )
 
         body = _parse_body(event)
-
-        if route_key == "POST /ai/query":
-            ai_result = _invoke_ai_handler(
-                {
-                    "prompt": body.get("prompt"),
-                    "context": body.get("context", {}),
-                    "invoke_model": body.get("invoke_model", False),
-                }
-            )
-            return _response(
-                200,
-                {
-                    "status": "ok",
-                    "route": route_key,
-                    "ai_result": ai_result,
-                },
-            )
 
         if route_key == "POST /snapshots":
             return _response(
