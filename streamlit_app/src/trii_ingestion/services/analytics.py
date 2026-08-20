@@ -136,49 +136,38 @@ def build_historic_z_score_context(stat_item: dict[str, Any] | None) -> dict[str
     if not stat_item:
         return {
             "z_score": None,
-            "sample_label": None,
-            "sample_size": 0,
-            "anomaly_label": None,
+            "sample_count": 0,
+            "signal_label": None,
         }
 
     latest_value = _safe_float(stat_item.get("latest_value"))
     mean_value = _safe_float(stat_item.get("mean"))
     stddev_value = _safe_float(stat_item.get("stddev"))
-    sample_size = int(stat_item.get("sample_count", 0) or 0)
+    sample_count = int(stat_item.get("sample_count", 0) or 0)
 
     z_score = None
     if (
         latest_value is not None
         and mean_value is not None
         and stddev_value not in (None, 0.0)
-        and sample_size >= 2
+        and sample_count >= 2
     ):
         z_score = (latest_value - mean_value) / stddev_value
 
-    if sample_size >= 20:
-        sample_label = "Representative"
-    elif sample_size >= 5:
-        sample_label = "Partial"
-    elif sample_size >= 1:
-        sample_label = "Thin"
-    else:
-        sample_label = None
-
-    anomaly_label = None
+    signal_label = None
     if z_score is not None:
         absolute_z = abs(z_score)
         if absolute_z >= 3.0:
-            anomaly_label = "Anomaly"
+            signal_label = "Anomaly"
         elif absolute_z >= 2.0:
-            anomaly_label = "Review"
+            signal_label = "Review"
         else:
-            anomaly_label = "Normal"
+            signal_label = "Normal"
 
     return {
         "z_score": z_score,
-        "sample_label": sample_label,
-        "sample_size": sample_size,
-        "anomaly_label": anomaly_label,
+        "sample_count": sample_count,
+        "signal_label": signal_label,
     }
 
 

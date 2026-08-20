@@ -140,14 +140,13 @@ def test_build_historic_z_score_context_uses_stat_item_values() -> None:
         }
     )
 
-    assert context["sample_label"] == "Representative"
-    assert context["sample_size"] == 24
-    assert context["anomaly_label"] == "Anomaly"
+    assert context["sample_count"] == 24
+    assert context["signal_label"] == "Anomaly"
     assert context["z_score"] is not None
     assert round(float(context["z_score"]), 2) == 3.70
 
 
-def test_build_historic_z_score_context_marks_partial_without_signal_when_sigma_missing() -> None:
+def test_build_historic_z_score_context_keeps_sample_count_without_signal_when_sigma_missing() -> None:
     context = build_historic_z_score_context(
         {
             "latest_value": 0.24,
@@ -157,7 +156,6 @@ def test_build_historic_z_score_context_marks_partial_without_signal_when_sigma_
         }
     )
 
-    assert context["sample_label"] == "Partial"
-    assert context["sample_size"] == 8
-    assert context["anomaly_label"] is None
+    assert context["sample_count"] == 8
+    assert context["signal_label"] is None
     assert context["z_score"] is None

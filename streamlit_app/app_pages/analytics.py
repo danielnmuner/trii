@@ -127,15 +127,20 @@ def _build_symbol_analytics_groups(
 
     return groups
 
-def _tag_tone(label: str) -> str:
+
+def _signal_tone(label: str) -> str:
     normalized = label.strip().lower()
-    if "representative" in normalized or "anomaly" in normalized:
+    if normalized == "anomaly":
         return "green"
-    if "partial" in normalized or "thin" in normalized:
-        return "red"
-    if "review" in normalized:
+    if normalized == "review":
         return "blue"
     return "gray"
+
+
+def _sample_count_label(sample_count: int) -> str | None:
+    if sample_count <= 0:
+        return None
+    return f"{sample_count} samples"
 
 
 def _render_microstructure_tape(symbol: str, payload: dict, records: list[dict]) -> None:
@@ -163,17 +168,13 @@ def _render_microstructure_tape(symbol: str, payload: dict, records: list[dict])
         delta = _format_metric_delta(key, current_value, previous_value) or "No prior point"
         z_score_markup = ""
 
-        if key in {"obi_l1", "obi_top_5"}:
+        if key in {"obi_l1", "obi_top_5", "spread_bps"}:
             z_score_context = build_historic_z_score_context(current_stats.get(key))
             z_score_value = z_score_context["z_score"]
             z_score_label = None if z_score_value is None else f"{z_score_value:+.1f}"
-            sample_size = int(z_score_context["sample_size"] or 0)
-            sample_label = (
-                None
-                if not z_score_context["sample_label"] or sample_size <= 0
-                else f"{z_score_context['sample_label']} {sample_size}"
-            )
-            anomaly_label = z_score_context["anomaly_label"]
+            sample_count = int(z_score_context["sample_count"] or 0)
+            sample_label = _sample_count_label(sample_count)
+            signal_label = z_score_context["signal_label"]
             z_score_markup = "".join(
                 [
                     "<div class='analytics-light-tape-zscore-stack'>",
@@ -186,14 +187,14 @@ def _render_microstructure_tape(symbol: str, payload: dict, records: list[dict])
                     (
                         ""
                         if sample_label is None
-                        else f"<span class='analytics-light-tape-zmeta-line analytics-light-tape-zmeta-line-{_tag_tone(sample_label)}'>"
+                        else "<span class='analytics-light-tape-zmeta-line analytics-light-tape-zmeta-line-gray'>"
                         f"{escape(sample_label)}</span>"
                     ),
                     (
                         ""
-                        if anomaly_label is None
-                        else f"<span class='analytics-light-tape-zmeta-line analytics-light-tape-zmeta-line-{_tag_tone(str(anomaly_label))}'>"
-                        f"{escape(str(anomaly_label))}</span>"
+                        if signal_label is None
+                        else f"<span class='analytics-light-tape-zmeta-line analytics-light-tape-zmeta-line-{_signal_tone(str(signal_label))}'>"
+                        f"{escape(str(signal_label))}</span>"
                     ),
                     "</div>",
                     "</div>",
