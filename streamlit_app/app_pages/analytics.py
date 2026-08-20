@@ -1,4 +1,5 @@
 from __future__ import annotations
+from datetime import datetime
 from html import escape
 import sys
 from pathlib import Path
@@ -60,6 +61,8 @@ def _format_metric_value(metric_key: str, value: float | None) -> str:
         return f"{value:,.0f}"
     if metric_key == "traded_value":
         return f"{value:,.0f}"
+    if metric_key == "vwap_cumulative":
+        return f"{value:,.2f}"
     if metric_key == "daily_change_amount":
         return f"{value:,.2f}"
     if metric_key == "daily_change_percent":
@@ -95,6 +98,16 @@ def _format_metric_delta(metric_key: str, current: float | None, previous: float
     return f"{delta:+,.2f}"
 
 
+def _compute_cumulative_vwap(record: dict | None) -> float | None:
+    if not isinstance(record, dict):
+        return None
+    traded_value = _safe_float(record, "traded_value")
+    traded_volume = _safe_float(record, "traded_volume")
+    if traded_value is None or traded_volume in (None, 0):
+        return None
+    return traded_value / traded_volume
+
+
 def _format_metric_delta_with_relative(metric_key: str, current: float | None, previous: float | None) -> str | None:
     absolute_delta = _format_metric_delta(metric_key, current, previous)
     if absolute_delta is None or previous in (None, 0):
@@ -112,6 +125,7 @@ def _build_market_kpi_definitions() -> list[dict[str, str]]:
         {"key": "spread", "label": "Spread"},
         {"key": "traded_volume", "label": "Volumen negociado"},
         {"key": "traded_value", "label": "Valor negociado"},
+        {"key": "vwap_cumulative", "label": "VWAP acumulado"},
     ]
 
 
@@ -291,7 +305,11 @@ def _render_market_tape(records: list[dict]) -> None:
 
     for metric in _build_market_kpi_definitions():
         metric_key = metric["key"]
-        current_value = _safe_float(latest_record, metric_key)
+        current_value = (
+            _compute_cumulative_vwap(latest_record)
+            if metric_key == "vwap_cumulative"
+            else _safe_float(latest_record, metric_key)
+        )
         tone = "neutral"
 
         if metric_key == "last_price":
@@ -334,6 +352,10 @@ def _render_market_tape(records: list[dict]) -> None:
 
         if metric_key in {"traded_volume", "traded_value"}:
             previous_value = _safe_float(previous_record, metric_key) if previous_record else None
+            delta = _format_metric_delta_with_relative(metric_key, current_value, previous_value)
+            tone = "market"
+        elif metric_key == "vwap_cumulative":
+            previous_value = _compute_cumulative_vwap(previous_record)
             delta = _format_metric_delta_with_relative(metric_key, current_value, previous_value)
             tone = "market"
         elif metric_key == "spread":
@@ -461,11 +483,14 @@ def _render_summary_line(summary: dict[str, str]) -> None:
     latest_captured_at = str(summary.get("latest_captured_at") or "").strip()
     sample_age_seconds = None
     if latest_captured_at:
-        latest_timestamp = datetime.fromisoformat(latest_captured_at)
-        if latest_timestamp.tzinfo is None:
-            latest_timestamp = latest_timestamp.replace(tzinfo=BOGOTA_TIMEZONE)
-        latest_timestamp = latest_timestamp.astimezone(BOGOTA_TIMEZONE)
-        sample_age_seconds = max(int((current_time - latest_timestamp).total_seconds()), 0)
+        try:
+            latest_timestamp = datetime.fromisoformat(latest_captured_at)
+            if latest_timestamp.tzinfo is None:
+                latest_timestamp = latest_timestamp.replace(tzinfo=current_time.tzinfo)
+            latest_timestamp = latest_timestamp.astimezone(current_time.tzinfo)
+            sample_age_seconds = max(int((current_time - latest_timestamp).total_seconds()), 0)
+        except ValueError:
+            sample_age_seconds = None
     summary_parts = [
         f":green[:material/event_available: **Desde**] **{summary['from_timestamp']}**",
         f":green[:material/flag: **Hasta**] **{summary['to_timestamp']}**",
