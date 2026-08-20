@@ -19,6 +19,7 @@ from trii_ingestion.services import (
     ApiGatewayClientError,
     build_analytics_summary,
     build_depth_history_rows,
+    build_z_score_context,
     extract_symbols,
     filter_records,
     get_time_window_help_text,
@@ -147,7 +148,18 @@ def _render_symbol_chip(symbol: str) -> None:
     st.markdown(f"<div class='analytics-symbol-chip'>{symbol}</div>", unsafe_allow_html=True)
 
 
-def _render_microstructure_tape(symbol: str, records: list[dict]) -> None:
+def _tag_tone(label: str) -> str:
+    normalized = label.strip().lower()
+    if "representative" in normalized or "anomaly" in normalized:
+        return "green"
+    if "partial" in normalized or "thin" in normalized:
+        return "red"
+    if "review" in normalized:
+        return "blue"
+    return "gray"
+
+
+def _render_microstructure_tape(symbol: str, records: list[dict], *, current_time) -> None:
     latest_record = records[0]
     previous_record = records[1] if len(records) > 1 else None
     items: list[str] = [
@@ -169,6 +181,43 @@ def _render_microstructure_tape(symbol: str, records: list[dict]) -> None:
         current_value = _safe_float(latest_record, key)
         previous_value = _safe_float(previous_record, key) if previous_record else None
         delta = _format_metric_delta(key, current_value, previous_value) or "No prior point"
+        z_score_markup = ""
+        if key in {"obi_l1", "obi_top_5"}:
+            z_score_context = build_z_score_context(records, key, current_time=current_time)
+            z_score_value = z_score_context["z_score"]
+            z_score_label = None if z_score_value is None else f"{z_score_value:+.1f}"
+            sample_size = int(z_score_context["sample_size"] or 0)
+            sample_label = f"{z_score_context['sample_label']} {sample_size}"
+            anomaly_label = z_score_context["anomaly_label"]
+            z_score_markup = "".join(
+                [
+                    "<div class='analytics-light-tape-zscore-stack'>",
+                    (
+                        ""
+                        if z_score_label is None
+                        else f"<span class='analytics-light-tape-zscore'>{escape(z_score_label)}&sigma;</span>"
+                    ),
+                    "<div class='analytics-light-tape-zmeta'>",
+                    (
+                        f"<span class='analytics-light-tape-zmeta-line analytics-light-tape-zmeta-line-{_tag_tone(sample_label)}'>"
+                        f"{escape(sample_label)}</span>"
+                    ),
+                    (
+                        ""
+                        if anomaly_label is None
+                        else f"<span class='analytics-light-tape-zmeta-line analytics-light-tape-zmeta-line-{_tag_tone(str(anomaly_label))}'>"
+                        f"{escape(str(anomaly_label))}</span>"
+                    ),
+                    "</div>",
+                    "</div>",
+                ]
+            )
+        if False:
+            z_score = compute_latest_z_score(records, key)
+            if z_score is not None:
+                z_score_markup = (
+                    f"<span class='analytics-light-tape-zscore'>{escape(f'{z_score:+.1f}σ')}</span>"
+                )
         items.append(
             "".join(
                 [
@@ -177,7 +226,12 @@ def _render_microstructure_tape(symbol: str, records: list[dict]) -> None:
                     "<span class='analytics-light-tape-dot'></span>",
                     f"<span class='analytics-light-tape-label'>{escape(label)}</span>",
                     "</div>",
-                    f"<div class='analytics-light-tape-main'>{escape(_format_metric_value(key, current_value))}</div>",
+                    (
+                        "<div class='analytics-light-tape-main-row'>"
+                        f"<div class='analytics-light-tape-main'>{escape(_format_metric_value(key, current_value))}</div>"
+                        f"{z_score_markup}"
+                        "</div>"
+                    ),
                     f"<div class='analytics-light-tape-sub'>{escape(delta)}</div>",
                     "</div>",
                 ]
@@ -247,9 +301,9 @@ def _render_market_tape(records: list[dict]) -> None:
     )
 
 
-def _render_kpis(symbol_record_groups: list[tuple[str, list[dict]]]) -> None:
+def _render_kpis(symbol_record_groups: list[tuple[str, list[dict]]], *, current_time) -> None:
     for symbol, records in symbol_record_groups:
-        _render_microstructure_tape(symbol, records)
+        _render_microstructure_tape(symbol, records, current_time=current_time)
         _render_market_tape(records)
         st.markdown("<div class='analytics-kpi-row-spacer'></div>", unsafe_allow_html=True)
 
@@ -528,6 +582,63 @@ st.markdown(
         text-overflow: ellipsis;
         margin-bottom: 0.04rem;
     }
+    .analytics-light-tape-main-row {
+        display: flex;
+        align-items: baseline;
+        gap: 0.28rem;
+        min-width: 0;
+    }
+    .analytics-light-tape-zscore {
+        color: rgba(8, 33, 20, 0.68);
+        font-size: 0.52rem;
+        font-weight: 600;
+        line-height: 1.0;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+    .analytics-light-tape-zscore-stack {
+        display: flex;
+        align-items: center;
+        gap: 0.22rem;
+        min-width: 0;
+        flex-shrink: 0;
+    }
+    .analytics-light-tape-zmeta {
+        display: flex;
+        flex-direction: column;
+        gap: 0.02rem;
+        min-width: 0;
+    }
+    .analytics-light-tape-zmeta-line {
+        color: rgba(8, 33, 20, 0.54);
+        font-size: 0.4rem;
+        font-weight: 400;
+        line-height: 1.05;
+        letter-spacing: 0.01em;
+        white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        width: fit-content;
+        padding: 0.06rem 0.28rem;
+        border-radius: 999px;
+        background: rgba(8, 33, 20, 0.06);
+    }
+    .analytics-light-tape-zmeta-line-green {
+        color: #0b6b35;
+        background: rgba(2, 251, 126, 0.18);
+    }
+    .analytics-light-tape-zmeta-line-red {
+        color: #b42318;
+        background: rgba(255, 95, 87, 0.18);
+    }
+    .analytics-light-tape-zmeta-line-blue {
+        color: #155eef;
+        background: rgba(21, 94, 239, 0.14);
+    }
+    .analytics-light-tape-zmeta-line-gray {
+        color: #667085;
+        background: rgba(102, 112, 133, 0.12);
+    }
     .analytics-light-tape-sub {
         color: rgba(8, 33, 20, 0.62);
         font-size: 0.5rem;
@@ -691,7 +802,7 @@ try:
             st.info("No hay snapshots para los simbolos elegidos dentro de la ventana seleccionada.")
         else:
             symbol_record_groups = _build_symbol_record_groups(filtered_records, selected_symbols)
-            _render_kpis(symbol_record_groups)
+            _render_kpis(symbol_record_groups, current_time=current_time)
             table_tab, chart_tab = st.tabs(["Actividad reciente", "Bid / Ask volume"])
 
             with table_tab:

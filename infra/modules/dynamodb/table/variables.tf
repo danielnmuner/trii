@@ -45,6 +45,30 @@ variable "point_in_time_recovery_enabled" {
   default     = true
 }
 
+variable "stream_enabled" {
+  description = "Enable DynamoDB Streams for the table."
+  type        = bool
+  default     = false
+}
+
+variable "stream_view_type" {
+  description = "DynamoDB Streams view type when streams are enabled."
+  type        = string
+  default     = "NEW_IMAGE"
+}
+
+variable "ttl_enabled" {
+  description = "Enable DynamoDB TTL for the table."
+  type        = bool
+  default     = false
+}
+
+variable "ttl_attribute_name" {
+  description = "Attribute name used by DynamoDB TTL when enabled."
+  type        = string
+  default     = null
+}
+
 variable "tags" {
   description = "Resource tags."
   type        = map(string)

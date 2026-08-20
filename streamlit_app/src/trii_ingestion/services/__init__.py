@@ -2,6 +2,8 @@ from trii_ingestion.services.api_gateway_client import ApiGatewayClient, ApiGate
 from trii_ingestion.services.analytics import (
     build_analytics_summary,
     build_depth_history_rows,
+    build_z_score_context,
+    compute_latest_z_score,
     extract_symbols,
     filter_records,
     format_timestamp_label,
@@ -17,6 +19,8 @@ __all__ = [
     "ApiGatewayClientError",
     "build_analytics_summary",
     "build_depth_history_rows",
+    "build_z_score_context",
+    "compute_latest_z_score",
     "extract_symbols",
     "filter_records",
     "format_timestamp_label",

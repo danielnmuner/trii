@@ -1,7 +1,7 @@
 module "table" {
   source = "../../../../modules/dynamodb/table"
 
-  name      = "${var.project_name}-${var.environment}-current-snapshots"
+  name      = "${var.project_name}-${var.environment}-snapshot-ingestion-raw"
   hash_key  = "symbol"
   range_key = "captured_at"
 
@@ -20,8 +20,6 @@ module "table" {
     },
   ]
 
-  stream_enabled     = true
-  stream_view_type   = "NEW_IMAGE"
   ttl_enabled        = true
   ttl_attribute_name = "expires_at"
 

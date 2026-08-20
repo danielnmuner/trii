@@ -1,0 +1,61 @@
+table_name: trii-prod-historic-stats
+
+purpose:
+- store the official incremental and rebuilt statistics used by analytics
+- avoid scanning raw snapshots when streamlit only needs current value, mu, sigma, and sample size
+- support future metric expansion without changing the raw snapshots table
+- recompute business metrics from raw order-book fields before persisting aggregates, instead of trusting pre-calculated values from current-snapshots
+
+primary_key:
+- pk: symbol#bucket_time
+- sk: metric
+
+global_secondary_indexes:
+- gsi1
+  pk: symbol#metric
+  sk: bucket_time
+  purpose: query all intraday buckets for one symbol and metric without scanning
+
+record_type:
+- pk: string, formatted as SYMBOL#HH:MM:SS in America/Bogota
+- sk: string, metric name such as obi_l1, obi_top_5, spread, spread_bps, last_price, or traded_volume
+- symbol: string, uppercase stock symbol
+- metric: string
+- bucket_time: string, hh:mm:ss in America/Bogota
+- symbol_metric: string, formatted as SYMBOL#metric for gsi access
+- sample_count: number
+- mean: number
+- m2: number, Welford running second moment
+- stddev: number
+- min_value: number
+- max_value: number
+- latest_value: number
+- last_source_captured_at: string, iso-8601 timestamp with timezone
+- last_source_checksum: string
+- last_updated_at: string, iso-8601 timestamp with timezone
+- stats_scope: string, currently all_time_intraday_bucket
+- stats_version: number, optimistic concurrency counter
+
+derived_metrics_from_raw_snapshot:
+- spread = best_ask_price - best_bid_price
+- mid_price = (best_bid_price + best_ask_price) / 2
+- spread_bps = (spread / mid_price) * 10000
+- microprice = ((best_ask_price * best_bid_quantity) + (best_bid_price * best_ask_quantity)) / (best_bid_quantity + best_ask_quantity)
+- obi_l1 = (best_bid_quantity - best_ask_quantity) / (best_bid_quantity + best_ask_quantity)
+- bid_depth_total_5 = sum(bid_levels[1..5].quantity)
+- ask_depth_total_5 = sum(ask_levels[1..5].quantity)
+- obi_top_5 = (bid_depth_total_5 - ask_depth_total_5) / (bid_depth_total_5 + ask_depth_total_5)
+- book_pressure_ratio = bid_depth_total_5 / ask_depth_total_5
+- depth_weighted_microprice_deviation = microprice - mid_price
+
+pass_through_snapshot_metrics:
+- last_price
+- daily_change_amount
+- daily_change_percent
+- traded_volume
+- traded_value
+
+query_patterns:
+- fetch all metrics for one symbol at the current intraday bucket
+- fetch one metric across all intraday buckets for one symbol
+- rebuild or overwrite official stats from the raw current-snapshots table

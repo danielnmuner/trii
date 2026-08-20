@@ -3,6 +3,8 @@ table_name: trii-prod-current-snapshots
 purpose:
 - store the latest parsed market snapshots from the primary indicators contract as a time series per symbol
 - support calculations and historical analysis mainly by time
+- act as the raw source of truth for incremental and rebuilt historic stats
+- retain operational snapshots for 12 months before DynamoDB TTL removes them
 
 primary_key:
 - pk: symbol
@@ -23,6 +25,9 @@ record_type:
 - timezone: string
 - snapshot_checksum: string
 - symbol_captured_at: string, materialized gsi sort key formatted as SYMBOL#captured_at
+- source: string
+- source_url: string
+- trigger_reason: string
 - last_price: number
 - daily_change_amount: number
 - daily_change_percent: number
@@ -33,15 +38,27 @@ record_type:
 - best_ask_price: number
 - best_ask_quantity: number
 - spread: number
+- spread_bps: number
 - mid_price: number
+- microprice: number
+- depth_weighted_microprice_deviation: number
 - high_price: number
 - low_price: number
 - traded_value: number
 - traded_volume: number
+- bid_depth_total_5: number
+- ask_depth_total_5: number
+- book_pressure_ratio: number
+- obi_l1: number
+- obi_top_5: number
 - bid_levels: list<map>, up to five visible bid depth levels with level, quantity, price
 - ask_levels: list<map>, up to five visible ask depth levels with level, quantity, price
+- raw_indicators: map, raw best bid and best ask header fragments when available
+- extension_meta: map, browser extension metadata such as version and source tab url
+- expires_at: number, unix epoch seconds used by DynamoDB TTL for 12-month retention
 
 query_patterns:
 - latest snapshot by symbol
 - full time series by symbol
 - all snapshots for one capture date
+- raw source for historic stats rebuilds and stream-driven incremental updates

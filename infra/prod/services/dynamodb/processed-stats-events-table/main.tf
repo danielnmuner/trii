@@ -1,13 +1,11 @@
 module "table" {
   source = "../../../../modules/dynamodb/table"
 
-  name      = "${var.project_name}-${var.environment}-current-snapshots"
-  hash_key  = "symbol"
-  range_key = "captured_at"
+  name     = "${var.project_name}-${var.environment}-processed-stats-events"
+  hash_key = "snapshot_checksum"
 
   attributes = [
-    { name = "symbol", type = "S" },
-    { name = "captured_at", type = "S" },
+    { name = "snapshot_checksum", type = "S" },
     { name = "captured_date", type = "S" },
     { name = "symbol_captured_at", type = "S" },
   ]
@@ -19,11 +17,6 @@ module "table" {
       range_key = "symbol_captured_at"
     },
   ]
-
-  stream_enabled     = true
-  stream_view_type   = "NEW_IMAGE"
-  ttl_enabled        = true
-  ttl_attribute_name = "expires_at"
 
   tags = var.tags
 }

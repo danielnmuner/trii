@@ -20,10 +20,12 @@ locals {
 }
 
 resource "aws_dynamodb_table" "this" {
-  name         = var.name
-  billing_mode = var.billing_mode
-  hash_key     = var.hash_key
-  range_key    = var.range_key
+  name             = var.name
+  billing_mode     = var.billing_mode
+  hash_key         = var.hash_key
+  range_key        = var.range_key
+  stream_enabled   = var.stream_enabled
+  stream_view_type = var.stream_enabled ? var.stream_view_type : null
 
   dynamic "attribute" {
     for_each = var.attributes
@@ -54,6 +56,15 @@ resource "aws_dynamodb_table" "this" {
 
   point_in_time_recovery {
     enabled = var.point_in_time_recovery_enabled
+  }
+
+  dynamic "ttl" {
+    for_each = var.ttl_enabled ? [1] : []
+
+    content {
+      attribute_name = var.ttl_attribute_name
+      enabled        = true
+    }
   }
 
   tags = var.tags

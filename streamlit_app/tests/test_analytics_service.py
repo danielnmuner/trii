@@ -6,6 +6,8 @@ from zoneinfo import ZoneInfo
 from trii_ingestion.services.analytics import (
     build_analytics_summary,
     build_depth_history_rows,
+    build_z_score_context,
+    compute_latest_z_score,
     extract_symbols,
     filter_records,
     format_timestamp_label,
@@ -184,3 +186,103 @@ def test_build_depth_history_rows_supports_dynamo_json_levels() -> None:
     assert len(rows) == 2
     assert rows[0]["price"] == 822.0
     assert rows[1]["price"] == 855.0
+
+
+def test_compute_latest_z_score_uses_available_window_series() -> None:
+    records = [
+        {"obi_l1": 0.8},
+        {"obi_l1": 0.4},
+        {"obi_l1": 0.0},
+        {"obi_l1": -0.4},
+    ]
+
+    z_score = compute_latest_z_score(records, "obi_l1")
+
+    assert z_score is not None
+    assert round(z_score, 2) == 1.34
+
+
+def test_compute_latest_z_score_returns_none_when_sigma_is_zero() -> None:
+    records = [
+        {"obi_top_5": 0.2},
+        {"obi_top_5": 0.2},
+    ]
+
+    assert compute_latest_z_score(records, "obi_top_5") is None
+
+
+def test_build_z_score_context_marks_strong_and_anomalous_intraday_samples() -> None:
+    records = [
+        {
+            "captured_at": f"2026-08-18T08:{minute:02d}:00-05:00",
+            "obi_l1": 4.0 if minute == 59 else 0.0,
+        }
+        for minute in range(30, 60)
+    ]
+
+    context = build_z_score_context(
+        records[::-1],
+        "obi_l1",
+        current_time=datetime(2026, 8, 18, 8, 59, tzinfo=BOGOTA),
+    )
+
+    assert context["sample_label"] == "Representative"
+    assert context["sample_size"] == 30
+    assert context["anomaly_label"] == "Anomaly"
+    assert context["z_score"] is not None
+    assert context["coverage_ratio"] == 1.0
+
+
+def test_build_z_score_context_marks_thin_and_normal_samples_when_window_is_sparse() -> None:
+    records = [
+        {
+            "captured_at": timestamp,
+            "obi_top_5": value,
+        }
+        for timestamp, value in [
+            ("2026-08-18T08:30:00-05:00", 0.20),
+            ("2026-08-18T08:40:00-05:00", 0.10),
+            ("2026-08-18T08:50:00-05:00", 0.15),
+            ("2026-08-18T09:00:00-05:00", 0.05),
+        ]
+    ]
+
+    context = build_z_score_context(
+        records[::-1],
+        "obi_top_5",
+        current_time=datetime(2026, 8, 18, 9, 0, tzinfo=BOGOTA),
+    )
+
+    assert context["sample_label"] == "Thin"
+    assert context["sample_size"] == 4
+    assert context["anomaly_label"] == "Normal"
+    assert context["z_score"] is not None
+
+
+def test_build_z_score_context_hides_signal_when_sigma_is_zero() -> None:
+    records = [
+        {
+            "captured_at": timestamp,
+            "obi_top_5": 0.46,
+        }
+        for timestamp in [
+            "2026-08-19T12:41:00-05:00",
+            "2026-08-19T12:42:00-05:00",
+            "2026-08-19T12:43:00-05:00",
+            "2026-08-19T12:44:00-05:00",
+            "2026-08-19T12:45:00-05:00",
+            "2026-08-19T12:46:00-05:00",
+            "2026-08-19T12:47:00-05:00",
+        ]
+    ]
+
+    context = build_z_score_context(
+        records[::-1],
+        "obi_top_5",
+        current_time=datetime(2026, 8, 19, 12, 47, tzinfo=BOGOTA),
+    )
+
+    assert context["sample_label"] == "Representative"
+    assert context["sample_size"] == 7
+    assert context["anomaly_label"] is None
+    assert context["z_score"] is None

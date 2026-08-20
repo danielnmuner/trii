@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -14,6 +15,12 @@ TIME_WINDOW_OPTIONS: tuple[tuple[str, str, timedelta], ...] = (
     ("1d", "Ultimo dia", timedelta(days=1)),
     ("3d", "Ultimos 3 dias", timedelta(days=3)),
     ("7d", "Ultimos 7 dias", timedelta(days=7)),
+)
+
+
+MARKET_REGIMES: tuple[tuple[set[int], tuple[int, int], tuple[int, int]], ...] = (
+    (set((3, 4, 5, 6, 7, 8, 9, 10)), (8, 30), (15, 0)),
+    (set((11, 12, 1, 2)), (9, 30), (16, 0)),
 )
 
 
@@ -166,6 +173,157 @@ def build_depth_history_rows(records: list[dict[str, Any]]) -> list[dict[str, An
                 )
 
     return rows
+
+
+def compute_latest_z_score(records: list[dict[str, Any]], metric_key: str) -> float | None:
+    if not records:
+        return None
+
+    latest_value = _safe_float(records[0].get(metric_key))
+    if latest_value is None:
+        return None
+
+    series = [
+        value
+        for record in records
+        if (value := _safe_float(record.get(metric_key))) is not None
+    ]
+    if len(series) < 2:
+        return None
+
+    mean_value = sum(series) / len(series)
+    variance = sum((value - mean_value) ** 2 for value in series) / len(series)
+    sigma = math.sqrt(variance)
+    if sigma == 0:
+        return None
+
+    return (latest_value - mean_value) / sigma
+
+
+def build_z_score_context(
+    records: list[dict[str, Any]],
+    metric_key: str,
+    *,
+    current_time: datetime | None = None,
+) -> dict[str, str | float | int | None]:
+    z_score = compute_latest_z_score(records, metric_key)
+    sample_size, expected_points = _build_intraday_sample_stats(records, current_time=current_time)
+    coverage_ratio = 0.0 if expected_points == 0 else min(sample_size / expected_points, 1.0)
+
+    if coverage_ratio >= 0.8:
+        sample_label = "Representative"
+    elif coverage_ratio >= 0.45:
+        sample_label = "Partial"
+    else:
+        sample_label = "Thin"
+
+    anomaly_label = None
+    if z_score is not None:
+        absolute_z = abs(z_score)
+        if absolute_z >= 3.0:
+            anomaly_label = "Anomaly"
+        elif absolute_z >= 2.0:
+            anomaly_label = "Review"
+        else:
+            anomaly_label = "Normal"
+
+    return {
+        "z_score": z_score,
+        "sample_label": sample_label,
+        "sample_size": sample_size,
+        "anomaly_label": anomaly_label,
+        "coverage_ratio": coverage_ratio,
+    }
+
+
+def _safe_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _compute_intraday_coverage_ratio(
+    records: list[dict[str, Any]],
+    *,
+    current_time: datetime | None = None,
+) -> float:
+    actual_points, expected_points = _build_intraday_sample_stats(records, current_time=current_time)
+    if expected_points == 0:
+        return 0.0
+    return min(actual_points / expected_points, 1.0)
+
+
+def _build_intraday_sample_stats(
+    records: list[dict[str, Any]],
+    *,
+    current_time: datetime | None = None,
+) -> tuple[int, int]:
+    timestamps = _parse_intraday_timestamps(records)
+    if not timestamps:
+        return 0, 0
+
+    evaluation_time = current_time or max(timestamps)
+    if evaluation_time.tzinfo is None:
+        evaluation_time = evaluation_time.replace(tzinfo=BOGOTA_TIMEZONE)
+    evaluation_time = evaluation_time.astimezone(BOGOTA_TIMEZONE)
+
+    market_open, market_close = _resolve_market_session_bounds(evaluation_time)
+    if evaluation_time < market_open:
+        return 0, 0
+
+    session_limit = min(evaluation_time, market_close)
+    if session_limit <= market_open:
+        return 0, 0
+
+    window_start = min(timestamps)
+    effective_start = max(window_start, market_open)
+    if effective_start > session_limit:
+        return 0, 0
+
+    expected_points = max(int((session_limit - effective_start).total_seconds() // 60) + 1, 1)
+    actual_points = len(
+        {
+            timestamp.replace(second=0, microsecond=0)
+            for timestamp in timestamps
+            if effective_start <= timestamp <= session_limit
+        }
+    )
+    return actual_points, expected_points
+
+def _parse_intraday_timestamps(records: list[dict[str, Any]]) -> list[datetime]:
+    return [
+        timestamp
+        for record in records
+        if (timestamp := parse_record_timestamp(record)) is not None
+    ]
+
+
+def _resolve_market_session_bounds(value: datetime) -> tuple[datetime, datetime]:
+    month = value.month
+    for months, open_hm, close_hm in MARKET_REGIMES:
+        if month in months:
+            open_hour, open_minute = open_hm
+            close_hour, close_minute = close_hm
+            market_open = value.replace(
+                hour=open_hour,
+                minute=open_minute,
+                second=0,
+                microsecond=0,
+            )
+            market_close = value.replace(
+                hour=close_hour,
+                minute=close_minute,
+                second=0,
+                microsecond=0,
+            )
+            return market_open, market_close
+
+    fallback_open = value.replace(hour=8, minute=30, second=0, microsecond=0)
+    fallback_close = value.replace(hour=15, minute=0, second=0, microsecond=0)
+    return fallback_open, fallback_close
 
 
 def _normalize_depth_levels(raw_levels: Any) -> list[dict[str, Any]]:

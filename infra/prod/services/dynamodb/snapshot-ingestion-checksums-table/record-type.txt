@@ -1,0 +1,28 @@
+table_name: trii-prod-snapshot-ingestion-checksums
+
+purpose:
+- prevent duplicate raw snapshot writes before they enter current-snapshots
+- keep a simple auditable registry of accepted snapshot payloads by checksum
+- support near-real-time idempotency at the API write path
+
+primary_key:
+- pk: snapshot_checksum
+
+global_secondary_indexes:
+- gsi1
+  pk: captured_date
+  sk: symbol#captured_at
+  purpose: inspect accepted snapshot ingestions by trading day without scanning
+
+record_type:
+- snapshot_checksum: string, unique checksum of the normalized raw snapshot payload
+- captured_date: string, yyyy-mm-dd
+- symbol: string, uppercase stock symbol
+- captured_at: string, iso-8601 timestamp with timezone
+- symbol_captured_at: string, formatted as SYMBOL#captured_at
+- accepted_at: string, iso-8601 timestamp with timezone
+- source: string, snapshot source when available
+
+query_patterns:
+- exact duplicate check by snapshot checksum before writing raw data
+- day-level audit of accepted raw snapshot ingestions

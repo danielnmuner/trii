@@ -3,12 +3,28 @@ data "aws_iam_policy_document" "inline" {
     sid    = "ReadCurrentSnapshots"
     effect = "Allow"
     actions = [
+      "dynamodb:GetItem",
+      "dynamodb:BatchGetItem",
       "dynamodb:Query",
     ]
-    resources = [
-      var.current_snapshots_table_arn,
-      "${var.current_snapshots_table_arn}/index/*",
+    resources = concat(
+      [var.current_snapshots_table_arn],
+      var.current_snapshots_index_arns,
+    )
+  }
+
+  statement {
+    sid    = "ReadHistoricStats"
+    effect = "Allow"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:BatchGetItem",
+      "dynamodb:Query",
     ]
+    resources = concat(
+      [var.historic_stats_table_arn],
+      var.historic_stats_index_arns,
+    )
   }
 
   statement {
@@ -18,8 +34,13 @@ data "aws_iam_policy_document" "inline" {
       "dynamodb:PutItem",
       "dynamodb:UpdateItem",
       "dynamodb:BatchWriteItem",
+      "dynamodb:TransactWriteItems",
     ]
-    resources = [var.current_snapshots_table_arn]
+    resources = [
+      var.snapshot_ingestion_raw_table_arn,
+      var.current_snapshots_table_arn,
+      var.snapshot_ingestion_checksums_table_arn,
+    ]
   }
 
   statement {
@@ -83,12 +104,15 @@ module "function" {
   policy_json   = data.aws_iam_policy_document.inline.json
 
   environment_variables = {
-    CURRENT_SNAPSHOTS_TABLE = var.current_snapshots_table_name
-    STOCK_ORDERS_TABLE      = var.stock_orders_table_name
-    PARSED_INVOICES_TABLE   = var.parsed_invoices_table_name
-    SOURCE_DOCUMENTS_BUCKET = var.source_documents_bucket_name
-    AI_HANDLER_FUNCTION     = var.ai_handler_function_name
-    API_SHARED_TOKEN        = var.api_gateway_shared_token
+    CURRENT_SNAPSHOTS_TABLE            = var.current_snapshots_table_name
+    SNAPSHOT_INGESTION_RAW_TABLE       = var.snapshot_ingestion_raw_table_name
+    SNAPSHOT_INGESTION_CHECKSUMS_TABLE = var.snapshot_ingestion_checksums_table_name
+    HISTORIC_STATS_TABLE               = var.historic_stats_table_name
+    STOCK_ORDERS_TABLE                 = var.stock_orders_table_name
+    PARSED_INVOICES_TABLE              = var.parsed_invoices_table_name
+    SOURCE_DOCUMENTS_BUCKET            = var.source_documents_bucket_name
+    AI_HANDLER_FUNCTION                = var.ai_handler_function_name
+    API_SHARED_TOKEN                   = var.api_gateway_shared_token
   }
 
   tags = var.tags

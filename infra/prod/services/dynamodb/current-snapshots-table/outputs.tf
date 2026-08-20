@@ -12,3 +12,8 @@ output "index_arns" {
   description = "Current snapshots table GSI ARNs."
   value       = module.table.index_arns
 }
+
+output "stream_arn" {
+  description = "Current snapshots table stream ARN."
+  value       = module.table.stream_arn
+}

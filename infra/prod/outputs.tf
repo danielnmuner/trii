@@ -28,6 +28,26 @@ output "current_snapshots_table_name" {
   value       = module.current_snapshots_table.name
 }
 
+output "snapshot_ingestion_raw_table_name" {
+  description = "Snapshot ingestion raw DynamoDB table name."
+  value       = module.snapshot_ingestion_raw.name
+}
+
+output "historic_stats_table_name" {
+  description = "Historic stats DynamoDB table name."
+  value       = module.historic_stats_table.name
+}
+
+output "snapshot_ingestion_checksums_table_name" {
+  description = "Snapshot ingestion checksums DynamoDB table name."
+  value       = module.snapshot_ingestion_checksums_table.name
+}
+
+output "processed_stats_events_table_name" {
+  description = "Processed stats events DynamoDB table name."
+  value       = module.processed_stats_events_table.name
+}
+
 output "stock_orders_table_name" {
   description = "Stock orders DynamoDB table name."
   value       = module.stock_orders_table.name
@@ -41,4 +61,14 @@ output "parsed_invoices_table_name" {
 output "source_documents_bucket_name" {
   description = "Source documents S3 bucket name."
   value       = module.source_documents_bucket.bucket_name
+}
+
+output "historic_stats_updater_function_name" {
+  description = "Historic stats updater Lambda function name."
+  value       = module.historic_stats_updater.function_name
+}
+
+output "historic_stats_rebuilder_function_name" {
+  description = "Historic stats rebuilder Lambda function name."
+  value       = module.historic_stats_rebuilder.function_name
 }

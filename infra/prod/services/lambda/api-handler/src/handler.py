@@ -10,6 +10,7 @@ from typing import Any
 
 import boto3
 from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.types import TypeSerializer
 from botocore.exceptions import ClientError
 from zoneinfo import ZoneInfo
 
@@ -18,11 +19,17 @@ LAMBDA_CLIENT = boto3.client("lambda")
 DYNAMODB_CLIENT = boto3.client("dynamodb")
 DYNAMODB_RESOURCE = boto3.resource("dynamodb")
 S3_CLIENT = boto3.client("s3")
+SERIALIZER = TypeSerializer()
 
 CURRENT_SNAPSHOTS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["CURRENT_SNAPSHOTS_TABLE"])
+SNAPSHOT_INGESTION_RAW_TABLE = os.environ["SNAPSHOT_INGESTION_RAW_TABLE"]
+SNAPSHOT_INGESTION_CHECKSUMS_TABLE = os.environ["SNAPSHOT_INGESTION_CHECKSUMS_TABLE"]
+HISTORIC_STATS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["HISTORIC_STATS_TABLE"])
 STOCK_ORDERS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["STOCK_ORDERS_TABLE"])
 API_SHARED_TOKEN = os.environ["API_SHARED_TOKEN"]
 BOGOTA_TIMEZONE = ZoneInfo("America/Bogota")
+RAW_SNAPSHOT_TTL_SECONDS = 72 * 60 * 60
+CURRENT_SNAPSHOT_TTL_SECONDS = 365 * 24 * 60 * 60
 
 EXPECTED_STOCK_ORDER_COLUMNS = (
     "Fecha y hora",
@@ -143,6 +150,10 @@ def _json_checksum(payload: dict[str, Any]) -> str:
     ).hexdigest()
 
 
+def _serialize_item(item: dict[str, Any]) -> dict[str, Any]:
+    return {key: SERIALIZER.serialize(value) for key, value in item.items()}
+
+
 def _decimalize(value: Any) -> Any:
     if isinstance(value, bool) or value is None:
         return value
@@ -206,8 +217,6 @@ def _validate_snapshot_schema(snapshot: dict[str, Any]) -> None:
         "best_bid_quantity",
         "best_ask_price",
         "best_ask_quantity",
-        "spread",
-        "mid_price",
         "high_price",
         "low_price",
         "traded_value",
@@ -233,24 +242,66 @@ def _persist_snapshot(body: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("El payload de snapshots debe incluir un objeto `snapshot`.")
     _validate_snapshot_schema(snapshot)
 
-    symbol = str(snapshot["symbol"]).upper()
-    captured_at = str(snapshot["captured_at"])
-    item = dict(snapshot)
+    symbol = str(snapshot["symbol"]).strip().upper()
+    captured_at = str(snapshot["captured_at"]).strip()
+    normalized_snapshot = dict(snapshot)
+    normalized_snapshot["symbol"] = symbol
+    normalized_snapshot["captured_at"] = captured_at
+
+    item = dict(normalized_snapshot)
     item["symbol"] = symbol
     item["captured_at"] = captured_at
     item["captured_date"] = captured_at[:10]
-    item["snapshot_checksum"] = _json_checksum(snapshot)
+    item["snapshot_checksum"] = _json_checksum(normalized_snapshot)
     item["symbol_captured_at"] = f"{symbol}#{captured_at}"
+    accepted_timestamp = datetime.now(BOGOTA_TIMEZONE)
+    accepted_at = accepted_timestamp.isoformat()
+    accepted_epoch = int(accepted_timestamp.timestamp())
+    raw_item = dict(item)
+    raw_item["expires_at"] = accepted_epoch + RAW_SNAPSHOT_TTL_SECONDS
+    item["expires_at"] = accepted_epoch + CURRENT_SNAPSHOT_TTL_SECONDS
 
-    CURRENT_SNAPSHOTS_TABLE.put_item(
-        Item=_decimalize(item),
-        ConditionExpression="attribute_not_exists(symbol) AND attribute_not_exists(captured_at)",
+    checksum_item = {
+        "snapshot_checksum": item["snapshot_checksum"],
+        "captured_date": item["captured_date"],
+        "symbol": symbol,
+        "captured_at": captured_at,
+        "symbol_captured_at": item["symbol_captured_at"],
+        "accepted_at": accepted_at,
+        "source": str(snapshot.get("source") or "unknown"),
+    }
+
+    DYNAMODB_CLIENT.transact_write_items(
+        TransactItems=[
+            {
+                "Put": {
+                    "TableName": SNAPSHOT_INGESTION_CHECKSUMS_TABLE,
+                    "Item": _serialize_item(_decimalize(checksum_item)),
+                    "ConditionExpression": "attribute_not_exists(snapshot_checksum)",
+                }
+            },
+            {
+                "Put": {
+                    "TableName": SNAPSHOT_INGESTION_RAW_TABLE,
+                    "Item": _serialize_item(_decimalize(raw_item)),
+                    "ConditionExpression": "attribute_not_exists(symbol) AND attribute_not_exists(captured_at)",
+                }
+            },
+            {
+                "Put": {
+                    "TableName": os.environ["CURRENT_SNAPSHOTS_TABLE"],
+                    "Item": _serialize_item(_decimalize(item)),
+                    "ConditionExpression": "attribute_not_exists(symbol) AND attribute_not_exists(captured_at)",
+                }
+            },
+        ]
     )
 
     return {
         "table": os.environ["CURRENT_SNAPSHOTS_TABLE"],
         "symbol": symbol,
         "captured_at": captured_at,
+        "snapshot_checksum": item["snapshot_checksum"],
     }
 
 
@@ -323,6 +374,71 @@ def _list_recent_snapshots(event: dict[str, Any]) -> dict[str, Any]:
         "records": _json_ready([item for _, item in filtered_items]),
         "record_count": len(filtered_items),
     }
+
+
+def _latest_snapshot_for_symbol(symbol: str) -> dict[str, Any] | None:
+    response = CURRENT_SNAPSHOTS_TABLE.query(
+        KeyConditionExpression=Key("symbol").eq(symbol),
+        ScanIndexForward=False,
+        Limit=1,
+    )
+    items = response.get("Items", [])
+    if not items:
+        return None
+    return items[0]
+
+
+def _bucket_time_from_captured_at(captured_at: str) -> str:
+    return _parse_snapshot_timestamp(captured_at).strftime("%H:%M:%S")
+
+
+def _load_historic_stats_for_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    symbol = str(snapshot["symbol"]).strip().upper()
+    captured_at = str(snapshot["captured_at"]).strip()
+    bucket_time = _bucket_time_from_captured_at(captured_at)
+
+    response = HISTORIC_STATS_TABLE.query(
+        KeyConditionExpression=Key("pk").eq(f"{symbol}#{bucket_time}"),
+    )
+    items = response.get("Items", [])
+    metrics = {
+        str(item["metric"]): _json_ready(item)
+        for item in items
+        if "metric" in item
+    }
+
+    return {
+        "symbol": symbol,
+        "captured_at": captured_at,
+        "bucket_time": bucket_time,
+        "snapshot": _json_ready(snapshot),
+        "stats": metrics,
+        "stats_count": len(metrics),
+    }
+
+
+def _get_analytics_snapshot(event: dict[str, Any]) -> dict[str, Any]:
+    params = _query_params(event)
+    symbol = str(params.get("symbol") or "").strip().upper()
+    if not symbol:
+        raise ValueError("El parametro `symbol` es obligatorio para consultar analytics.")
+
+    captured_at = str(params.get("captured_at") or "").strip()
+    if captured_at:
+        response = CURRENT_SNAPSHOTS_TABLE.get_item(
+            Key={
+                "symbol": symbol,
+                "captured_at": captured_at,
+            }
+        )
+        snapshot = response.get("Item")
+    else:
+        snapshot = _latest_snapshot_for_symbol(symbol)
+
+    if not snapshot:
+        raise ValueError("No se encontro un snapshot para el simbolo solicitado.")
+
+    return _load_historic_stats_for_snapshot(snapshot)
 
 
 def _parse_spanish_datetime(raw_value: str) -> str:
@@ -631,6 +747,16 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
                 },
             )
 
+        if route_key == "GET /analytics/snapshot":
+            return _response(
+                200,
+                {
+                    "status": "ok",
+                    "route": route_key,
+                    "result": _get_analytics_snapshot(event),
+                },
+            )
+
         body = _parse_body(event)
 
         if route_key == "POST /ai/query":
@@ -696,6 +822,15 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
             },
         )
     except ClientError as exc:
+        error_code = exc.response.get("Error", {}).get("Code", "")
+        if error_code == "TransactionCanceledException":
+            return _response(
+                409,
+                {
+                    "status": "error",
+                    "message": "El snapshot fue rechazado porque ya existe un checksum o una llave primaria igual.",
+                },
+            )
         return _response(
             500,
             {

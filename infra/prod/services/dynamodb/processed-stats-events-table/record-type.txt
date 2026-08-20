@@ -1,0 +1,29 @@
+table_name: trii-prod-processed-stats-events
+
+purpose:
+- keep incremental stats updates idempotent when DynamoDB Streams retries the same snapshot event
+- provide an auditable registry of raw snapshots already folded into historic stats
+
+primary_key:
+- pk: snapshot_checksum
+
+global_secondary_indexes:
+- gsi1
+  pk: captured_date
+  sk: symbol#captured_at
+  purpose: inspect processed events by day without scanning
+
+record_type:
+- snapshot_checksum: string, unique checksum of the raw snapshot payload
+- captured_date: string, yyyy-mm-dd
+- symbol: string, uppercase stock symbol
+- captured_at: string, iso-8601 timestamp with timezone
+- symbol_captured_at: string, formatted as SYMBOL#captured_at
+- bucket_time: string, hh:mm:ss in America/Bogota
+- processed_at: string, iso-8601 timestamp with timezone
+- source_event_id: string, DynamoDB Streams event identifier when available
+- metrics_processed: list<string>
+
+query_patterns:
+- exact idempotency lookup by snapshot checksum
+- day-level audit of processed stream events

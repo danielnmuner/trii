@@ -20,3 +20,8 @@ output "index_arns" {
     "${aws_dynamodb_table.this.arn}/index/${gsi.name}"
   ]
 }
+
+output "stream_arn" {
+  description = "DynamoDB Streams ARN when streams are enabled."
+  value       = aws_dynamodb_table.this.stream_arn
+}
