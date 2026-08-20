@@ -101,17 +101,17 @@ def _format_metric_delta_with_relative(metric_key: str, current: float | None, p
         return absolute_delta
 
     relative_delta = ((current - previous) / previous) * 100
-    return f"{absolute_delta} | {relative_delta:+.2f}%"
+    return f"{absolute_delta} ({relative_delta:+.2f}%)"
 
 
 def _build_market_kpi_definitions() -> list[dict[str, str]]:
     return [
         {"key": "last_price", "label": "Ultimo precio"},
+        {"key": "best_prices", "label": "Mejor compra / venta"},
+        {"key": "price_range", "label": "Maximo / minimo"},
         {"key": "spread", "label": "Spread"},
         {"key": "traded_volume", "label": "Volumen negociado"},
         {"key": "traded_value", "label": "Valor negociado"},
-        {"key": "best_prices", "label": "Mejor compra / venta"},
-        {"key": "price_range", "label": "Maximo / minimo"},
     ]
 
 
@@ -220,7 +220,7 @@ def _render_microstructure_tape(symbol: str, payload: dict, records: list[dict])
     ):
         current_value = _safe_float(latest_record, key)
         previous_value = _safe_float(previous_record, key) if previous_record else None
-        delta = _format_metric_delta(key, current_value, previous_value) or "No prior point"
+        delta = _format_metric_delta_with_relative(key, current_value, previous_value) or "No prior point"
         z_score_markup = ""
 
         if key in {"obi_l1", "obi_top_5", "spread_bps"}:
@@ -299,8 +299,15 @@ def _render_market_tape(records: list[dict]) -> None:
                 percent_tone = "positive" if percent_value >= 0 else "negative"
                 percent_markup = (
                     f"<span class='analytics-market-tape-inline-percent analytics-market-tape-inline-percent-{percent_tone}'>"
-                    f"{escape(_format_metric_value('daily_change_percent', daily_change_percent))}</span>"
+                    f"({escape(_format_metric_value('daily_change_percent', daily_change_percent))})</span>"
                 )
+
+            delta_markup = "".join(
+                [
+                    f"<span>{escape(delta or 'No prior point')}</span>",
+                    percent_markup,
+                ]
+            )
 
             items.append(
                 "".join(
@@ -309,11 +316,8 @@ def _render_market_tape(records: list[dict]) -> None:
                         "<div class='analytics-market-tape-eyebrow'>",
                         f"<span class='analytics-market-tape-label'>{escape(metric['label'])}</span>",
                         "</div>",
-                        "<div class='analytics-market-tape-main-row'>",
                         f"<div class='analytics-market-tape-main'>{escape(_format_metric_value(metric_key, current_value))}</div>",
-                        percent_markup,
-                        "</div>",
-                        f"<div class='analytics-market-tape-sub'>{escape(delta or 'No prior point')}</div>",
+                        f"<div class='analytics-market-tape-sub analytics-market-tape-sub-inline'>{delta_markup}</div>",
                         "</div>",
                     ]
                 )
@@ -326,7 +330,7 @@ def _render_market_tape(records: list[dict]) -> None:
             tone = "market"
         elif metric_key == "spread":
             previous_value = _safe_float(previous_record, metric_key) if previous_record else None
-            delta = _format_metric_delta(metric_key, current_value, previous_value)
+            delta = _format_metric_delta_with_relative(metric_key, current_value, previous_value)
             tone = "market"
         elif metric_key == "best_prices":
             best_bid_price = _safe_float(latest_record, "best_bid_price")
@@ -734,6 +738,12 @@ st.markdown(
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+    }
+    .analytics-market-tape-sub-inline {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 0.28rem;
+        white-space: nowrap;
     }
     .analytics-market-tape-item-positive .analytics-market-tape-main,
     .analytics-market-tape-item-positive .analytics-market-tape-sub {
