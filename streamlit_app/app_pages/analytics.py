@@ -362,6 +362,16 @@ def _render_summary_line_fragment() -> None:
     summary = st.session_state.get("analytics_summary")
     if not isinstance(summary, dict) or not summary:
         return
+    current_time = now_in_bogota()
+    refresh_reference = (
+        st.session_state.get("analytics_last_manual_refresh")
+        or st.session_state.get("analytics_session_loaded_at")
+        or current_time
+    )
+    refresh_age_seconds = max(int((current_time - refresh_reference).total_seconds()), 0)
+    if refresh_age_seconds >= 300:
+        _refresh_recent_snapshots_cache()
+        st.rerun()
     _render_summary_line(summary)
 
 
