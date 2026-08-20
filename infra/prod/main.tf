@@ -134,6 +134,9 @@ module "api_handler" {
   historic_stats_table_name               = module.historic_stats_table.name
   historic_stats_table_arn                = module.historic_stats_table.arn
   historic_stats_index_arns               = module.historic_stats_table.index_arns
+  market_ai_recommendations_table_name    = module.market_ai_recommendations_table.name
+  market_ai_recommendations_table_arn     = module.market_ai_recommendations_table.arn
+  market_ai_recommendations_index_arns    = module.market_ai_recommendations_table.index_arns
   api_gateway_shared_token                = var.api_gateway_shared_token
 }
 

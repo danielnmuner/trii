@@ -19,9 +19,7 @@ from trii_ingestion.services import (
     ApiGatewayClientError,
     build_analytics_summary,
     build_depth_history_rows,
-    build_z_score_context,
-    extract_symbols,
-    filter_records,
+    build_historic_z_score_context,
     get_time_window_help_text,
     get_time_window_labels,
     now_in_bogota,
@@ -29,13 +27,20 @@ from trii_ingestion.services import (
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def _load_recent_snapshots(days: int) -> dict:
+def _load_analytics_catalog(days: int) -> dict:
     client = get_backend_client()
-    return client.get_recent_snapshots(days=days)
+    return client.get_analytics_catalog(days=days)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _load_analytics_snapshot(symbol: str, window: str) -> dict:
+    client = get_backend_client()
+    return client.get_analytics_snapshot(symbol=symbol, window=window)
 
 
 def _refresh_recent_snapshots_cache() -> None:
-    _load_recent_snapshots.clear()
+    _load_analytics_catalog.clear()
+    _load_analytics_snapshot.clear()
     st.session_state["analytics_last_manual_refresh"] = now_in_bogota()
 
 
@@ -84,7 +89,7 @@ def _format_metric_delta(metric_key: str, current: float | None, previous: float
     return f"{delta:+,.2f}"
 
 
-def _build_sidebar_market_kpi_definitions() -> list[dict[str, str]]:
+def _build_market_kpi_definitions() -> list[dict[str, str]]:
     return [
         {"key": "last_price", "label": "Ultimo precio"},
         {"key": "daily_change_amount", "label": "Cambio COP"},
@@ -94,59 +99,33 @@ def _build_sidebar_market_kpi_definitions() -> list[dict[str, str]]:
     ]
 
 
-def _build_microstructure_kpi_definitions() -> list[dict[str, str]]:
-    return [
-        {"key": "spread", "label": "Spread"},
-        {"key": "spread_bps", "label": "Spread bps"},
-        {"key": "mid_price", "label": "Mid price"},
-        {"key": "microprice", "label": "Microprice"},
-        {"key": "obi_l1", "label": "OBI L1"},
-        {"key": "obi_top_5", "label": "OBI top 5"},
-    ]
+def _build_symbol_analytics_groups(
+    analytics_payloads: list[dict],
+    selected_symbols: list[str],
+) -> list[tuple[str, dict, list[dict]]]:
+    grouped = {
+        str(payload.get("symbol", "")).strip().upper(): payload
+        for payload in analytics_payloads
+        if str(payload.get("symbol", "")).strip()
+    }
 
+    groups: list[tuple[str, dict, list[dict]]] = []
+    for symbol in selected_symbols:
+        payload = grouped.get(symbol)
+        if not payload:
+            continue
+        records = [
+            record
+            for record in [
+                payload.get("current_snapshot"),
+                payload.get("previous_snapshot"),
+            ]
+            if isinstance(record, dict) and record
+        ]
+        if records:
+            groups.append((symbol, payload, records))
 
-def _render_kpi_card(
-    *,
-    label: str,
-    value: str,
-    delta: str | None,
-    tone: str = "green",
-    size: str = "default",
-) -> None:
-    delta_text = delta if delta is not None else "No prior point"
-    delta_class = "analytics-kpi-delta analytics-kpi-delta-empty" if delta is None else "analytics-kpi-delta"
-    tone_class = f"analytics-kpi-card analytics-kpi-card-{tone} analytics-kpi-card-{size}"
-    st.markdown(
-        f"""
-        <div class="{tone_class}">
-            <div class="analytics-kpi-header">
-                <span class="analytics-kpi-accent"></span>
-                <div class="analytics-kpi-label">{label}</div>
-            </div>
-            <div class="analytics-kpi-value">{value}</div>
-            <div class="{delta_class}">
-                <span class="analytics-kpi-delta-prefix">vs prev</span>
-                <span class="analytics-kpi-delta-value">{delta_text}</span>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def _build_symbol_record_groups(records: list[dict], selected_symbols: list[str]) -> list[tuple[str, list[dict]]]:
-    grouped: dict[str, list[dict]] = {symbol: [] for symbol in selected_symbols}
-    for record in records:
-        symbol = str(record.get("symbol", "")).strip().upper()
-        if symbol in grouped:
-            grouped[symbol].append(record)
-
-    return [(symbol, grouped[symbol]) for symbol in selected_symbols if grouped[symbol]]
-
-
-def _render_symbol_chip(symbol: str) -> None:
-    st.markdown(f"<div class='analytics-symbol-chip'>{symbol}</div>", unsafe_allow_html=True)
-
+    return groups
 
 def _tag_tone(label: str) -> str:
     normalized = label.strip().lower()
@@ -159,9 +138,10 @@ def _tag_tone(label: str) -> str:
     return "gray"
 
 
-def _render_microstructure_tape(symbol: str, records: list[dict], *, current_time) -> None:
+def _render_microstructure_tape(symbol: str, payload: dict, records: list[dict]) -> None:
     latest_record = records[0]
     previous_record = records[1] if len(records) > 1 else None
+    current_stats = payload.get("current_stats", {})
     items: list[str] = [
         (
             "<div class='analytics-light-tape-item analytics-light-tape-symbol'>"
@@ -182,12 +162,17 @@ def _render_microstructure_tape(symbol: str, records: list[dict], *, current_tim
         previous_value = _safe_float(previous_record, key) if previous_record else None
         delta = _format_metric_delta(key, current_value, previous_value) or "No prior point"
         z_score_markup = ""
+
         if key in {"obi_l1", "obi_top_5"}:
-            z_score_context = build_z_score_context(records, key, current_time=current_time)
+            z_score_context = build_historic_z_score_context(current_stats.get(key))
             z_score_value = z_score_context["z_score"]
             z_score_label = None if z_score_value is None else f"{z_score_value:+.1f}"
             sample_size = int(z_score_context["sample_size"] or 0)
-            sample_label = f"{z_score_context['sample_label']} {sample_size}"
+            sample_label = (
+                None
+                if not z_score_context["sample_label"] or sample_size <= 0
+                else f"{z_score_context['sample_label']} {sample_size}"
+            )
             anomaly_label = z_score_context["anomaly_label"]
             z_score_markup = "".join(
                 [
@@ -199,7 +184,9 @@ def _render_microstructure_tape(symbol: str, records: list[dict], *, current_tim
                     ),
                     "<div class='analytics-light-tape-zmeta'>",
                     (
-                        f"<span class='analytics-light-tape-zmeta-line analytics-light-tape-zmeta-line-{_tag_tone(sample_label)}'>"
+                        ""
+                        if sample_label is None
+                        else f"<span class='analytics-light-tape-zmeta-line analytics-light-tape-zmeta-line-{_tag_tone(sample_label)}'>"
                         f"{escape(sample_label)}</span>"
                     ),
                     (
@@ -212,12 +199,7 @@ def _render_microstructure_tape(symbol: str, records: list[dict], *, current_tim
                     "</div>",
                 ]
             )
-        if False:
-            z_score = compute_latest_z_score(records, key)
-            if z_score is not None:
-                z_score_markup = (
-                    f"<span class='analytics-light-tape-zscore'>{escape(f'{z_score:+.1f}σ')}</span>"
-                )
+
         items.append(
             "".join(
                 [
@@ -251,7 +233,7 @@ def _render_market_tape(records: list[dict]) -> None:
     previous_record = records[1] if len(records) > 1 else None
     items: list[str] = []
 
-    for metric in _build_sidebar_market_kpi_definitions():
+    for metric in _build_market_kpi_definitions():
         current_value = _safe_float(latest_record, metric["key"])
         tone = "neutral"
         if metric["key"] == "last_price":
@@ -301,10 +283,47 @@ def _render_market_tape(records: list[dict]) -> None:
     )
 
 
-def _render_kpis(symbol_record_groups: list[tuple[str, list[dict]]], *, current_time) -> None:
-    for symbol, records in symbol_record_groups:
-        _render_microstructure_tape(symbol, records, current_time=current_time)
+def _render_market_ai_recommendation(payload: dict) -> None:
+    recommendation = payload.get("market_ai_recommendation")
+    if not isinstance(recommendation, dict) or not recommendation:
+        return
+
+    summary = str(recommendation.get("recommendation_summary") or "").strip()
+    if not summary:
+        return
+
+    status = str(recommendation.get("recommendation_status") or "placeholder").strip().lower()
+    triggered_rules = [
+        str(rule).strip()
+        for rule in recommendation.get("triggered_rules", [])
+        if str(rule).strip()
+    ]
+    status_label = {
+        "generated": "AI generated",
+        "failed": "AI failed",
+        "placeholder": "AI placeholder",
+    }.get(status, "AI signal")
+    rules_label = ", ".join(triggered_rules) if triggered_rules else "No rules"
+
+    st.markdown(
+        (
+            "<div class='analytics-recommendation-strip'>"
+            "<div class='analytics-recommendation-strip-header'>"
+            f"<span class='analytics-recommendation-strip-badge'>{escape(status_label)}</span>"
+            f"<span class='analytics-recommendation-strip-rules'>{escape(rules_label)}</span>"
+            "</div>"
+            f"<div class='analytics-recommendation-strip-body'>{escape(summary)}</div>"
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+
+
+def _render_kpis(symbol_record_groups: list[tuple[str, dict, list[dict]]]) -> None:
+    for symbol, payload, records in symbol_record_groups:
+        _render_microstructure_tape(symbol, payload, records)
         _render_market_tape(records)
+        _render_market_ai_recommendation(payload)
         st.markdown("<div class='analytics-kpi-row-spacer'></div>", unsafe_allow_html=True)
 
 
@@ -406,121 +425,8 @@ st.session_state.setdefault("analytics_last_manual_refresh", None)
 st.markdown(
     """
     <style>
-    .analytics-kpi-card {
-        background: linear-gradient(180deg, #ffffff 0%, #f7f9fb 100%);
-        border: 1px solid rgba(8, 33, 20, 0.08);
-        border-radius: 10px;
-        padding: 0.32rem 0.44rem 0.28rem 0.44rem;
-        min-height: 42px;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        overflow: hidden;
-    }
-    .analytics-kpi-card-blue {
-        border-color: rgba(26, 115, 232, 0.14);
-    }
-    .analytics-kpi-header {
-        display: flex;
-        align-items: center;
-        gap: 0.24rem;
-        margin-bottom: 0.05rem;
-    }
-    .analytics-kpi-accent {
-        width: 0.32rem;
-        height: 0.32rem;
-        border-radius: 999px;
-        background: #02fb7e;
-        box-shadow: 0 0 0 3px rgba(2, 251, 126, 0.14);
-        flex-shrink: 0;
-    }
-    .analytics-kpi-card-blue .analytics-kpi-accent {
-        background: #1a73e8;
-        box-shadow: 0 0 0 4px rgba(26, 115, 232, 0.14);
-    }
-    .analytics-kpi-label {
-        color: #082114;
-        font-size: 0.5rem;
-        font-weight: 600;
-        letter-spacing: 0.02em;
-        line-height: 1.0;
-        text-transform: uppercase;
-        white-space: nowrap;
-    }
-    .analytics-kpi-value {
-        color: #000000;
-        font-size: 0.88rem;
-        font-weight: 700;
-        line-height: 0.95;
-        letter-spacing: -0.02em;
-        margin-bottom: 0.05rem;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    .analytics-kpi-delta {
-        color: rgba(8, 33, 20, 0.62);
-        display: flex;
-        align-items: baseline;
-        gap: 0.1rem;
-        font-size: 0.46rem;
-        font-weight: 500;
-        line-height: 0.98;
-        letter-spacing: -0.01em;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    .analytics-kpi-delta-prefix {
-        color: rgba(8, 33, 20, 0.48);
-        font-weight: 500;
-        text-transform: lowercase;
-    }
-    .analytics-kpi-delta-value {
-        color: #082114;
-        font-weight: 500;
-    }
-    .analytics-kpi-delta-empty {
-        color: rgba(8, 33, 20, 0.52);
-    }
     .analytics-kpi-row-spacer {
         height: 0.24rem;
-    }
-    .analytics-symbol-chip {
-        min-height: 42px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 10px;
-        border: 1px solid rgba(8, 33, 20, 0.08);
-        background: linear-gradient(180deg, #ffffff 0%, #fbfcfd 100%);
-        color: #082114;
-        font-size: 0.8rem;
-        font-weight: 700;
-        letter-spacing: -0.01em;
-    }
-    .analytics-kpi-card .analytics-kpi-accent {
-        box-shadow: none;
-    }
-    .analytics-kpi-card .analytics-kpi-delta-prefix {
-        display: none;
-    }
-    .analytics-kpi-card .analytics-kpi-delta-value::before {
-        content: "";
-    }
-    .analytics-kpi-card .analytics-kpi-delta-value {
-        color: rgba(8, 33, 20, 0.62);
-    }
-    .analytics-kpi-card-green {
-        position: relative;
-    }
-    .analytics-kpi-card-green::after {
-        content: "";
-        position: absolute;
-        inset: auto 0 0 0;
-        height: 1px;
-        background: rgba(8, 33, 20, 0.05);
-        opacity: 0;
     }
     .analytics-light-tape {
         min-height: 42px;
@@ -715,8 +621,40 @@ st.markdown(
     .analytics-market-tape-item-market .analytics-market-tape-main {
         color: #8ab4f8;
     }
-    [data-testid="column"] .analytics-kpi-card {
-        height: 100%;
+    .analytics-recommendation-strip {
+        margin-top: 6px;
+        padding: 0.55rem 0.75rem;
+        border-radius: 10px;
+        border: 1px solid rgba(8, 33, 20, 0.08);
+        background: linear-gradient(180deg, #fbfffd 0%, #f4fbf7 100%);
+    }
+    .analytics-recommendation-strip-header {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        margin-bottom: 0.14rem;
+        flex-wrap: wrap;
+    }
+    .analytics-recommendation-strip-badge {
+        font-size: 0.48rem;
+        line-height: 1;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #0b6b35;
+        background: rgba(2, 251, 126, 0.14);
+        border-radius: 999px;
+        padding: 0.18rem 0.42rem;
+    }
+    .analytics-recommendation-strip-rules {
+        font-size: 0.52rem;
+        color: rgba(8, 33, 20, 0.62);
+        font-weight: 500;
+    }
+    .analytics-recommendation-strip-body {
+        font-size: 0.7rem;
+        line-height: 1.4;
+        color: #082114;
     }
     </style>
     """,
@@ -726,18 +664,20 @@ st.markdown(
 days = 7
 
 try:
-    with st.spinner("Consultando snapshots recientes..."):
-        response = _load_recent_snapshots(days)
+    with st.spinner("Consultando simbolos disponibles..."):
+        catalog_response = _load_analytics_catalog(days)
 
-    result = response.get("result", {})
-    all_records = result.get("records", [])
-    symbols = extract_symbols(all_records)
+    catalog_result = catalog_response.get("result", {})
+    symbols = [
+        str(symbol).strip().upper()
+        for symbol in catalog_result.get("symbols", [])
+        if str(symbol).strip()
+    ]
 
     if not symbols:
         st.info("No se encontraron snapshots disponibles para construir filtros operativos.")
     else:
         time_window_options = get_time_window_labels()
-        current_time = now_in_bogota()
 
         filter_columns = st.columns([1.05, 1.55, 0.7], gap="medium")
         with filter_columns[0]:
@@ -771,21 +711,24 @@ try:
             _refresh_recent_snapshots_cache()
             st.toast("Consulta actualizada contra API Gateway.")
 
-        filtered_records: list[dict] = []
+        analytics_payloads: list[dict] = []
         for selected_symbol in selected_symbols:
-            filtered_records.extend(
-                filter_records(
-                    all_records,
-                    symbol=selected_symbol,
-                    window_label=selected_window,
-                    current_time=current_time,
-                )
-            )
+            analytics_response = _load_analytics_snapshot(selected_symbol, selected_window)
+            analytics_result = analytics_response.get("result", {})
+            if analytics_result.get("current_snapshot"):
+                analytics_payloads.append(analytics_result)
+
+        filtered_records: list[dict] = []
+        for payload in analytics_payloads:
+            for record in payload.get("snapshots", []):
+                if isinstance(record, dict):
+                    filtered_records.append(record)
+
         filtered_records.sort(key=lambda item: str(item.get("captured_at", "")), reverse=True)
         summary = build_analytics_summary(
             filtered_records,
             window_label=selected_window,
-            current_time=current_time,
+            current_time=now_in_bogota(),
         )
 
         last_manual_refresh = st.session_state.get("analytics_last_manual_refresh")
@@ -798,11 +741,11 @@ try:
 
         if not selected_symbols:
             st.info("Selecciona al menos un simbolo para cargar la vista analitica.")
-        elif not filtered_records:
+        elif not analytics_payloads:
             st.info("No hay snapshots para los simbolos elegidos dentro de la ventana seleccionada.")
         else:
-            symbol_record_groups = _build_symbol_record_groups(filtered_records, selected_symbols)
-            _render_kpis(symbol_record_groups, current_time=current_time)
+            symbol_record_groups = _build_symbol_analytics_groups(analytics_payloads, selected_symbols)
+            _render_kpis(symbol_record_groups)
             table_tab, chart_tab = st.tabs(["Actividad reciente", "Bid / Ask volume"])
 
             with table_tab:

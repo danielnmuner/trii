@@ -28,6 +28,20 @@ data "aws_iam_policy_document" "inline" {
   }
 
   statement {
+    sid    = "ReadMarketAiRecommendations"
+    effect = "Allow"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:BatchGetItem",
+      "dynamodb:Query",
+    ]
+    resources = concat(
+      [var.market_ai_recommendations_table_arn],
+      var.market_ai_recommendations_index_arns,
+    )
+  }
+
+  statement {
     sid    = "WriteCurrentSnapshots"
     effect = "Allow"
     actions = [
@@ -99,6 +113,7 @@ module "function" {
     SNAPSHOT_INGESTION_RAW_TABLE       = var.snapshot_ingestion_raw_table_name
     SNAPSHOT_INGESTION_CHECKSUMS_TABLE = var.snapshot_ingestion_checksums_table_name
     HISTORIC_STATS_TABLE               = var.historic_stats_table_name
+    MARKET_AI_RECOMMENDATIONS_TABLE    = var.market_ai_recommendations_table_name
     STOCK_ORDERS_TABLE                 = var.stock_orders_table_name
     PARSED_INVOICES_TABLE              = var.parsed_invoices_table_name
     SOURCE_DOCUMENTS_BUCKET            = var.source_documents_bucket_name

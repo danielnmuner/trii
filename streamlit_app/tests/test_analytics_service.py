@@ -6,10 +6,7 @@ from zoneinfo import ZoneInfo
 from trii_ingestion.services.analytics import (
     build_analytics_summary,
     build_depth_history_rows,
-    build_z_score_context,
-    compute_latest_z_score,
-    extract_symbols,
-    filter_records,
+    build_historic_z_score_context,
     format_timestamp_label,
     get_time_window_labels,
 )
@@ -65,21 +62,6 @@ def test_format_timestamp_label_supports_iso_datetimes() -> None:
     assert format_timestamp_label("2026-08-17T21:14:31.456064-05:00") == "17-08-2026 21:14"
 
 
-def test_extract_symbols_deduplicates_and_sorts_alphabetically() -> None:
-    assert extract_symbols(_sample_records()) == ["BOGOTA", "PFAVAL"]
-
-
-def test_filter_records_applies_symbol_and_time_window() -> None:
-    filtered = filter_records(
-        _sample_records(),
-        symbol="PFAVAL",
-        window_label="6h",
-        current_time=datetime(2026, 8, 17, 21, 0, tzinfo=BOGOTA),
-    )
-
-    assert [record["captured_at"] for record in filtered] == ["2026-08-17T20:30:00-05:00"]
-
-
 def test_build_analytics_summary_uses_real_record_bounds_when_available() -> None:
     summary = build_analytics_summary(
         [
@@ -133,7 +115,7 @@ def test_build_depth_history_rows_extracts_five_levels_per_side() -> None:
     }
 
 
-def test_build_depth_history_rows_supports_json_string_levels() -> None:
+def test_build_depth_history_rows_ignores_non_list_depth_payloads() -> None:
     rows = build_depth_history_rows(
         [
             {
@@ -145,144 +127,37 @@ def test_build_depth_history_rows_supports_json_string_levels() -> None:
         ]
     )
 
-    assert len(rows) == 2
-    assert rows[0]["level"] == 1
-    assert rows[0]["price"] == 822.0
-    assert rows[1]["quantity"] == 40000.0
+    assert rows == []
 
 
-def test_build_depth_history_rows_supports_dynamo_json_levels() -> None:
-    rows = build_depth_history_rows(
-        [
-            {
-                "symbol": "PFAVAL",
-                "captured_at": "2026-08-17T20:30:00-05:00",
-                "bid_levels": {
-                    "L": [
-                        {
-                            "M": {
-                                "level": {"N": "1"},
-                                "quantity": {"N": "33636"},
-                                "price": {"N": "822"},
-                            }
-                        }
-                    ]
-                },
-                "ask_levels": {
-                    "L": [
-                        {
-                            "M": {
-                                "level": {"N": "1"},
-                                "quantity": {"N": "40000"},
-                                "price": {"N": "855"},
-                            }
-                        }
-                    ]
-                },
-            }
-        ]
-    )
-
-    assert len(rows) == 2
-    assert rows[0]["price"] == 822.0
-    assert rows[1]["price"] == 855.0
-
-
-def test_compute_latest_z_score_uses_available_window_series() -> None:
-    records = [
-        {"obi_l1": 0.8},
-        {"obi_l1": 0.4},
-        {"obi_l1": 0.0},
-        {"obi_l1": -0.4},
-    ]
-
-    z_score = compute_latest_z_score(records, "obi_l1")
-
-    assert z_score is not None
-    assert round(z_score, 2) == 1.34
-
-
-def test_compute_latest_z_score_returns_none_when_sigma_is_zero() -> None:
-    records = [
-        {"obi_top_5": 0.2},
-        {"obi_top_5": 0.2},
-    ]
-
-    assert compute_latest_z_score(records, "obi_top_5") is None
-
-
-def test_build_z_score_context_marks_strong_and_anomalous_intraday_samples() -> None:
-    records = [
+def test_build_historic_z_score_context_uses_stat_item_values() -> None:
+    context = build_historic_z_score_context(
         {
-            "captured_at": f"2026-08-18T08:{minute:02d}:00-05:00",
-            "obi_l1": 4.0 if minute == 59 else 0.0,
+            "latest_value": 0.84,
+            "mean": 0.10,
+            "stddev": 0.20,
+            "sample_count": 24,
         }
-        for minute in range(30, 60)
-    ]
-
-    context = build_z_score_context(
-        records[::-1],
-        "obi_l1",
-        current_time=datetime(2026, 8, 18, 8, 59, tzinfo=BOGOTA),
     )
 
     assert context["sample_label"] == "Representative"
-    assert context["sample_size"] == 30
+    assert context["sample_size"] == 24
     assert context["anomaly_label"] == "Anomaly"
     assert context["z_score"] is not None
-    assert context["coverage_ratio"] == 1.0
+    assert round(float(context["z_score"]), 2) == 3.70
 
 
-def test_build_z_score_context_marks_thin_and_normal_samples_when_window_is_sparse() -> None:
-    records = [
+def test_build_historic_z_score_context_marks_partial_without_signal_when_sigma_missing() -> None:
+    context = build_historic_z_score_context(
         {
-            "captured_at": timestamp,
-            "obi_top_5": value,
+            "latest_value": 0.24,
+            "mean": 0.24,
+            "stddev": 0,
+            "sample_count": 8,
         }
-        for timestamp, value in [
-            ("2026-08-18T08:30:00-05:00", 0.20),
-            ("2026-08-18T08:40:00-05:00", 0.10),
-            ("2026-08-18T08:50:00-05:00", 0.15),
-            ("2026-08-18T09:00:00-05:00", 0.05),
-        ]
-    ]
-
-    context = build_z_score_context(
-        records[::-1],
-        "obi_top_5",
-        current_time=datetime(2026, 8, 18, 9, 0, tzinfo=BOGOTA),
     )
 
-    assert context["sample_label"] == "Thin"
-    assert context["sample_size"] == 4
-    assert context["anomaly_label"] == "Normal"
-    assert context["z_score"] is not None
-
-
-def test_build_z_score_context_hides_signal_when_sigma_is_zero() -> None:
-    records = [
-        {
-            "captured_at": timestamp,
-            "obi_top_5": 0.46,
-        }
-        for timestamp in [
-            "2026-08-19T12:41:00-05:00",
-            "2026-08-19T12:42:00-05:00",
-            "2026-08-19T12:43:00-05:00",
-            "2026-08-19T12:44:00-05:00",
-            "2026-08-19T12:45:00-05:00",
-            "2026-08-19T12:46:00-05:00",
-            "2026-08-19T12:47:00-05:00",
-        ]
-    ]
-
-    context = build_z_score_context(
-        records[::-1],
-        "obi_top_5",
-        current_time=datetime(2026, 8, 19, 12, 47, tzinfo=BOGOTA),
-    )
-
-    assert context["sample_label"] == "Representative"
-    assert context["sample_size"] == 7
+    assert context["sample_label"] == "Partial"
+    assert context["sample_size"] == 8
     assert context["anomaly_label"] is None
     assert context["z_score"] is None

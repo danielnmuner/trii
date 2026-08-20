@@ -88,6 +88,21 @@ variable "historic_stats_index_arns" {
   type        = list(string)
 }
 
+variable "market_ai_recommendations_table_name" {
+  description = "Market AI recommendations table name."
+  type        = string
+}
+
+variable "market_ai_recommendations_table_arn" {
+  description = "Market AI recommendations table ARN."
+  type        = string
+}
+
+variable "market_ai_recommendations_index_arns" {
+  description = "Market AI recommendations table index ARNs."
+  type        = list(string)
+}
+
 variable "source_documents_bucket_name" {
   description = "Source documents bucket name."
   type        = string

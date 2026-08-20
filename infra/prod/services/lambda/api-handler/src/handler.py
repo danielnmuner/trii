@@ -24,11 +24,13 @@ CURRENT_SNAPSHOTS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["CURRENT_SNAPSHOTS_
 SNAPSHOT_INGESTION_RAW_TABLE = os.environ["SNAPSHOT_INGESTION_RAW_TABLE"]
 SNAPSHOT_INGESTION_CHECKSUMS_TABLE = os.environ["SNAPSHOT_INGESTION_CHECKSUMS_TABLE"]
 HISTORIC_STATS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["HISTORIC_STATS_TABLE"])
+MARKET_AI_RECOMMENDATIONS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["MARKET_AI_RECOMMENDATIONS_TABLE"])
 STOCK_ORDERS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["STOCK_ORDERS_TABLE"])
 API_SHARED_TOKEN = os.environ["API_SHARED_TOKEN"]
 BOGOTA_TIMEZONE = ZoneInfo("America/Bogota")
 RAW_SNAPSHOT_TTL_SECONDS = 72 * 60 * 60
 CURRENT_SNAPSHOT_TTL_SECONDS = 365 * 24 * 60 * 60
+ANALYTICS_SYMBOL_CATALOG_DAYS = 7
 
 EXPECTED_STOCK_ORDER_COLUMNS = (
     "Fecha y hora",
@@ -56,6 +58,15 @@ SPANISH_MONTHS = {
     "oct": 10,
     "nov": 11,
     "dic": 12,
+}
+
+ANALYTICS_WINDOWS = {
+    "1h": timedelta(hours=1),
+    "3h": timedelta(hours=3),
+    "6h": timedelta(hours=6),
+    "1d": timedelta(days=1),
+    "3d": timedelta(days=3),
+    "7d": timedelta(days=7),
 }
 
 
@@ -365,6 +376,34 @@ def _list_recent_snapshots(event: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _list_analytics_catalog(event: dict[str, Any]) -> dict[str, Any]:
+    params = _query_params(event)
+    days = _parse_positive_int(params.get("days"), default=ANALYTICS_SYMBOL_CATALOG_DAYS)
+    catalog_result = _list_recent_snapshots(
+        {
+            **event,
+            "queryStringParameters": {
+                **(event.get("queryStringParameters") or {}),
+                "days": str(days),
+            },
+        }
+    )
+    symbols = sorted(
+        {
+            str(record.get("symbol", "")).strip().upper()
+            for record in catalog_result.get("records", [])
+            if str(record.get("symbol", "")).strip()
+        }
+    )
+    return {
+        "symbols": symbols,
+        "symbol_count": len(symbols),
+        "catalog_days": days,
+        "from_date": catalog_result["from_date"],
+        "to_timestamp": catalog_result["to_timestamp"],
+    }
+
+
 def _latest_snapshot_for_symbol(symbol: str) -> dict[str, Any] | None:
     response = CURRENT_SNAPSHOTS_TABLE.query(
         KeyConditionExpression=Key("symbol").eq(symbol),
@@ -375,6 +414,42 @@ def _latest_snapshot_for_symbol(symbol: str) -> dict[str, Any] | None:
     if not items:
         return None
     return items[0]
+
+
+def _resolve_analytics_window(window_label: str) -> timedelta:
+    try:
+        return ANALYTICS_WINDOWS[window_label]
+    except KeyError as exc:
+        raise ValueError(
+            "El parametro `window` debe ser uno de: 1h, 3h, 6h, 1d, 3d, 7d."
+        ) from exc
+
+
+def _query_snapshots_for_symbol(
+    symbol: str,
+    *,
+    from_timestamp: datetime | None = None,
+    to_timestamp: datetime | None = None,
+    limit: int = 2,
+) -> list[dict[str, Any]]:
+    key_condition = Key("symbol").eq(symbol)
+    if from_timestamp is not None and to_timestamp is not None:
+        key_condition &= Key("captured_at").between(
+            from_timestamp.isoformat(),
+            to_timestamp.isoformat(),
+        )
+    elif to_timestamp is not None:
+        key_condition &= Key("captured_at").lte(to_timestamp.isoformat())
+    elif from_timestamp is not None:
+        key_condition &= Key("captured_at").gte(from_timestamp.isoformat())
+
+    query_kwargs = {
+        "KeyConditionExpression": key_condition,
+        "ScanIndexForward": False,
+        "Limit": limit,
+    }
+    response = CURRENT_SNAPSHOTS_TABLE.query(**query_kwargs)
+    return response.get("Items", [])
 
 
 def _bucket_time_from_captured_at(captured_at: str) -> str:
@@ -406,11 +481,35 @@ def _load_historic_stats_for_snapshot(snapshot: dict[str, Any]) -> dict[str, Any
     }
 
 
+def _load_market_ai_recommendation(symbol: str, captured_at: str) -> dict[str, Any] | None:
+    query_kwargs: dict[str, Any] = {
+        "IndexName": "symbol-created-at-index",
+        "KeyConditionExpression": Key("symbol").eq(symbol),
+        "ScanIndexForward": False,
+        "Limit": 25,
+    }
+    while True:
+        response = MARKET_AI_RECOMMENDATIONS_TABLE.query(**query_kwargs)
+        for item in response.get("Items", []):
+            if str(item.get("captured_at", "")).strip() == captured_at:
+                return _json_ready(item)
+
+        last_evaluated_key = response.get("LastEvaluatedKey")
+        if not last_evaluated_key:
+            return None
+        query_kwargs["ExclusiveStartKey"] = last_evaluated_key
+
+
 def _get_analytics_snapshot(event: dict[str, Any]) -> dict[str, Any]:
     params = _query_params(event)
     symbol = str(params.get("symbol") or "").strip().upper()
     if not symbol:
         raise ValueError("El parametro `symbol` es obligatorio para consultar analytics.")
+
+    window_label = str(params.get("window") or "6h").strip().lower()
+    window_delta = _resolve_analytics_window(window_label)
+    now_bogota = datetime.now(BOGOTA_TIMEZONE)
+    from_bogota = now_bogota - window_delta
 
     captured_at = str(params.get("captured_at") or "").strip()
     if captured_at:
@@ -421,13 +520,69 @@ def _get_analytics_snapshot(event: dict[str, Any]) -> dict[str, Any]:
             }
         )
         snapshot = response.get("Item")
+        previous_snapshots = []
+        if snapshot:
+            previous_snapshots = _query_snapshots_for_symbol(
+                symbol,
+                from_timestamp=from_bogota,
+                to_timestamp=_parse_snapshot_timestamp(captured_at),
+                limit=2,
+            )
     else:
-        snapshot = _latest_snapshot_for_symbol(symbol)
+        previous_snapshots = _query_snapshots_for_symbol(
+            symbol,
+            from_timestamp=from_bogota,
+            to_timestamp=now_bogota,
+            limit=2,
+        )
+        snapshot = previous_snapshots[0] if previous_snapshots else None
 
     if not snapshot:
         raise ValueError("No se encontro un snapshot para el simbolo solicitado.")
 
-    return _load_historic_stats_for_snapshot(snapshot)
+    current_snapshot = snapshot
+    previous_snapshot = None
+    if previous_snapshots:
+        if captured_at:
+            previous_snapshot = next(
+                (
+                    item
+                    for item in previous_snapshots
+                    if str(item.get("captured_at", "")).strip() != captured_at
+                ),
+                None,
+            )
+        elif len(previous_snapshots) > 1:
+            previous_snapshot = previous_snapshots[1]
+
+    current_stats = _load_historic_stats_for_snapshot(current_snapshot)
+    previous_stats = (
+        _load_historic_stats_for_snapshot(previous_snapshot)
+        if previous_snapshot is not None
+        else None
+    )
+    market_ai_recommendation = _load_market_ai_recommendation(
+        symbol,
+        str(current_snapshot.get("captured_at", "")).strip(),
+    )
+
+    snapshots = [_json_ready(current_snapshot)]
+    if previous_snapshot is not None:
+        snapshots.append(_json_ready(previous_snapshot))
+
+    return {
+        "symbol": symbol,
+        "window": window_label,
+        "record_count": len(snapshots),
+        "from_timestamp": str((previous_snapshot or current_snapshot).get("captured_at", "")),
+        "to_timestamp": str(current_snapshot.get("captured_at", "")),
+        "current_snapshot": _json_ready(current_snapshot),
+        "previous_snapshot": None if previous_snapshot is None else _json_ready(previous_snapshot),
+        "current_stats": current_stats.get("stats", {}),
+        "previous_stats": {} if previous_stats is None else previous_stats.get("stats", {}),
+        "market_ai_recommendation": market_ai_recommendation,
+        "snapshots": snapshots,
+    }
 
 
 def _parse_spanish_datetime(raw_value: str) -> str:
@@ -743,6 +898,16 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
                     "status": "ok",
                     "route": route_key,
                     "result": _get_analytics_snapshot(event),
+                },
+            )
+
+        if route_key == "GET /analytics/catalog":
+            return _response(
+                200,
+                {
+                    "status": "ok",
+                    "route": route_key,
+                    "result": _list_analytics_catalog(event),
                 },
             )
 

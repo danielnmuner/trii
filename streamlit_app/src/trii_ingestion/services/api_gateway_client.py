@@ -33,6 +33,29 @@ class ApiGatewayClient:
         )
         return self._decode_response(response)
 
+    def get_analytics_catalog(self, *, days: int = 7) -> dict[str, Any]:
+        response = self._perform_request(
+            request.Request(
+                url=f"{self.base_url.rstrip('/')}/analytics/catalog?{urlencode({'days': days})}",
+                headers={"X-Api-Token": self.token},
+                method="GET",
+            )
+        )
+        return self._decode_response(response)
+
+    def get_analytics_snapshot(self, *, symbol: str, window: str = "6h") -> dict[str, Any]:
+        response = self._perform_request(
+            request.Request(
+                url=(
+                    f"{self.base_url.rstrip('/')}/analytics/snapshot?"
+                    f"{urlencode({'symbol': symbol, 'window': window})}"
+                ),
+                headers={"X-Api-Token": self.token},
+                method="GET",
+            )
+        )
+        return self._decode_response(response)
+
     def submit_stock_orders(self, *, file_name: str, raw_bytes: bytes) -> dict[str, Any]:
         return self._post_json(
             "/orders",
