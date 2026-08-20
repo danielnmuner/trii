@@ -32,6 +32,14 @@ module "historic_stats_table" {
   tags         = local.common_tags
 }
 
+module "market_ai_recommendations_table" {
+  source = "./services/dynamodb/market-ai-recommendations-table"
+
+  environment  = local.environment
+  project_name = local.project_name
+  tags         = local.common_tags
+}
+
 module "snapshot_ingestion_raw" {
   source = "./services/dynamodb/snapshot-ingestion-raw"
 
@@ -91,16 +99,35 @@ module "ai_handler" {
 module "historic_stats_updater" {
   source = "./services/lambda/historic-stats-updater"
 
-  environment                       = local.environment
-  project_name                      = local.project_name
-  tags                              = local.common_tags
-  current_snapshots_stream_arn      = module.current_snapshots_table.stream_arn
-  historic_stats_table_name         = module.historic_stats_table.name
-  historic_stats_table_arn          = module.historic_stats_table.arn
-  historic_stats_index_arns         = module.historic_stats_table.index_arns
-  processed_stats_events_table_name = module.processed_stats_events_table.name
-  processed_stats_events_table_arn  = module.processed_stats_events_table.arn
-  processed_stats_events_index_arns = module.processed_stats_events_table.index_arns
+  environment                                    = local.environment
+  project_name                                   = local.project_name
+  tags                                           = local.common_tags
+  current_snapshots_stream_arn                   = module.current_snapshots_table.stream_arn
+  historic_stats_table_name                      = module.historic_stats_table.name
+  historic_stats_table_arn                       = module.historic_stats_table.arn
+  historic_stats_index_arns                      = module.historic_stats_table.index_arns
+  processed_stats_events_table_name              = module.processed_stats_events_table.name
+  processed_stats_events_table_arn               = module.processed_stats_events_table.arn
+  processed_stats_events_index_arns              = module.processed_stats_events_table.index_arns
+  market_ai_recommendation_handler_function_name = module.market_ai_recommendation_handler.function_name
+  market_ai_recommendation_handler_function_arn  = module.market_ai_recommendation_handler.function_arn
+}
+
+module "market_ai_recommendation_handler" {
+  source = "./services/lambda/market-ai-recommendation-handler"
+
+  environment                          = local.environment
+  project_name                         = local.project_name
+  tags                                 = local.common_tags
+  current_snapshots_table_name         = module.current_snapshots_table.name
+  current_snapshots_table_arn          = module.current_snapshots_table.arn
+  current_snapshots_index_arns         = module.current_snapshots_table.index_arns
+  historic_stats_table_name            = module.historic_stats_table.name
+  historic_stats_table_arn             = module.historic_stats_table.arn
+  historic_stats_index_arns            = module.historic_stats_table.index_arns
+  market_ai_recommendations_table_name = module.market_ai_recommendations_table.name
+  market_ai_recommendations_table_arn  = module.market_ai_recommendations_table.arn
+  bedrock_model_id                     = module.bedrock_nova_pro.model_id
 }
 
 module "api_handler" {

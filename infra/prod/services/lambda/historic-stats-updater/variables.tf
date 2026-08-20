@@ -43,6 +43,16 @@ variable "processed_stats_events_index_arns" {
   type        = list(string)
 }
 
+variable "market_ai_recommendation_handler_function_name" {
+  description = "Market AI recommendation handler Lambda function name."
+  type        = string
+}
+
+variable "market_ai_recommendation_handler_function_arn" {
+  description = "Market AI recommendation handler Lambda function ARN."
+  type        = string
+}
+
 variable "tags" {
   description = "Resource tags."
   type        = map(string)

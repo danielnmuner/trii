@@ -38,6 +38,11 @@ output "historic_stats_table_name" {
   value       = module.historic_stats_table.name
 }
 
+output "market_ai_recommendations_table_name" {
+  description = "Market AI recommendations DynamoDB table name."
+  value       = module.market_ai_recommendations_table.name
+}
+
 output "snapshot_ingestion_checksums_table_name" {
   description = "Snapshot ingestion checksums DynamoDB table name."
   value       = module.snapshot_ingestion_checksums_table.name
@@ -66,4 +71,9 @@ output "source_documents_bucket_name" {
 output "historic_stats_updater_function_name" {
   description = "Historic stats updater Lambda function name."
   value       = module.historic_stats_updater.function_name
+}
+
+output "market_ai_recommendation_handler_function_name" {
+  description = "Market AI recommendation handler Lambda function name."
+  value       = module.market_ai_recommendation_handler.function_name
 }
