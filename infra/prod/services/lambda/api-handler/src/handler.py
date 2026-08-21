@@ -33,7 +33,6 @@ API_SHARED_TOKEN = os.environ["API_SHARED_TOKEN"]
 BOGOTA_TIMEZONE = ZoneInfo("America/Bogota")
 RAW_SNAPSHOT_TTL_SECONDS = 72 * 60 * 60
 CURRENT_SNAPSHOT_TTL_SECONDS = 365 * 24 * 60 * 60
-ANALYTICS_SYMBOL_CATALOG_DAYS = 7
 EXPECTED_STOCK_ORDER_COLUMNS = (
     "Fecha y hora",
     "Símbolo de la acción",
@@ -391,31 +390,64 @@ def _list_recent_snapshots(event: dict[str, Any]) -> dict[str, Any]:
 
 
 def _list_analytics_catalog(event: dict[str, Any]) -> dict[str, Any]:
-    params = _query_params(event)
-    days = _parse_positive_int(params.get("days"), default=ANALYTICS_SYMBOL_CATALOG_DAYS)
-    catalog_result = _list_recent_snapshots(
-        {
-            **event,
-            "queryStringParameters": {
-                **(event.get("queryStringParameters") or {}),
-                "days": str(days),
-            },
+    latest_captured_date = _find_latest_snapshot_captured_date()
+    if latest_captured_date is None:
+        return {
+            "symbols": [],
+            "symbol_count": 0,
+            "trading_date": None,
+            "to_timestamp": None,
+            "record_count": 0,
         }
-    )
+
+    records: list[dict[str, Any]] = []
+    query_kwargs = {
+        "IndexName": "captured-date-index",
+        "KeyConditionExpression": Key("captured_date").eq(latest_captured_date),
+    }
+    while True:
+        response = CURRENT_SNAPSHOTS_TABLE.query(**query_kwargs)
+        records.extend(response.get("Items", []))
+        last_evaluated_key = response.get("LastEvaluatedKey")
+        if not last_evaluated_key:
+            break
+        query_kwargs["ExclusiveStartKey"] = last_evaluated_key
+
     symbols = sorted(
         {
             str(record.get("symbol", "")).strip().upper()
-            for record in catalog_result.get("records", [])
+            for record in records
             if str(record.get("symbol", "")).strip()
         }
+    )
+    latest_captured_at = max(
+        (
+            str(record.get("captured_at") or "").strip()
+            for record in records
+            if str(record.get("captured_at") or "").strip()
+        ),
+        default=None,
     )
     return {
         "symbols": symbols,
         "symbol_count": len(symbols),
-        "catalog_days": days,
-        "from_date": catalog_result["from_date"],
-        "to_timestamp": catalog_result["to_timestamp"],
+        "trading_date": latest_captured_date,
+        "to_timestamp": latest_captured_at,
+        "record_count": len(records),
     }
+
+
+def _find_latest_snapshot_captured_date(*, lookback_days: int = 14) -> str | None:
+    for offset in range(lookback_days + 1):
+        candidate = (datetime.now(BOGOTA_TIMEZONE).date() - timedelta(days=offset)).isoformat()
+        response = CURRENT_SNAPSHOTS_TABLE.query(
+            IndexName="captured-date-index",
+            KeyConditionExpression=Key("captured_date").eq(candidate),
+            Limit=1,
+        )
+        if response.get("Items"):
+            return candidate
+    return None
 
 
 def _list_zscore_opportunities(event: dict[str, Any]) -> dict[str, Any]:
@@ -622,25 +654,6 @@ def _load_historic_stats_for_snapshot(snapshot: dict[str, Any]) -> dict[str, Any
     }
 
 
-def _load_market_ai_recommendation(symbol: str, captured_at: str) -> dict[str, Any] | None:
-    query_kwargs: dict[str, Any] = {
-        "IndexName": "symbol-created-at-index",
-        "KeyConditionExpression": Key("symbol").eq(symbol),
-        "ScanIndexForward": False,
-        "Limit": 25,
-    }
-    while True:
-        response = MARKET_AI_RECOMMENDATIONS_TABLE.query(**query_kwargs)
-        for item in response.get("Items", []):
-            if str(item.get("captured_at", "")).strip() == captured_at:
-                return _json_ready(item)
-
-        last_evaluated_key = response.get("LastEvaluatedKey")
-        if not last_evaluated_key:
-            return None
-        query_kwargs["ExclusiveStartKey"] = last_evaluated_key
-
-
 def _get_analytics_snapshot(event: dict[str, Any]) -> dict[str, Any]:
     params = _query_params(event)
     symbol = str(params.get("symbol") or "").strip().upper()
@@ -689,10 +702,6 @@ def _get_analytics_snapshot(event: dict[str, Any]) -> dict[str, Any]:
             previous_snapshot = previous_snapshots[1]
 
     current_stats = _load_historic_stats_for_snapshot(current_snapshot)
-    market_ai_recommendation = _load_market_ai_recommendation(
-        symbol,
-        str(current_snapshot.get("captured_at", "")).strip(),
-    )
 
     snapshots = [_json_ready(current_snapshot)]
     if previous_snapshot is not None:
@@ -707,7 +716,6 @@ def _get_analytics_snapshot(event: dict[str, Any]) -> dict[str, Any]:
         "previous_snapshot": None if previous_snapshot is None else _json_ready(previous_snapshot),
         "current_stats": current_stats.get("stats", {}),
         "previous_stats": {},
-        "market_ai_recommendation": market_ai_recommendation,
         "snapshots": snapshots,
     }
 

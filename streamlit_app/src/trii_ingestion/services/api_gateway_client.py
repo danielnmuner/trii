@@ -24,34 +24,43 @@ class ApiGatewayClient:
         return self._post_json("/snapshots", {"snapshot": snapshot})
 
     def get_recent_snapshots(self, *, days: int = 7) -> dict[str, Any]:
-        response = self._perform_request(
-            request.Request(
-                url=f"{self.base_url.rstrip('/')}/snapshots?{urlencode({'days': days})}",
-                headers={"X-Api-Token": self.token},
-                method="GET",
-            )
-        )
-        return self._decode_response(response)
+        return self._get_json("/snapshots", {"days": days})
 
-    def get_analytics_catalog(self, *, days: int = 7) -> dict[str, Any]:
-        response = self._perform_request(
-            request.Request(
-                url=f"{self.base_url.rstrip('/')}/analytics/catalog?{urlencode({'days': days})}",
-                headers={"X-Api-Token": self.token},
-                method="GET",
-            )
-        )
-        return self._decode_response(response)
+    def get_analytics_catalog(self) -> dict[str, Any]:
+        return self._get_json("/analytics/catalog", {})
 
     def get_analytics_snapshot(self, *, symbol: str) -> dict[str, Any]:
-        response = self._perform_request(
-            request.Request(
-                url=f"{self.base_url.rstrip('/')}/analytics/snapshot?{urlencode({'symbol': symbol})}",
-                headers={"X-Api-Token": self.token},
-                method="GET",
-            )
+        return self._get_json("/analytics/snapshot", {"symbol": symbol})
+
+    def get_analytics_zscore_opportunities(
+        self,
+        *,
+        symbol: str,
+        trading_date: str,
+        limit: int = 250,
+    ) -> dict[str, Any]:
+        return self._get_json(
+            "/analytics/zscore-opportunities",
+            {
+                "symbol": symbol,
+                "trading_date": trading_date,
+                "limit": limit,
+            },
         )
-        return self._decode_response(response)
+
+    def get_analytics_daily_closing(
+        self,
+        *,
+        symbol: str,
+        limit: int = 500,
+    ) -> dict[str, Any]:
+        return self._get_json(
+            "/analytics/daily-closing",
+            {
+                "symbol": symbol,
+                "limit": limit,
+            },
+        )
 
     def submit_stock_orders(
         self,
@@ -100,6 +109,18 @@ class ApiGatewayClient:
                     "X-Api-Token": self.token,
                 },
                 method="POST",
+            )
+        )
+        return self._decode_response(response)
+
+    def _get_json(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
+        encoded_params = urlencode({key: value for key, value in params.items() if value is not None})
+        query_suffix = f"?{encoded_params}" if encoded_params else ""
+        response = self._perform_request(
+            request.Request(
+                url=f"{self.base_url.rstrip('/')}{path}{query_suffix}",
+                headers={"X-Api-Token": self.token},
+                method="GET",
             )
         )
         return self._decode_response(response)
