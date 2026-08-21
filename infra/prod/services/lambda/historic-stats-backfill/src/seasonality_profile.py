@@ -10,7 +10,7 @@ from snapshot_metrics import to_decimal
 
 SEASONALITY_PROFILE_KEY = "seasonality_profile"
 SEASONALITY_PROFILE_SCOPE = "weekly_intraday_seasonality"
-SEASONALITY_BUCKET_GRANULARITY_MINUTES = 60
+SEASONALITY_BUCKET_GRANULARITY_MINUTES = 30
 BOGOTA_TIMEZONE_NAME = "America/Bogota"
 WEEKDAY_LABELS = {
     "1": "monday",
@@ -35,10 +35,8 @@ def _empty_welford_state() -> dict[str, Any]:
         "sample_count": 0,
         "mu": Decimal("0"),
         "m2": Decimal("0"),
+        "variance": Decimal("0"),
         "sigma": Decimal("0"),
-        "min_value": None,
-        "max_value": None,
-        "latest_value": None,
     }
 
 
@@ -47,26 +45,24 @@ def _update_welford_state(state: dict[str, Any] | None, value: Decimal) -> dict[
     previous_count = int(previous.get("sample_count", 0) or 0)
     previous_mu = to_decimal(previous.get("mu")) or Decimal("0")
     previous_m2 = to_decimal(previous.get("m2")) or Decimal("0")
-    previous_min = to_decimal(previous.get("min_value"))
-    previous_max = to_decimal(previous.get("max_value"))
 
     sample_count = previous_count + 1
     delta = value - previous_mu
     mu = previous_mu + (delta / Decimal(sample_count))
     delta_2 = value - mu
     m2 = previous_m2 + (delta * delta_2)
+    variance = Decimal("0")
     sigma = Decimal("0")
     if sample_count > 1:
-        sigma = (m2 / Decimal(sample_count - 1)).sqrt()
+        variance = m2 / Decimal(sample_count - 1)
+        sigma = variance.sqrt()
 
     return {
         "sample_count": sample_count,
         "mu": mu,
         "m2": m2,
+        "variance": variance,
         "sigma": sigma,
-        "min_value": value if previous_min is None else min(previous_min, value),
-        "max_value": value if previous_max is None else max(previous_max, value),
-        "latest_value": value,
     }
 
 
@@ -88,6 +84,8 @@ def _build_hour_entry() -> dict[str, Any]:
         "bucket_vwap": None,
         "volume_share_stats": _empty_welford_state(),
         "vwap_stats": _empty_welford_state(),
+        "volume_rate_stats": _empty_welford_state(),
+        "value_rate_stats": _empty_welford_state(),
     }
 
 
@@ -99,7 +97,10 @@ def _get_trading_date(snapshot: dict[str, Any]) -> str:
 
 
 def _get_bucket_key(timestamp: datetime) -> str:
-    return timestamp.strftime("%H:00")
+    bucket_minute = (
+        timestamp.minute // SEASONALITY_BUCKET_GRANULARITY_MINUTES
+    ) * SEASONALITY_BUCKET_GRANULARITY_MINUTES
+    return f"{timestamp.hour:02d}:{bucket_minute:02d}"
 
 
 def _finalize_symbol_profile(
@@ -186,7 +187,12 @@ def build_seasonality_profile_items_from_snapshots(
         if delta_volume <= 0 or delta_value <= 0:
             continue
 
+        previous_timestamp = _parse_timestamp(str(previous_snapshot["captured_at"]))
         timestamp = _parse_timestamp(captured_at)
+        delta_seconds = Decimal(str((timestamp - previous_timestamp).total_seconds()))
+        if delta_seconds <= 0:
+            continue
+
         trading_date = _get_trading_date(snapshot)
         bucket_key = _get_bucket_key(timestamp)
         profile = profiles.setdefault(
@@ -223,6 +229,12 @@ def build_seasonality_profile_items_from_snapshots(
         hour_bucket["bucket_volume"] += delta_volume
         hour_bucket["bucket_value"] += delta_value
         hour_bucket["delta_samples"] += 1
+        hour_bucket.setdefault("rate_samples", []).append(
+            {
+                "volume_rate": delta_volume / delta_seconds,
+                "value_rate": delta_value / delta_seconds,
+            }
+        )
 
     rebuilt_items: dict[tuple[str, str], dict[str, Any]] = {}
     for symbol, profile in profiles.items():
@@ -260,6 +272,19 @@ def build_seasonality_profile_items_from_snapshots(
                     hour_entry.get("vwap_stats"),
                     bucket_value / bucket_volume,
                 )
+                for rate_sample in bucket_payload.get("rate_samples", []):
+                    volume_rate = to_decimal(rate_sample.get("volume_rate"))
+                    value_rate = to_decimal(rate_sample.get("value_rate"))
+                    if volume_rate is not None:
+                        hour_entry["volume_rate_stats"] = _update_welford_state(
+                            hour_entry.get("volume_rate_stats"),
+                            volume_rate,
+                        )
+                    if value_rate is not None:
+                        hour_entry["value_rate_stats"] = _update_welford_state(
+                            hour_entry.get("value_rate_stats"),
+                            value_rate,
+                        )
 
         if profile["total_days_processed"] == 0:
             continue

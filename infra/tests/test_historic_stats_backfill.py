@@ -37,6 +37,10 @@ _handler_spec.loader.exec_module(_handler_module)
 rebuild_stat_items_from_snapshots = _handler_module.rebuild_stat_items_from_snapshots
 
 
+def assert_decimal_close(actual: Decimal, expected: Decimal, tolerance: str = "1e-24") -> None:
+    assert abs(actual - expected) <= Decimal(tolerance)
+
+
 def test_rebuild_stat_items_from_snapshots_recomputes_selected_metrics_only() -> None:
     snapshots = [
         {
@@ -126,6 +130,14 @@ def test_rebuild_stat_items_from_snapshots_can_build_seasonality_profile() -> No
         },
         {
             "symbol": "NUCO",
+            "captured_at": "2026-08-17T09:45:00-05:00",
+            "captured_date": "2026-08-17",
+            "snapshot_checksum": "checksum-a3",
+            "traded_volume": 200,
+            "traded_value": 2460,
+        },
+        {
+            "symbol": "NUCO",
             "captured_at": "2026-08-24T09:00:00-05:00",
             "captured_date": "2026-08-24",
             "snapshot_checksum": "checksum-b1",
@@ -137,8 +149,16 @@ def test_rebuild_stat_items_from_snapshots_can_build_seasonality_profile() -> No
             "captured_at": "2026-08-24T09:15:00-05:00",
             "captured_date": "2026-08-24",
             "snapshot_checksum": "checksum-b2",
-            "traded_volume": 260,
-            "traded_value": 3500,
+            "traded_volume": 250,
+            "traded_value": 3350,
+        },
+        {
+            "symbol": "NUCO",
+            "captured_at": "2026-08-24T09:45:00-05:00",
+            "captured_date": "2026-08-24",
+            "snapshot_checksum": "checksum-b3",
+            "traded_volume": 320,
+            "traded_value": 4470,
         },
     ]
 
@@ -152,23 +172,81 @@ def test_rebuild_stat_items_from_snapshots_can_build_seasonality_profile() -> No
 
     profile_item = rebuilt_items[("NUCO", "seasonality_profile")]
     assert profile_item["record_type"] == "seasonality_profile"
+    assert profile_item["bucket_granularity_minutes"] == 30
     assert profile_item["total_days_processed"] == 2
-    assert profile_item["total_snapshots_processed"] == 4
-    assert profile_item["last_source_captured_at"] == "2026-08-24T09:15:00-05:00"
+    assert profile_item["total_snapshots_processed"] == 6
+    assert profile_item["last_source_captured_at"] == "2026-08-24T09:45:00-05:00"
 
     monday_profile = profile_item["weekly_profile"]["1"]
     assert monday_profile["days_processed"] == 2
-    assert monday_profile["accumulated_day_volume"] == Decimal("100")
-    assert monday_profile["accumulated_day_value"] == Decimal("1460")
+    assert monday_profile["accumulated_day_volume"] == Decimal("220")
+    assert monday_profile["accumulated_day_value"] == Decimal("3330")
+    assert set(monday_profile["hours"]) == {"09:00", "09:30"}
 
-    hour_profile = monday_profile["hours"]["09:00"]
-    assert hour_profile["accumulated_volume"] == Decimal("100")
-    assert hour_profile["accumulated_value"] == Decimal("1460")
-    assert hour_profile["delta_samples"] == 2
-    assert hour_profile["bucket_vwap"] == Decimal("14.6")
-    assert hour_profile["volume_share_stats"]["sample_count"] == 2
-    assert hour_profile["volume_share_stats"]["mu"] == Decimal("1")
-    assert hour_profile["volume_share_stats"]["sigma"] == Decimal("0")
-    assert hour_profile["vwap_stats"]["sample_count"] == 2
-    assert hour_profile["vwap_stats"]["mu"] == Decimal("14.5")
-    assert hour_profile["vwap_stats"]["sigma"] == Decimal("0.7071067811865475244008443621")
+    first_half_hour_profile = monday_profile["hours"]["09:00"]
+    assert first_half_hour_profile["accumulated_volume"] == Decimal("90")
+    assert first_half_hour_profile["accumulated_value"] == Decimal("1310")
+    assert first_half_hour_profile["delta_samples"] == 2
+    assert first_half_hour_profile["bucket_vwap"] == Decimal("1310") / Decimal("90")
+    assert first_half_hour_profile["volume_share_stats"]["sample_count"] == 2
+    assert_decimal_close(
+        first_half_hour_profile["volume_share_stats"]["variance"],
+        Decimal("1") / Decimal("7200"),
+    )
+    assert first_half_hour_profile["vwap_stats"]["sample_count"] == 2
+    assert_decimal_close(
+        first_half_hour_profile["vwap_stats"]["variance"],
+        Decimal("1") / Decimal("2"),
+    )
+    assert first_half_hour_profile["volume_rate_stats"]["sample_count"] == 2
+    assert_decimal_close(
+        first_half_hour_profile["volume_rate_stats"]["mu"],
+        Decimal("1") / Decimal("20"),
+    )
+    assert_decimal_close(
+        first_half_hour_profile["volume_rate_stats"]["variance"],
+        Decimal("1") / Decimal("16200"),
+    )
+    assert first_half_hour_profile["value_rate_stats"]["sample_count"] == 2
+    assert_decimal_close(
+        first_half_hour_profile["value_rate_stats"]["mu"],
+        Decimal("131") / Decimal("180"),
+    )
+    assert_decimal_close(
+        first_half_hour_profile["value_rate_stats"]["variance"],
+        Decimal("361") / Decimal("16200"),
+    )
+
+    second_half_hour_profile = monday_profile["hours"]["09:30"]
+    assert second_half_hour_profile["accumulated_volume"] == Decimal("130")
+    assert second_half_hour_profile["accumulated_value"] == Decimal("2020")
+    assert second_half_hour_profile["delta_samples"] == 2
+    assert second_half_hour_profile["bucket_vwap"] == Decimal("2020") / Decimal("130")
+    assert second_half_hour_profile["volume_share_stats"]["sample_count"] == 2
+    assert_decimal_close(
+        second_half_hour_profile["volume_share_stats"]["variance"],
+        Decimal("1") / Decimal("7200"),
+    )
+    assert second_half_hour_profile["vwap_stats"]["sample_count"] == 2
+    assert_decimal_close(
+        second_half_hour_profile["vwap_stats"]["variance"],
+        Decimal("1") / Decimal("2"),
+    )
+    assert second_half_hour_profile["volume_rate_stats"]["sample_count"] == 2
+    assert_decimal_close(
+        second_half_hour_profile["volume_rate_stats"]["mu"],
+        Decimal("13") / Decimal("360"),
+    )
+    assert_decimal_close(
+        second_half_hour_profile["volume_rate_stats"]["variance"],
+        Decimal("1") / Decimal("64800"),
+    )
+    assert second_half_hour_profile["value_rate_stats"]["sample_count"] == 2
+    assert_decimal_close(
+        second_half_hour_profile["value_rate_stats"]["mu"],
+        Decimal("101") / Decimal("180"),
+    )
+    assert_decimal_close(
+        second_half_hour_profile["value_rate_stats"]["variance"],
+        Decimal("121") / Decimal("16200"),
+    )

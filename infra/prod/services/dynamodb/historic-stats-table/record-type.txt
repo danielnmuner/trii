@@ -42,7 +42,7 @@ seasonality_profile_record_type:
 - sk: string, seasonality_profile
 - symbol: string, uppercase stock symbol
 - record_type: string, seasonality_profile
-- bucket_granularity_minutes: number, currently 60
+- bucket_granularity_minutes: number, currently 30
 - timezone: string, currently America/Bogota
 - total_days_processed: number, trading days successfully folded into the profile
 - total_snapshots_processed: number, valid raw snapshots consumed for the symbol during the rebuild
@@ -55,24 +55,30 @@ seasonality_profile_record_type:
 - weekly_profile.<weekday>.days_processed: number
 - weekly_profile.<weekday>.accumulated_day_volume: number
 - weekly_profile.<weekday>.accumulated_day_value: number
-- weekly_profile.<weekday>.hours.<hh:00>.accumulated_volume: number
-- weekly_profile.<weekday>.hours.<hh:00>.accumulated_value: number
-- weekly_profile.<weekday>.hours.<hh:00>.delta_samples: number, accepted delta intervals folded into the bucket
-- weekly_profile.<weekday>.hours.<hh:00>.bucket_vwap: number
-- weekly_profile.<weekday>.hours.<hh:00>.volume_share_stats.sample_count: number
-- weekly_profile.<weekday>.hours.<hh:00>.volume_share_stats.mu: number
-- weekly_profile.<weekday>.hours.<hh:00>.volume_share_stats.m2: number
-- weekly_profile.<weekday>.hours.<hh:00>.volume_share_stats.sigma: number
-- weekly_profile.<weekday>.hours.<hh:00>.volume_share_stats.min_value: number
-- weekly_profile.<weekday>.hours.<hh:00>.volume_share_stats.max_value: number
-- weekly_profile.<weekday>.hours.<hh:00>.volume_share_stats.latest_value: number
-- weekly_profile.<weekday>.hours.<hh:00>.vwap_stats.sample_count: number
-- weekly_profile.<weekday>.hours.<hh:00>.vwap_stats.mu: number
-- weekly_profile.<weekday>.hours.<hh:00>.vwap_stats.m2: number
-- weekly_profile.<weekday>.hours.<hh:00>.vwap_stats.sigma: number
-- weekly_profile.<weekday>.hours.<hh:00>.vwap_stats.min_value: number
-- weekly_profile.<weekday>.hours.<hh:00>.vwap_stats.max_value: number
-- weekly_profile.<weekday>.hours.<hh:00>.vwap_stats.latest_value: number
+- weekly_profile.<weekday>.hours.<hh:mm>.accumulated_volume: number
+- weekly_profile.<weekday>.hours.<hh:mm>.accumulated_value: number
+- weekly_profile.<weekday>.hours.<hh:mm>.delta_samples: number, accepted delta intervals folded into the bucket
+- weekly_profile.<weekday>.hours.<hh:mm>.bucket_vwap: number
+- weekly_profile.<weekday>.hours.<hh:mm>.volume_share_stats.sample_count: number
+- weekly_profile.<weekday>.hours.<hh:mm>.volume_share_stats.mu: number
+- weekly_profile.<weekday>.hours.<hh:mm>.volume_share_stats.m2: number
+- weekly_profile.<weekday>.hours.<hh:mm>.volume_share_stats.variance: number
+- weekly_profile.<weekday>.hours.<hh:mm>.volume_share_stats.sigma: number
+- weekly_profile.<weekday>.hours.<hh:mm>.vwap_stats.sample_count: number
+- weekly_profile.<weekday>.hours.<hh:mm>.vwap_stats.mu: number
+- weekly_profile.<weekday>.hours.<hh:mm>.vwap_stats.m2: number
+- weekly_profile.<weekday>.hours.<hh:mm>.vwap_stats.variance: number
+- weekly_profile.<weekday>.hours.<hh:mm>.vwap_stats.sigma: number
+- weekly_profile.<weekday>.hours.<hh:mm>.volume_rate_stats.sample_count: number
+- weekly_profile.<weekday>.hours.<hh:mm>.volume_rate_stats.mu: number
+- weekly_profile.<weekday>.hours.<hh:mm>.volume_rate_stats.m2: number
+- weekly_profile.<weekday>.hours.<hh:mm>.volume_rate_stats.variance: number
+- weekly_profile.<weekday>.hours.<hh:mm>.volume_rate_stats.sigma: number
+- weekly_profile.<weekday>.hours.<hh:mm>.value_rate_stats.sample_count: number
+- weekly_profile.<weekday>.hours.<hh:mm>.value_rate_stats.mu: number
+- weekly_profile.<weekday>.hours.<hh:mm>.value_rate_stats.m2: number
+- weekly_profile.<weekday>.hours.<hh:mm>.value_rate_stats.variance: number
+- weekly_profile.<weekday>.hours.<hh:mm>.value_rate_stats.sigma: number
 
 data_quality_record_type:
 - pk: string, uppercase stock symbol

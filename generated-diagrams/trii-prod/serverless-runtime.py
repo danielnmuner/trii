@@ -8,6 +8,7 @@ from diagrams.aws.ml import Bedrock
 from diagrams.aws.network import APIGateway
 from diagrams.aws.storage import S3
 from diagrams.custom import Custom
+from diagrams.onprem.ci import GithubActions
 
 
 OUTPUT_DIR = Path("generated-diagrams/trii-prod")
@@ -40,6 +41,7 @@ with Diagram(
 ):
     streamlit_operator = Custom("Streamlit\noperator", STREAMLIT_ICON)
     chrome_extension = Custom("Chrome\nextension", CHROME_EXTENSION_ICON)
+    historic_stats_backfill_workflow = GithubActions("historic-stats-backfill\nworkflow")
 
     with Cluster("AWS prod"):
         http_api = APIGateway("HTTP API")
@@ -49,6 +51,7 @@ with Diagram(
 
         with Cluster("Background analytics"):
             historic_stats_updater = Lambda("historic_stats_updater\nLambda")
+            historic_stats_backfill = Lambda("historic_stats_backfill\nLambda")
             daily_closing_snapshots_updater = Lambda("daily_closing_snapshots_updater\nLambda")
             market_ai_recommendation_handler = Lambda("market_ai_recommendation_handler\nLambda")
             daily_closing_schedule = Eventbridge("24h closing\nschedule")
@@ -83,6 +86,10 @@ with Diagram(
     historic_stats_updater >> Edge(label="update stats", color="darkorange") >> historic_stats_table
     historic_stats_updater >> Edge(label="write idempotency", color="darkorange") >> processed_stats_events_table
     historic_stats_updater >> Edge(label="trigger AI rules", color="steelblue") >> market_ai_recommendation_handler
+
+    historic_stats_backfill_workflow >> Edge(label="manual invoke", color="slateblue") >> historic_stats_backfill
+    historic_stats_backfill >> Edge(label="query raw history", color="slateblue", style="dashed") >> current_snapshots_table
+    historic_stats_backfill >> Edge(label="rebuild metrics", color="slateblue") >> historic_stats_table
 
     daily_closing_schedule >> Edge(label="run every 24h", color="mediumpurple") >> daily_closing_snapshots_updater
     daily_closing_snapshots_updater >> Edge(label="read daily snapshots", color="mediumpurple", style="dashed") >> current_snapshots_table

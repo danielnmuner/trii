@@ -53,9 +53,11 @@ The seasonality profile is derived from cumulative market snapshots by convertin
   - `bucket_volume = sum(delta_volume)`
   - `bucket_value = sum(delta_value)`
   - `bucket_vwap = bucket_value / bucket_volume`
+  - `volume_rate = delta_volume / delta_seconds`
+  - `value_rate = delta_value / delta_seconds`
 - After the full session is known, normalize participation:
   - `bucket_volume_share = bucket_volume / total_day_volume`
-- Fold each finalized bucket sample into Welford state so the profile can expose `mean`, `m2`, and `stddev` without full reprocessing.
+- Fold each finalized bucket sample into Welford state so the profile can expose `mu`, `m2`, `variance`, and `sigma` without full reprocessing.
 
 ## Proposed seasonality record
 
@@ -86,13 +88,31 @@ Recommended shape in `trii-prod-historic-stats`:
           "bucket_vwap": 3000,
           "samples": 24,
           "volume_share_stats": {
+            "sample_count": 24,
             "mu": 0.2667,
             "m2": 0.0141,
+            "variance": 0.0006,
             "sigma": 0.0248
           },
           "vwap_stats": {
+            "sample_count": 24,
             "mu": 3004.12,
             "m2": 18542.77,
+            "variance": 805.34,
+            "sigma": 28.39
+          },
+          "volume_rate_stats": {
+            "sample_count": 24,
+            "mu": 2500,
+            "m2": 1400000,
+            "variance": 60869.56,
+            "sigma": 246.72
+          },
+          "value_rate_stats": {
+            "sample_count": 24,
+            "mu": 7500000,
+            "m2": 580000000000,
+            "variance": 25217391304.35,
             "sigma": 28.39
           }
         },
@@ -100,15 +120,32 @@ Recommended shape in `trii-prod-historic-stats`:
           "accumulated_volume": 900000,
           "accumulated_value": 2700000000,
           "bucket_vwap": 3000,
-          "samples": 24,
           "volume_share_stats": {
+            "sample_count": 24,
             "mu": 0.2000,
             "m2": 0.0110,
+            "variance": 0.0005,
             "sigma": 0.0219
           },
           "vwap_stats": {
+            "sample_count": 24,
             "mu": 3002.45,
             "m2": 10921.55,
+            "variance": 474.85,
+            "sigma": 21.79
+          },
+          "volume_rate_stats": {
+            "sample_count": 24,
+            "mu": 1800,
+            "m2": 920000,
+            "variance": 40000,
+            "sigma": 200
+          },
+          "value_rate_stats": {
+            "sample_count": 24,
+            "mu": 5400000,
+            "m2": 420000000000,
+            "variance": 18260869565.22,
             "sigma": 21.79
           }
         }
@@ -122,8 +159,9 @@ Notes:
 
 - Keep `pk = symbol` if this record will live in the existing `historic-stats` table. A prefixed partition key such as `TICKER#NUCO` would be a broader table-contract change.
 - Keep the raw accumulators `accumulated_volume` and `accumulated_value` for fast reconstruction of aggregate participation and bucket VWAP.
-- Also persist Welford state explicitly for the normalized signal that will be queried later. At minimum that should be `volume_share_stats` with `mu`, `m2`, and `sigma`.
+- Also persist Welford state explicitly for the normalized signal that will be queried later. At minimum that should be `volume_share_stats` with `sample_count`, `mu`, `m2`, `variance`, and `sigma`.
 - If the product will compare the current bucket price against its historical bucket price, persist a second Welford state for `vwap_stats`.
+- The current implementation also persists `volume_rate_stats` and `value_rate_stats`, both normalized by the actual elapsed seconds between contiguous snapshots.
 - `samples` should count finalized bucket observations, typically one per completed trading day per weekday-slot pair.
 - `bucket_vwap` is a derived convenience field for the accumulated profile, not a substitute for `mean` and `stddev`.
 
@@ -149,7 +187,7 @@ Required changes:
 2. Add a seasonality-specific builder instead of forcing it through `build_stat_item`.
 3. Backfill one symbol and one narrow date range in preview mode first.
 4. Validate bucket totals against raw snapshots for a known day.
-5. Validate `volume_share_stats.mu`, `m2`, and `sigma` with an offline recomputation.
+5. Validate `volume_share_stats.mu`, `m2`, `variance`, and `sigma` with an offline recomputation.
 6. Only then enable the live incremental updater for seasonality writes.
 
 ## Event contract
@@ -233,7 +271,7 @@ Workflow behavior:
 
 Current implementation note:
 
-- `seasonality_profile` is now supported by the backfill Lambda.
+- `seasonality_profile` is now supported by the backfill Lambda with 30-minute intraday buckets in `America/Bogota`.
 - `historic-stats-updater` still keeps only the live scalar metrics and has not yet been extended to maintain `seasonality_profile` in real time.
 
 Operational note:
