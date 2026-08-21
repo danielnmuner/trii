@@ -4,7 +4,7 @@ import hashlib
 import json
 import os
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from io import StringIO
 from typing import Any
@@ -25,6 +25,8 @@ CURRENT_SNAPSHOTS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["CURRENT_SNAPSHOTS_
 SNAPSHOT_INGESTION_RAW_TABLE = os.environ["SNAPSHOT_INGESTION_RAW_TABLE"]
 SNAPSHOT_INGESTION_CHECKSUMS_TABLE = os.environ["SNAPSHOT_INGESTION_CHECKSUMS_TABLE"]
 HISTORIC_STATS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["HISTORIC_STATS_TABLE"])
+DAILY_CLOSING_SNAPSHOTS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["DAILY_CLOSING_SNAPSHOTS_TABLE"])
+ZSCORE_OPPORTUNITIES_TABLE = DYNAMODB_RESOURCE.Table(os.environ["ZSCORE_OPPORTUNITIES_TABLE"])
 MARKET_AI_RECOMMENDATIONS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["MARKET_AI_RECOMMENDATIONS_TABLE"])
 STOCK_ORDERS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["STOCK_ORDERS_TABLE"])
 API_SHARED_TOKEN = os.environ["API_SHARED_TOKEN"]
@@ -312,6 +314,20 @@ def _parse_positive_int(raw_value: str | None, *, default: int) -> int:
     return parsed
 
 
+def _parse_positive_limit(raw_value: str | None, *, default: int, maximum: int) -> int:
+    parsed = _parse_positive_int(raw_value, default=default)
+    return min(parsed, maximum)
+
+
+def _parse_iso_date(raw_value: str | None, *, field_name: str) -> str | None:
+    if raw_value is None or raw_value == "":
+        return None
+    try:
+        return date.fromisoformat(str(raw_value).strip()).isoformat()
+    except ValueError as exc:
+        raise ValueError(f"El parámetro `{field_name}` debe tener formato YYYY-MM-DD.") from exc
+
+
 def _parse_snapshot_timestamp(raw_value: str) -> datetime:
     normalized = raw_value.strip()
     if normalized.endswith("Z"):
@@ -399,6 +415,148 @@ def _list_analytics_catalog(event: dict[str, Any]) -> dict[str, Any]:
         "catalog_days": days,
         "from_date": catalog_result["from_date"],
         "to_timestamp": catalog_result["to_timestamp"],
+    }
+
+
+def _list_zscore_opportunities(event: dict[str, Any]) -> dict[str, Any]:
+    params = _query_params(event)
+    snapshot_checksum = str(params.get("snapshot_checksum") or "").strip()
+    symbol = str(params.get("symbol") or "").strip().upper()
+    trading_date = _parse_iso_date(params.get("trading_date"), field_name="trading_date")
+    limit = _parse_positive_limit(params.get("limit"), default=100, maximum=500)
+
+    if snapshot_checksum:
+        response = ZSCORE_OPPORTUNITIES_TABLE.get_item(Key={"snapshot_checksum": snapshot_checksum})
+        item = response.get("Item")
+        records = [] if item is None else [_json_ready(item)]
+        return {
+            "snapshot_checksum": snapshot_checksum,
+            "record_count": len(records),
+            "records": records,
+        }
+
+    records: list[dict[str, Any]] = []
+    query_kwargs: dict[str, Any]
+
+    if symbol:
+        key_condition = Key("symbol").eq(symbol)
+        if trading_date:
+            key_condition &= Key("captured_at").begins_with(trading_date)
+        query_kwargs = {
+            "IndexName": "symbol-created-at-index",
+            "KeyConditionExpression": key_condition,
+            "ScanIndexForward": False,
+            "Limit": limit,
+        }
+        response = ZSCORE_OPPORTUNITIES_TABLE.query(**query_kwargs)
+        records = response.get("Items", [])
+        normalized_trading_date = trading_date
+    else:
+        normalized_trading_date = trading_date or datetime.now(BOGOTA_TIMEZONE).date().isoformat()
+        query_kwargs = {
+            "IndexName": "trading-date-index",
+            "KeyConditionExpression": Key("trading_date").eq(normalized_trading_date),
+            "ScanIndexForward": False,
+        }
+        while len(records) < limit:
+            response = ZSCORE_OPPORTUNITIES_TABLE.query(**query_kwargs)
+            records.extend(response.get("Items", []))
+            last_evaluated_key = response.get("LastEvaluatedKey")
+            if not last_evaluated_key:
+                break
+            query_kwargs["ExclusiveStartKey"] = last_evaluated_key
+
+        records = sorted(
+            records,
+            key=lambda item: (
+                str(item.get("captured_at") or ""),
+                str(item.get("symbol") or ""),
+            ),
+            reverse=True,
+        )[:limit]
+
+    return {
+        "symbol": symbol or None,
+        "trading_date": normalized_trading_date,
+        "record_count": len(records),
+        "records": _json_ready(records),
+    }
+
+
+def _find_latest_daily_closing_trading_date(*, lookback_days: int = 14) -> str | None:
+    for offset in range(lookback_days + 1):
+        candidate = (datetime.now(BOGOTA_TIMEZONE).date() - timedelta(days=offset)).isoformat()
+        response = DAILY_CLOSING_SNAPSHOTS_TABLE.query(
+            IndexName="trading-date-index",
+            KeyConditionExpression=Key("trading_date").eq(candidate),
+            Limit=1,
+        )
+        if response.get("Items"):
+            return candidate
+    return None
+
+
+def _list_daily_closing_snapshots(event: dict[str, Any]) -> dict[str, Any]:
+    params = _query_params(event)
+    symbol = str(params.get("symbol") or "").strip().upper()
+    trading_date = _parse_iso_date(params.get("trading_date"), field_name="trading_date")
+    limit = _parse_positive_limit(params.get("limit"), default=60, maximum=500)
+
+    if symbol and trading_date:
+        response = DAILY_CLOSING_SNAPSHOTS_TABLE.get_item(
+            Key={"symbol": symbol, "trading_date": trading_date}
+        )
+        item = response.get("Item")
+        records = [] if item is None else [_json_ready(item)]
+        return {
+            "symbol": symbol,
+            "trading_date": trading_date,
+            "record_count": len(records),
+            "records": records,
+        }
+
+    if symbol:
+        response = DAILY_CLOSING_SNAPSHOTS_TABLE.query(
+            KeyConditionExpression=Key("symbol").eq(symbol),
+            ScanIndexForward=False,
+            Limit=limit,
+        )
+        records = response.get("Items", [])
+        return {
+            "symbol": symbol,
+            "trading_date": None,
+            "record_count": len(records),
+            "records": _json_ready(records),
+        }
+
+    normalized_trading_date = trading_date or _find_latest_daily_closing_trading_date()
+    if normalized_trading_date is None:
+        return {
+            "symbol": None,
+            "trading_date": None,
+            "record_count": 0,
+            "records": [],
+        }
+
+    records: list[dict[str, Any]] = []
+    query_kwargs = {
+        "IndexName": "trading-date-index",
+        "KeyConditionExpression": Key("trading_date").eq(normalized_trading_date),
+    }
+    while len(records) < limit:
+        response = DAILY_CLOSING_SNAPSHOTS_TABLE.query(**query_kwargs)
+        records.extend(response.get("Items", []))
+        last_evaluated_key = response.get("LastEvaluatedKey")
+        if not last_evaluated_key:
+            break
+        query_kwargs["ExclusiveStartKey"] = last_evaluated_key
+
+    records = sorted(records, key=lambda item: str(item.get("symbol") or ""))[:limit]
+    return {
+        "symbol": None,
+        "trading_date": normalized_trading_date,
+        "record_count": len(records),
+        "records": _json_ready(records),
     }
 
 
@@ -1086,6 +1244,26 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
                     "status": "ok",
                     "route": route_key,
                     "result": _list_analytics_catalog(event),
+                },
+            )
+
+        if route_key == "GET /analytics/zscore-opportunities":
+            return _response(
+                200,
+                {
+                    "status": "ok",
+                    "route": route_key,
+                    "result": _list_zscore_opportunities(event),
+                },
+            )
+
+        if route_key == "GET /analytics/daily-closing":
+            return _response(
+                200,
+                {
+                    "status": "ok",
+                    "route": route_key,
+                    "result": _list_daily_closing_snapshots(event),
                 },
             )
 

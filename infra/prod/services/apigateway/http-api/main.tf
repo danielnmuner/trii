@@ -7,7 +7,9 @@ module "http_api" {
   route_keys = toset([
     "GET /health",
     "GET /analytics/catalog",
+    "GET /analytics/daily-closing",
     "GET /analytics/snapshot",
+    "GET /analytics/zscore-opportunities",
     "GET /snapshots",
     "POST /snapshots",
     "POST /orders",
