@@ -47,9 +47,14 @@ def _process_stock_orders_submission(*, uploaded_file, send_requested: bool) -> 
                 raw_bytes=uploaded_file.getvalue(),
             )
             persisted_result = response.get("result", {})
+            imported_records = persisted_result.get("imported_records", 0)
+            duplicate_records = persisted_result.get("duplicate_records", 0)
+            received_records = persisted_result.get("received_records", imported_records + duplicate_records)
             st.session_state["stock_orders_send_message"] = (
                 "Envio completado hacia DynamoDB. "
-                f"Registros importados: {persisted_result.get('imported_records', 0)}."
+                f"Recibidos: {received_records}. "
+                f"Nuevos: {imported_records}. "
+                f"Duplicados omitidos: {duplicate_records}."
             )
             st.success("Archivo validado y enviado correctamente.")
         else:

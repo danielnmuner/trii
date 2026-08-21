@@ -709,21 +709,18 @@ def _normalize_order_records(raw_bytes: bytes) -> list[dict[str, Any]]:
     return records
 
 
-def _find_existing_order_duplicates(record_checksums: list[str]) -> list[str]:
-    duplicates: list[str] = []
-    for chunk_start in range(0, len(record_checksums), 100):
-        chunk = record_checksums[chunk_start : chunk_start + 100]
-        response = DYNAMODB_CLIENT.batch_get_item(
-            RequestItems={
-                os.environ["STOCK_ORDERS_TABLE"]: {
-                    "Keys": [{"record_checksum": {"S": checksum}} for checksum in chunk],
-                    "ProjectionExpression": "record_checksum",
-                }
-            }
+def _persist_order_if_new(record: dict[str, Any]) -> bool:
+    try:
+        STOCK_ORDERS_TABLE.put_item(
+            Item=_decimalize(record),
+            ConditionExpression="attribute_not_exists(record_checksum)",
         )
-        items = response.get("Responses", {}).get(os.environ["STOCK_ORDERS_TABLE"], [])
-        duplicates.extend(item["record_checksum"]["S"] for item in items)
-    return duplicates
+        return True
+    except ClientError as exc:
+        error_code = exc.response.get("Error", {}).get("Code", "")
+        if error_code == "ConditionalCheckFailedException":
+            return False
+        raise
 
 
 def _persist_orders(body: dict[str, Any]) -> dict[str, Any]:
@@ -733,18 +730,22 @@ def _persist_orders(body: dict[str, Any]) -> dict[str, Any]:
 
     raw_bytes = _decode_base64_field(body, "file_content_base64")
     records = _normalize_order_records(raw_bytes)
-    duplicates = _find_existing_order_duplicates([record["record_checksum"] for record in records])
-    if duplicates:
-        raise ValueError("El lote fue rechazado porque uno o más movimientos ya existen en DynamoDB.")
+    imported_records = 0
+    duplicate_records = 0
 
-    with STOCK_ORDERS_TABLE.batch_writer() as batch:
-        for record in records:
-            batch.put_item(Item=_decimalize(record))
+    for new_record in records:
+        if _persist_order_if_new(new_record):
+            imported_records += 1
+        else:
+            duplicate_records += 1
 
     return {
         "table": os.environ["STOCK_ORDERS_TABLE"],
         "file_name": file_name,
-        "imported_records": len(records),
+        "source_file_checksum": records[0]["source_file_checksum"],
+        "received_records": len(records),
+        "imported_records": imported_records,
+        "duplicate_records": duplicate_records,
         "symbols": sorted({record["symbol"] for record in records}),
     }
 
