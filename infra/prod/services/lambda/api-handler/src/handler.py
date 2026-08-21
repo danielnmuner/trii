@@ -3,6 +3,7 @@ import csv
 import hashlib
 import json
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from io import StringIO
@@ -58,6 +59,14 @@ SPANISH_MONTHS = {
     "nov": 11,
     "dic": 12,
 }
+SPANISH_DATETIME_PATTERN = re.compile(
+    r"^\s*(?P<day>\d{1,2})\s+"
+    r"(?P<month>[A-Za-záéíóúñÁÉÍÓÚÑ]{3,})\s+"
+    r"(?P<year>\d{4}),\s+"
+    r"(?P<hour>\d{1,2}):(?P<minute>\d{2})\s+"
+    r"(?P<meridiem>[ap])\.\s*m\.\s*$",
+    re.IGNORECASE,
+)
 
 def _response(status_code: int, payload: dict[str, Any]) -> dict[str, Any]:
     return {
@@ -730,6 +739,214 @@ def _persist_orders(body: dict[str, Any]) -> dict[str, Any]:
 
     raw_bytes = _decode_base64_field(body, "file_content_base64")
     records = _normalize_order_records(raw_bytes)
+    imported_records = 0
+    duplicate_records = 0
+
+    for new_record in records:
+        if _persist_order_if_new(new_record):
+            imported_records += 1
+        else:
+            duplicate_records += 1
+
+    return {
+        "table": os.environ["STOCK_ORDERS_TABLE"],
+        "file_name": file_name,
+        "source_file_checksum": records[0]["source_file_checksum"],
+        "received_records": len(records),
+        "imported_records": imported_records,
+        "duplicate_records": duplicate_records,
+        "symbols": sorted({record["symbol"] for record in records}),
+    }
+
+
+def _parse_spanish_datetime(raw_value: str) -> str:
+    match = SPANISH_DATETIME_PATTERN.match(raw_value)
+    if match is None:
+        raise ValueError(f"Fecha y hora inválida: {raw_value}")
+
+    month = SPANISH_MONTHS.get(match.group("month")[:3].lower())
+    if month is None:
+        raise ValueError(f"Mes no soportado en fecha: {raw_value}")
+
+    hour = int(match.group("hour"))
+    minute = int(match.group("minute"))
+    meridiem = match.group("meridiem").lower()
+    if meridiem == "p" and hour != 12:
+        hour += 12
+    if meridiem == "a" and hour == 12:
+        hour = 0
+
+    return datetime(
+        int(match.group("year")),
+        month,
+        int(match.group("day")),
+        hour,
+        minute,
+        tzinfo=BOGOTA_TIMEZONE,
+    ).isoformat()
+
+
+def _parse_decimal(raw_value: Any) -> Decimal:
+    value = str(raw_value).strip().replace("$", "").replace(" ", "")
+    if not value:
+        return Decimal("0")
+    if "," in value and "." in value:
+        value = value.replace(",", "")
+    elif "," in value:
+        value = value.replace(",", ".")
+    return Decimal(value)
+
+
+def _order_record_checksum(record: dict[str, Any]) -> str:
+    canonical_payload = {
+        "created_at": record["created_at"],
+        "symbol": record["symbol"],
+        "order_side": record["order_side"],
+        "raw_status": record["raw_status"],
+        "requested_quantity": record["requested_quantity"],
+        "filled_quantity": record["filled_quantity"],
+        "pending_quantity": record["pending_quantity"],
+        "price_per_share": str(record["price_per_share"]),
+        "gross_amount": str(record["gross_amount"]),
+        "commission_amount": str(record["commission_amount"]),
+        "net_amount": str(record["net_amount"]),
+        "currency": record["currency"],
+    }
+    return _json_checksum(canonical_payload)
+
+
+def _normalize_order_records(raw_bytes: bytes) -> list[dict[str, Any]]:
+    rows = _load_csv_rows(raw_bytes)
+    imported_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    source_file_checksum = hashlib.sha256(raw_bytes).hexdigest()
+
+    records: list[dict[str, Any]] = []
+    seen_checksums: set[str] = set()
+    for line_number, row in enumerate(rows, start=2):
+        created_at = _parse_spanish_datetime(row["Fecha y hora"])
+        symbol = row["Símbolo de la acción"].strip().upper()
+        record = {
+            "source_file_checksum": source_file_checksum,
+            "source_line_number": line_number,
+            "created_at": created_at,
+            "created_month": created_at[:7],
+            "created_at_symbol": f"{created_at}#{symbol}",
+            "symbol": symbol,
+            "order_side": _normalize_order_side(row["Tipo de orden"]),
+            "raw_status": row["Estado"],
+            "normalized_status": _normalize_status(row["Estado"]),
+            "requested_quantity": _parse_requested_quantity(
+                row["Acciones completadas"],
+                row["Acciones pendientes"],
+            ),
+            "filled_quantity": _parse_quantity(row["Acciones completadas"]),
+            "pending_quantity": _parse_quantity(row["Acciones pendientes"]),
+            "price_per_share": _parse_decimal(row["Precio por acción"]),
+            "gross_amount": _parse_decimal(row["Total invertido"]),
+            "commission_amount": _parse_decimal(row["Valor comisión"]),
+            "net_amount": _parse_decimal(row["Total estimado"]),
+            "currency": "COP",
+            "imported_at": imported_at,
+        }
+        record["record_checksum"] = _order_record_checksum(record)
+        if record["record_checksum"] in seen_checksums:
+            raise ValueError(
+                "El CSV de movimientos contiene checksums duplicados dentro del mismo archivo; se rechaza el lote completo."
+            )
+        seen_checksums.add(record["record_checksum"])
+        records.append(record)
+
+    return records
+
+
+def _normalize_iso_timestamp(raw_value: Any) -> str:
+    normalized = str(raw_value).strip()
+    if not normalized:
+        raise ValueError("Cada orden debe incluir `created_at`.")
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+
+    timestamp = datetime.fromisoformat(normalized)
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=BOGOTA_TIMEZONE)
+    return timestamp.astimezone(BOGOTA_TIMEZONE).isoformat()
+
+
+def _normalize_payload_order_records(body: dict[str, Any]) -> list[dict[str, Any]]:
+    payload_records = body.get("records")
+    if not isinstance(payload_records, list) or not payload_records:
+        raise ValueError("El payload de movimientos debe incluir una lista `records` no vacía.")
+
+    source_file_checksum = str(body.get("source_file_checksum") or "").strip()
+    if not source_file_checksum:
+        source_file_checksum = _json_checksum(payload_records)
+
+    imported_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    records: list[dict[str, Any]] = []
+    seen_checksums: set[str] = set()
+
+    for position, payload_record in enumerate(payload_records, start=1):
+        if not isinstance(payload_record, dict):
+            raise ValueError("Cada item de `records` debe ser un objeto.")
+
+        created_at = _normalize_iso_timestamp(payload_record.get("created_at"))
+        symbol = str(payload_record.get("symbol") or "").strip().upper()
+        if not symbol:
+            raise ValueError("Cada orden debe incluir `symbol`.")
+
+        raw_status = str(payload_record.get("raw_status") or "").strip()
+        if not raw_status:
+            raise ValueError("Cada orden debe incluir `raw_status`.")
+
+        order_side = str(payload_record.get("order_side") or "").strip().lower()
+        if order_side == "buy":
+            normalized_order_side = "buy"
+        elif order_side == "sell":
+            normalized_order_side = "sell"
+        else:
+            normalized_order_side = _normalize_order_side(order_side)
+
+        record = {
+            "source_file_checksum": source_file_checksum,
+            "source_line_number": int(payload_record.get("source_line_number") or position + 1),
+            "created_at": created_at,
+            "created_month": created_at[:7],
+            "created_at_symbol": f"{created_at}#{symbol}",
+            "symbol": symbol,
+            "order_side": normalized_order_side,
+            "raw_status": raw_status,
+            "normalized_status": _normalize_status(raw_status),
+            "requested_quantity": int(payload_record.get("requested_quantity") or 0),
+            "filled_quantity": int(payload_record.get("filled_quantity") or 0),
+            "pending_quantity": int(payload_record.get("pending_quantity") or 0),
+            "price_per_share": _parse_decimal(payload_record.get("price_per_share", "0")),
+            "gross_amount": _parse_decimal(payload_record.get("gross_amount", "0")),
+            "commission_amount": _parse_decimal(payload_record.get("commission_amount", "0")),
+            "net_amount": _parse_decimal(payload_record.get("net_amount", "0")),
+            "currency": str(payload_record.get("currency") or "COP").strip().upper(),
+            "imported_at": imported_at,
+        }
+        record["record_checksum"] = _order_record_checksum(record)
+        if record["record_checksum"] in seen_checksums:
+            raise ValueError(
+                "El payload de movimientos contiene checksums duplicados dentro del mismo archivo; se rechaza el lote completo."
+            )
+        seen_checksums.add(record["record_checksum"])
+        records.append(record)
+
+    return records
+
+
+def _persist_orders(body: dict[str, Any]) -> dict[str, Any]:
+    file_name = str(body.get("file_name") or "").strip()
+    if not file_name:
+        raise ValueError("El payload de movimientos debe incluir `file_name`.")
+
+    if body.get("records") is not None:
+        records = _normalize_payload_order_records(body)
+    else:
+        raw_bytes = _decode_base64_field(body, "file_content_base64")
+        records = _normalize_order_records(raw_bytes)
     imported_records = 0
     duplicate_records = 0
 

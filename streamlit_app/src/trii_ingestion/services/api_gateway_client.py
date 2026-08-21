@@ -53,14 +53,24 @@ class ApiGatewayClient:
         )
         return self._decode_response(response)
 
-    def submit_stock_orders(self, *, file_name: str, raw_bytes: bytes) -> dict[str, Any]:
-        return self._post_json(
-            "/orders",
-            {
-                "file_name": file_name,
-                "file_content_base64": base64.b64encode(raw_bytes).decode("utf-8"),
-            },
-        )
+    def submit_stock_orders(
+        self,
+        *,
+        file_name: str,
+        records: list[dict[str, Any]] | None = None,
+        source_file_checksum: str | None = None,
+        raw_bytes: bytes | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"file_name": file_name}
+        if records is not None:
+            payload["records"] = records
+            if source_file_checksum:
+                payload["source_file_checksum"] = source_file_checksum
+        elif raw_bytes is not None:
+            payload["file_content_base64"] = base64.b64encode(raw_bytes).decode("utf-8")
+        else:
+            raise ApiGatewayClientError("La carga de órdenes requiere `records` o `raw_bytes`.")
+        return self._post_json("/orders", payload)
 
     def submit_invoice_archives(self, *, documents: list[PreparedInvoiceDocument]) -> dict[str, Any]:
         return self._post_json(

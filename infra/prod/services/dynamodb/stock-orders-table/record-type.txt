@@ -10,21 +10,21 @@ primary_key:
 global_secondary_indexes:
 - gsi1
   pk: symbol
-  sk: ordered_at
+  sk: created_at
   purpose: query order history by symbol
 
 - gsi2
-  pk: ordered_month
-  sk: ordered_at#symbol
+  pk: created_month
+  sk: created_at#symbol
   purpose: query monthly order history without scanning
 
 record_type:
 - record_checksum: string, globally unique normalized checksum for the record
 - source_file_checksum: string
 - source_line_number: number
-- ordered_at: string, iso-8601 timestamp with timezone
-- ordered_month: string, yyyy-mm
-- ordered_at_symbol: string, materialized gsi sort key formatted as ordered_at#SYMBOL
+- created_at: string, iso-8601 timestamp with timezone in America/Bogota
+- created_month: string, yyyy-mm
+- created_at_symbol: string, materialized gsi sort key formatted as created_at#SYMBOL
 - symbol: string, uppercase stock symbol
 - order_side: string, buy or sell
 - raw_status: string
@@ -42,7 +42,7 @@ record_type:
 duplicate_rule:
 - every record_checksum must be unique
 - if any checksum in the uploaded file is duplicated, reject the full upload
-- if any checksum already exists in dynamodb, reject the full upload
+- if a checksum already exists in dynamodb, skip that record and persist only new ones
 
 query_patterns:
 - order history by symbol

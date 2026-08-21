@@ -52,6 +52,23 @@ def _build_orders_payload() -> dict[str, str]:
     }
 
 
+def _build_normalized_orders_payload() -> dict[str, object]:
+    raw_bytes = (ROOT_DIR / "orders-trii.csv").read_bytes()
+    records = handler._normalize_order_records(raw_bytes)
+    return {
+        "file_name": "orders-trii.csv",
+        "source_file_checksum": records[0]["source_file_checksum"],
+        "records": [
+            {
+                key: value
+                for key, value in record.items()
+                if key != "record_checksum"
+            }
+            for record in records
+        ],
+    }
+
+
 def test_persist_orders_imports_all_new_records() -> None:
     fake_table = FakeStockOrdersTable()
     handler.STOCK_ORDERS_TABLE = fake_table
@@ -92,3 +109,14 @@ def test_persist_orders_accepts_mixed_batch_with_new_and_existing_records() -> N
     assert result["received_records"] == len(records)
     assert result["duplicate_records"] == 1
     assert result["imported_records"] == len(records) - 1
+
+
+def test_persist_orders_accepts_normalized_records_payload() -> None:
+    fake_table = FakeStockOrdersTable()
+    handler.STOCK_ORDERS_TABLE = fake_table
+
+    result = handler._persist_orders(_build_normalized_orders_payload())
+
+    assert result["received_records"] > 0
+    assert result["imported_records"] == result["received_records"]
+    assert result["duplicate_records"] == 0

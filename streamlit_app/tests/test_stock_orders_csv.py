@@ -25,6 +25,11 @@ class StockOrdersCsvServiceTests(unittest.TestCase):
         self.assertEqual(result.columns[0], "Fecha y hora")
         self.assertTrue(result.storage_name.startswith("stock-order-"))
         self.assertTrue(result.storage_name.endswith("-america-bogota-trii.csv"))
+        self.assertTrue(result.source_file_checksum)
+        self.assertEqual(result.preview_rows[0]["created_at"], "2026-08-14T09:38:00-05:00")
+        self.assertEqual(result.records[0]["created_at"], "2026-08-14T09:38:00-05:00")
+        self.assertNotIn("ordered_at", result.records[0])
+        self.assertEqual(result.records[0]["created_month"], "2026-08")
 
     def test_rejects_csv_with_missing_columns(self) -> None:
         bad_csv = b"Fecha y hora,S\xc3\xadmbolo de la acci\xc3\xb3n\n14 ago 2026,NUCO\n"

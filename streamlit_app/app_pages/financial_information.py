@@ -44,7 +44,8 @@ def _process_stock_orders_submission(*, uploaded_file, send_requested: bool) -> 
             client = get_backend_client()
             response = client.submit_stock_orders(
                 file_name=uploaded_file.name,
-                raw_bytes=uploaded_file.getvalue(),
+                records=list(result.records),
+                source_file_checksum=result.source_file_checksum,
             )
             persisted_result = response.get("result", {})
             imported_records = persisted_result.get("imported_records", 0)
