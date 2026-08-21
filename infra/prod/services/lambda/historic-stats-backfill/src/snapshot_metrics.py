@@ -8,6 +8,7 @@ SUPPORTED_STATISTICAL_METRIC_KEYS = (
     "obi_top_5",
     "book_pressure_ratio",
     "depth_weighted_microprice_deviation",
+    "seasonality_profile",
 )
 
 

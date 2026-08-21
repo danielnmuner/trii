@@ -31,6 +31,7 @@ Esto mantiene el flujo simple y evita scripts manuales fuera de Terraform.
 - `infra/prod`: root module del ambiente productivo, ya configurado para usar backend remoto en S3.
 - `.github/workflows/terraform-plan-apply.yml`: valida, hace plan y aplica.
 - `.github/workflows/terraform-destroy.yml`: destruye recursos del root `prod`, pero no el bucket del backend.
+- `.github/workflows/historic-stats-backfill.yml`: invoca manualmente la Lambda `trii-prod-historic-stats-backfill` con inputs operativos.
 
 ## Flujo esperado
 
@@ -54,8 +55,25 @@ El workflow:
 
 El bucket del backend queda protegido con `prevent_destroy`.
 
+### 3. Historic stats backfill
+
+El workflow manual de backfill:
+
+1. Hace checkout del repo.
+2. Asume el rol `GitHubTerraformTriiRole` por OIDC.
+3. Construye un payload JSON para `trii-prod-historic-stats-backfill`.
+4. Invoca la Lambda de backfill de forma sincronica.
+5. Publica el payload y la respuesta como resumen y artefactos del run.
+
+Este flujo esta pensado para reconstruir una metrica puntual ya soportada por la Lambda, normalmente primero en `preview` y luego en `apply`.
+
 ## Nota sobre el role OIDC
 
 El workflow asume que el trust policy del rol permite este repositorio en GitHub Actions.
 
 Si hoy el rol solo permite otro repo, habra que ampliar el `sub` correspondiente para `danielnmuner/trii`.
+
+Ademas del trust policy, ese rol debe tener permisos suficientes para:
+
+- operar Terraform sobre los recursos del ambiente `prod`
+- invocar `trii-prod-historic-stats-backfill` cuando se use el workflow manual de backfill

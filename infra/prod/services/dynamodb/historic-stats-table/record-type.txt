@@ -37,6 +37,43 @@ record_type:
 - stats_scope: string, currently all_time_market_sample
 - stats_version: number, optimistic concurrency counter
 
+seasonality_profile_record_type:
+- pk: string, uppercase stock symbol
+- sk: string, seasonality_profile
+- symbol: string, uppercase stock symbol
+- record_type: string, seasonality_profile
+- bucket_granularity_minutes: number, currently 60
+- timezone: string, currently America/Bogota
+- total_days_processed: number, trading days successfully folded into the profile
+- total_snapshots_processed: number, valid raw snapshots consumed for the symbol during the rebuild
+- last_source_captured_at: string, iso-8601 timestamp with timezone
+- last_updated_at: string, iso-8601 timestamp with timezone
+- stats_scope: string, currently weekly_intraday_seasonality
+- stats_version: number, currently 1 for full backfill rewrites
+- weekly_profile: map keyed by ISO weekday number
+- weekly_profile.<weekday>.weekday_label: string, monday through friday for trading sessions
+- weekly_profile.<weekday>.days_processed: number
+- weekly_profile.<weekday>.accumulated_day_volume: number
+- weekly_profile.<weekday>.accumulated_day_value: number
+- weekly_profile.<weekday>.hours.<hh:00>.accumulated_volume: number
+- weekly_profile.<weekday>.hours.<hh:00>.accumulated_value: number
+- weekly_profile.<weekday>.hours.<hh:00>.delta_samples: number, accepted delta intervals folded into the bucket
+- weekly_profile.<weekday>.hours.<hh:00>.bucket_vwap: number
+- weekly_profile.<weekday>.hours.<hh:00>.volume_share_stats.sample_count: number
+- weekly_profile.<weekday>.hours.<hh:00>.volume_share_stats.mu: number
+- weekly_profile.<weekday>.hours.<hh:00>.volume_share_stats.m2: number
+- weekly_profile.<weekday>.hours.<hh:00>.volume_share_stats.sigma: number
+- weekly_profile.<weekday>.hours.<hh:00>.volume_share_stats.min_value: number
+- weekly_profile.<weekday>.hours.<hh:00>.volume_share_stats.max_value: number
+- weekly_profile.<weekday>.hours.<hh:00>.volume_share_stats.latest_value: number
+- weekly_profile.<weekday>.hours.<hh:00>.vwap_stats.sample_count: number
+- weekly_profile.<weekday>.hours.<hh:00>.vwap_stats.mu: number
+- weekly_profile.<weekday>.hours.<hh:00>.vwap_stats.m2: number
+- weekly_profile.<weekday>.hours.<hh:00>.vwap_stats.sigma: number
+- weekly_profile.<weekday>.hours.<hh:00>.vwap_stats.min_value: number
+- weekly_profile.<weekday>.hours.<hh:00>.vwap_stats.max_value: number
+- weekly_profile.<weekday>.hours.<hh:00>.vwap_stats.latest_value: number
+
 data_quality_record_type:
 - pk: string, uppercase stock symbol
 - sk: string, formatted as data_quality#yyyy-mm-dd
@@ -64,6 +101,9 @@ official_statistical_metrics_from_raw_snapshot:
 - obi_top_5 = (bid_depth_total_5 - ask_depth_total_5) / (bid_depth_total_5 + ask_depth_total_5)
 - book_pressure_ratio = bid_depth_total_5 / ask_depth_total_5
 - depth_weighted_microprice_deviation = microprice - mid_price
+
+special_backfill_supported_record_types:
+- seasonality_profile = rebuild intraday seasonality buckets from traded_volume and traded_value deltas between contiguous snapshots
 
 excluded_operational_snapshot_fields:
 - last_price

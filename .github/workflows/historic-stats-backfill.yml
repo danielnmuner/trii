@@ -1,0 +1,201 @@
+name: Historic Stats Backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply_mode:
+        description: "Modo de ejecucion"
+        required: true
+        default: preview
+        type: choice
+        options:
+          - preview
+          - apply
+      metric_name:
+        description: "Metrica a reconstruir"
+        required: true
+        default: spread_bps
+        type: choice
+        options:
+          - spread_bps
+          - obi_l1
+          - obi_top_5
+          - book_pressure_ratio
+          - depth_weighted_microprice_deviation
+          - seasonality_profile
+          - custom
+      custom_metric_name:
+        description: "Nombre de metrica si eliges custom"
+        required: false
+        type: string
+      symbols_csv:
+        description: "Simbolos opcionales separados por coma, por ejemplo NUCO,ISA"
+        required: false
+        type: string
+      captured_at_from:
+        description: "Inicio opcional ISO-8601 con timezone"
+        required: false
+        type: string
+      captured_at_to:
+        description: "Fin opcional ISO-8601 con timezone"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: historic-stats-backfill-prod
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Enforce main branch
+        run: |
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "This workflow must run from main because the IAM trust policy is expected to allow the main branch."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::311923415472:role/GitHubTerraformTriiRole
+          role-session-name: github-actions-historic-stats-backfill
+          allowed-account-ids: 311923415472
+
+      - name: Build payload
+        id: payload
+        shell: bash
+        env:
+          APPLY_MODE: ${{ inputs.apply_mode }}
+          METRIC_NAME: ${{ inputs.metric_name }}
+          CUSTOM_METRIC_NAME: ${{ inputs.custom_metric_name }}
+          SYMBOLS_CSV: ${{ inputs.symbols_csv }}
+          CAPTURED_AT_FROM: ${{ inputs.captured_at_from }}
+          CAPTURED_AT_TO: ${{ inputs.captured_at_to }}
+        run: |
+          set -euo pipefail
+
+          resolved_metric="${METRIC_NAME}"
+          if [[ "${METRIC_NAME}" == "custom" ]]; then
+            resolved_metric="$(echo "${CUSTOM_METRIC_NAME}" | xargs)"
+            if [[ -z "${resolved_metric}" ]]; then
+              echo "custom_metric_name is required when metric_name=custom"
+              exit 1
+            fi
+          fi
+
+          apply_bool=false
+          if [[ "${APPLY_MODE}" == "apply" ]]; then
+            apply_bool=true
+          fi
+
+          payload="$(jq -nc \
+            --arg metric "${resolved_metric}" \
+            --argjson apply "${apply_bool}" \
+            '{apply: $apply, metric_names: [$metric]}'
+          )"
+
+          if [[ -n "${SYMBOLS_CSV}" ]]; then
+            symbols_json="$(jq -nc \
+              --arg symbols "${SYMBOLS_CSV}" \
+              '$symbols
+              | split(",")
+              | map(gsub("^\\s+|\\s+$"; ""))
+              | map(ascii_upcase)
+              | map(select(length > 0))
+              | unique'
+            )"
+            if [[ "${symbols_json}" != "[]" ]]; then
+              payload="$(jq -cn \
+                --argjson payload "${payload}" \
+                --argjson symbols "${symbols_json}" \
+                '$payload + {symbols: $symbols}'
+              )"
+            fi
+          fi
+
+          if [[ -n "${CAPTURED_AT_FROM}" ]]; then
+            payload="$(jq -cn \
+              --argjson payload "${payload}" \
+              --arg value "${CAPTURED_AT_FROM}" \
+              '$payload + {captured_at_from: $value}'
+            )"
+          fi
+
+          if [[ -n "${CAPTURED_AT_TO}" ]]; then
+            payload="$(jq -cn \
+              --argjson payload "${payload}" \
+              --arg value "${CAPTURED_AT_TO}" \
+              '$payload + {captured_at_to: $value}'
+            )"
+          fi
+
+          printf '%s\n' "${payload}" > payload.json
+
+          {
+            echo "resolved_metric=${resolved_metric}"
+            echo "apply_bool=${apply_bool}"
+            echo "payload_path=payload.json"
+            echo "payload_json<<EOF"
+            cat payload.json
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Invoke historic stats backfill
+        id: invoke
+        run: |
+          set -euo pipefail
+          aws lambda invoke \
+            --function-name trii-prod-historic-stats-backfill \
+            --cli-binary-format raw-in-base64-out \
+            --payload fileb://payload.json \
+            response.json \
+            > invoke-metadata.json
+
+      - name: Publish summary
+        shell: bash
+        env:
+          RESOLVED_METRIC: ${{ steps.payload.outputs.resolved_metric }}
+          APPLY_BOOL: ${{ steps.payload.outputs.apply_bool }}
+          PAYLOAD_JSON: ${{ steps.payload.outputs.payload_json }}
+        run: |
+          {
+            echo "## Historic stats backfill"
+            echo ""
+            echo "- Function: \`trii-prod-historic-stats-backfill\`"
+            echo "- Metric: \`${RESOLVED_METRIC}\`"
+            echo "- Apply: \`${APPLY_BOOL}\`"
+            echo ""
+            echo "### Payload"
+            echo '```json'
+            printf '%s\n' "${PAYLOAD_JSON}"
+            echo '```'
+            echo ""
+            echo "### Lambda response"
+            echo '```json'
+            cat response.json
+            echo '```'
+            echo ""
+            echo "### AWS invoke metadata"
+            echo '```json'
+            cat invoke-metadata.json
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload invocation artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: historic-stats-backfill-${{ github.run_id }}
+          path: |
+            payload.json
+            response.json
+            invoke-metadata.json

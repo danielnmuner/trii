@@ -104,3 +104,71 @@ def test_rebuild_stat_items_from_snapshots_recomputes_selected_metrics_only() ->
     assert spread_bps_item["sample_count"] == 2
     assert spread_bps_item["last_source_captured_at"] == "2026-08-20T10:01:00-05:00"
     assert spread_bps_item["stddev"] > 0
+
+
+def test_rebuild_stat_items_from_snapshots_can_build_seasonality_profile() -> None:
+    snapshots = [
+        {
+            "symbol": "NUCO",
+            "captured_at": "2026-08-17T09:00:00-05:00",
+            "captured_date": "2026-08-17",
+            "snapshot_checksum": "checksum-a1",
+            "traded_volume": 100,
+            "traded_value": 1000,
+        },
+        {
+            "symbol": "NUCO",
+            "captured_at": "2026-08-17T09:15:00-05:00",
+            "captured_date": "2026-08-17",
+            "snapshot_checksum": "checksum-a2",
+            "traded_volume": 140,
+            "traded_value": 1560,
+        },
+        {
+            "symbol": "NUCO",
+            "captured_at": "2026-08-24T09:00:00-05:00",
+            "captured_date": "2026-08-24",
+            "snapshot_checksum": "checksum-b1",
+            "traded_volume": 200,
+            "traded_value": 2600,
+        },
+        {
+            "symbol": "NUCO",
+            "captured_at": "2026-08-24T09:15:00-05:00",
+            "captured_date": "2026-08-24",
+            "snapshot_checksum": "checksum-b2",
+            "traded_volume": 260,
+            "traded_value": 3500,
+        },
+    ]
+
+    rebuilt_items = rebuild_stat_items_from_snapshots(
+        snapshots,
+        ("seasonality_profile",),
+        datetime.fromisoformat("2026-08-24T16:00:00-05:00"),
+    )
+
+    assert set(rebuilt_items) == {("NUCO", "seasonality_profile")}
+
+    profile_item = rebuilt_items[("NUCO", "seasonality_profile")]
+    assert profile_item["record_type"] == "seasonality_profile"
+    assert profile_item["total_days_processed"] == 2
+    assert profile_item["total_snapshots_processed"] == 4
+    assert profile_item["last_source_captured_at"] == "2026-08-24T09:15:00-05:00"
+
+    monday_profile = profile_item["weekly_profile"]["1"]
+    assert monday_profile["days_processed"] == 2
+    assert monday_profile["accumulated_day_volume"] == Decimal("100")
+    assert monday_profile["accumulated_day_value"] == Decimal("1460")
+
+    hour_profile = monday_profile["hours"]["09:00"]
+    assert hour_profile["accumulated_volume"] == Decimal("100")
+    assert hour_profile["accumulated_value"] == Decimal("1460")
+    assert hour_profile["delta_samples"] == 2
+    assert hour_profile["bucket_vwap"] == Decimal("14.6")
+    assert hour_profile["volume_share_stats"]["sample_count"] == 2
+    assert hour_profile["volume_share_stats"]["mu"] == Decimal("1")
+    assert hour_profile["volume_share_stats"]["sigma"] == Decimal("0")
+    assert hour_profile["vwap_stats"]["sample_count"] == 2
+    assert hour_profile["vwap_stats"]["mu"] == Decimal("14.5")
+    assert hour_profile["vwap_stats"]["sigma"] == Decimal("0.7071067811865475244008443621")

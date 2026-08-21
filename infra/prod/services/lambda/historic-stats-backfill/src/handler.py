@@ -14,6 +14,10 @@ from snapshot_metrics import (
     normalize_metric_keys,
     parse_metric_keys,
 )
+from seasonality_profile import (
+    SEASONALITY_PROFILE_KEY,
+    build_seasonality_profile_items_from_snapshots,
+)
 from stats_engine import build_stat_item
 from zoneinfo import ZoneInfo
 
@@ -143,29 +147,43 @@ def rebuild_stat_items_from_snapshots(
     updated_at: datetime,
 ) -> dict[tuple[str, str], dict[str, Any]]:
     rebuilt_items: dict[tuple[str, str], dict[str, Any]] = {}
+    standard_metric_names = tuple(
+        metric_name
+        for metric_name in metric_names
+        if metric_name != SEASONALITY_PROFILE_KEY
+    )
 
-    for snapshot in snapshots:
-        symbol = str(snapshot["symbol"]).strip().upper()
-        captured_at = str(snapshot["captured_at"]).strip()
-        snapshot_checksum = str(snapshot.get("snapshot_checksum") or "").strip()
-        if not symbol or not captured_at or not snapshot_checksum:
-            continue
-
-        metric_values = extract_metric_values(snapshot, metric_names)
-        for metric_name in metric_names:
-            metric_value = metric_values.get(metric_name)
-            if metric_value is None:
+    if standard_metric_names:
+        for snapshot in snapshots:
+            symbol = str(snapshot["symbol"]).strip().upper()
+            captured_at = str(snapshot["captured_at"]).strip()
+            snapshot_checksum = str(snapshot.get("snapshot_checksum") or "").strip()
+            if not symbol or not captured_at or not snapshot_checksum:
                 continue
-            item_key = (symbol, metric_name)
-            rebuilt_items[item_key] = build_stat_item(
-                rebuilt_items.get(item_key),
-                symbol=symbol,
-                metric=metric_name,
-                captured_at=captured_at,
-                snapshot_checksum=snapshot_checksum,
-                value=metric_value,
-                updated_at=updated_at,
+
+            metric_values = extract_metric_values(snapshot, standard_metric_names)
+            for metric_name in standard_metric_names:
+                metric_value = metric_values.get(metric_name)
+                if metric_value is None:
+                    continue
+                item_key = (symbol, metric_name)
+                rebuilt_items[item_key] = build_stat_item(
+                    rebuilt_items.get(item_key),
+                    symbol=symbol,
+                    metric=metric_name,
+                    captured_at=captured_at,
+                    snapshot_checksum=snapshot_checksum,
+                    value=metric_value,
+                    updated_at=updated_at,
+                )
+
+    if SEASONALITY_PROFILE_KEY in metric_names:
+        rebuilt_items.update(
+            build_seasonality_profile_items_from_snapshots(
+                snapshots,
+                updated_at,
             )
+        )
 
     return rebuilt_items
 
