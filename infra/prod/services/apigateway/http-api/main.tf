@@ -11,27 +11,27 @@ module "http_api" {
     },
     {
       route_key          = "GET /analytics/catalog"
-      authorization_type = "AWS_IAM"
+      authorization_type = "NONE"
     },
     {
       route_key          = "GET /analytics/daily-closing"
-      authorization_type = "AWS_IAM"
+      authorization_type = "NONE"
     },
     {
       route_key          = "GET /analytics/historic-stats"
-      authorization_type = "AWS_IAM"
+      authorization_type = "NONE"
     },
     {
       route_key          = "GET /analytics/snapshot"
-      authorization_type = "AWS_IAM"
+      authorization_type = "NONE"
     },
     {
       route_key          = "GET /analytics/zscore-opportunities"
-      authorization_type = "AWS_IAM"
+      authorization_type = "NONE"
     },
     {
       route_key          = "GET /snapshots"
-      authorization_type = "AWS_IAM"
+      authorization_type = "NONE"
     },
     {
       route_key          = "POST /snapshots"
