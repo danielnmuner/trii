@@ -46,7 +46,15 @@ def _serialize_values(values: dict[str, Any]) -> dict[str, Any]:
 
 
 def _extract_metric_values(snapshot: dict[str, Any]) -> dict[str, Decimal]:
-    return extract_metric_values(snapshot, ENABLED_STATISTICAL_METRICS)
+    previous_snapshot = _load_previous_snapshot(
+        str(snapshot["symbol"]).strip().upper(),
+        str(snapshot["captured_at"]).strip(),
+    )
+    return extract_metric_values(
+        snapshot,
+        ENABLED_STATISTICAL_METRICS,
+        previous_snapshot=previous_snapshot,
+    )
 
 
 def _compute_z_score(stat_item: dict[str, Any]) -> Decimal | None:
@@ -201,11 +209,15 @@ def _transact_snapshot(snapshot: dict[str, Any], source_event_id: str) -> str:
     if not snapshot_checksum:
         raise ValueError("Snapshot checksum is required for idempotent historic stats updates.")
 
-    metrics = _extract_metric_values(snapshot)
+    previous_snapshot = _load_previous_snapshot(symbol, captured_at)
+    metrics = extract_metric_values(
+        snapshot,
+        ENABLED_STATISTICAL_METRICS,
+        previous_snapshot=previous_snapshot,
+    )
     metric_names = sorted(metrics.keys())
     updated_items: dict[str, dict[str, Any]] = {}
     updated_at = datetime.now(BOGOTA_TIMEZONE)
-    previous_snapshot = _load_previous_snapshot(symbol, captured_at)
     previous_timestamp = None
     if previous_snapshot is not None:
         previous_timestamp = parse_captured_at(str(previous_snapshot["captured_at"]))

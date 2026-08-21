@@ -115,6 +115,10 @@ official_statistical_metrics_from_raw_snapshot:
 - obi_top_5 = (bid_depth_total_5 - ask_depth_total_5) / (bid_depth_total_5 + ask_depth_total_5)
 - book_pressure_ratio = bid_depth_total_5 / ask_depth_total_5
 - depth_weighted_microprice_deviation = microprice - mid_price
+- traded_volume = cumulative traded volume reported in the snapshot
+- traded_value = cumulative traded value reported in the snapshot
+- volume_rate = (traded_volume_t - traded_volume_t-1) / delta_seconds for contiguous snapshots in the same trading day
+- value_rate = (traded_value_t - traded_value_t-1) / delta_seconds for contiguous snapshots in the same trading day
 
 special_backfill_supported_record_types:
 - seasonality_profile = rebuild intraday seasonality buckets from traded_volume and traded_value deltas between contiguous snapshots
@@ -123,8 +127,6 @@ excluded_operational_snapshot_fields:
 - last_price
 - daily_change_amount
 - daily_change_percent
-- traded_volume
-- traded_value
 - spread
 - best_bid_price
 - best_ask_price

@@ -58,6 +58,8 @@ def test_extract_metric_values_keeps_only_official_statistical_metrics() -> None
         "obi_top_5",
         "book_pressure_ratio",
         "depth_weighted_microprice_deviation",
+        "traded_volume",
+        "traded_value",
     }
     assert "spread" not in metrics
     assert "bid_depth_total_5" not in metrics
@@ -65,8 +67,6 @@ def test_extract_metric_values_keeps_only_official_statistical_metrics() -> None
     assert "last_price" not in metrics
     assert "daily_change_amount" not in metrics
     assert "daily_change_percent" not in metrics
-    assert "traded_volume" not in metrics
-    assert "traded_value" not in metrics
     assert "mid_price" not in metrics
     assert "microprice" not in metrics
 
@@ -77,6 +77,32 @@ def test_extract_metric_values_computes_expected_microstructure_values() -> None
     assert metrics["book_pressure_ratio"] == Decimal("1.8")
     assert metrics["obi_l1"] == Decimal("0.6")
     assert metrics["obi_top_5"] == Decimal("0.2857142857142857142857142857")
+    assert metrics["traded_volume"] == Decimal("50256")
+    assert metrics["traded_value"] == Decimal("2213492380")
+
+
+def test_extract_metric_values_can_compute_global_rate_metrics() -> None:
+    previous_snapshot = {
+        **_sample_snapshot(),
+        "captured_at": "2026-08-20T10:14:00-05:00",
+        "captured_date": "2026-08-20",
+        "traded_volume": 50016,
+        "traded_value": 2200292380,
+    }
+    current_snapshot = {
+        **_sample_snapshot(),
+        "captured_at": "2026-08-20T10:15:00-05:00",
+        "captured_date": "2026-08-20",
+    }
+
+    metrics = extract_metric_values(
+        current_snapshot,
+        ("volume_rate", "value_rate"),
+        previous_snapshot=previous_snapshot,
+    )
+
+    assert metrics["volume_rate"] == Decimal("4")
+    assert metrics["value_rate"] == Decimal("220000")
 
 
 def test_build_stat_item_uses_welford_incrementally_for_market_sample() -> None:
@@ -130,4 +156,8 @@ def test_parse_metric_keys_defaults_to_all_supported_metrics() -> None:
         "obi_top_5",
         "book_pressure_ratio",
         "depth_weighted_microprice_deviation",
+        "traded_volume",
+        "traded_value",
+        "volume_rate",
+        "value_rate",
     )

@@ -154,6 +154,7 @@ def rebuild_stat_items_from_snapshots(
     )
 
     if standard_metric_names:
+        previous_snapshot_by_symbol: dict[str, dict[str, Any]] = {}
         for snapshot in snapshots:
             symbol = str(snapshot["symbol"]).strip().upper()
             captured_at = str(snapshot["captured_at"]).strip()
@@ -161,7 +162,13 @@ def rebuild_stat_items_from_snapshots(
             if not symbol or not captured_at or not snapshot_checksum:
                 continue
 
-            metric_values = extract_metric_values(snapshot, standard_metric_names)
+            previous_snapshot = previous_snapshot_by_symbol.get(symbol)
+            metric_values = extract_metric_values(
+                snapshot,
+                standard_metric_names,
+                previous_snapshot=previous_snapshot,
+            )
+            previous_snapshot_by_symbol[symbol] = snapshot
             for metric_name in standard_metric_names:
                 metric_value = metric_values.get(metric_name)
                 if metric_value is None:

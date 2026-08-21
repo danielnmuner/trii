@@ -1,4 +1,5 @@
 from decimal import Decimal
+from datetime import datetime
 from typing import Any
 
 
@@ -10,6 +11,10 @@ SUPPORTED_STATISTICAL_METRIC_KEYS = (
     "obi_top_5",
     "book_pressure_ratio",
     "depth_weighted_microprice_deviation",
+    "traded_volume",
+    "traded_value",
+    "volume_rate",
+    "value_rate",
 )
 
 
@@ -73,7 +78,31 @@ def sum_level_quantities(levels: Any) -> Decimal | None:
     return total if found else None
 
 
-def derive_metric_values(snapshot: dict[str, Any]) -> dict[str, Decimal]:
+def _parse_timestamp(raw_value: str) -> datetime | None:
+    if raw_value is None:
+        return None
+    normalized = str(raw_value).strip()
+    if not normalized:
+        return None
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    return datetime.fromisoformat(normalized)
+
+
+def _get_trading_date(snapshot: dict[str, Any]) -> str | None:
+    captured_date = str(snapshot.get("captured_date") or "").strip()
+    if captured_date:
+        return captured_date
+    captured_at = str(snapshot.get("captured_at") or "").strip()
+    if captured_at:
+        return captured_at[:10]
+    return None
+
+
+def derive_metric_values(
+    snapshot: dict[str, Any],
+    previous_snapshot: dict[str, Any] | None = None,
+) -> dict[str, Decimal]:
     metrics: dict[str, Decimal] = {}
 
     best_bid_price = to_decimal(snapshot.get("best_bid_price"))
@@ -138,14 +167,54 @@ def derive_metric_values(snapshot: dict[str, Any]) -> dict[str, Decimal]:
             metrics["microprice"] - metrics["mid_price"]
         )
 
+    traded_volume = to_decimal(snapshot.get("traded_volume"))
+    if traded_volume is not None:
+        metrics["traded_volume"] = traded_volume
+
+    traded_value = to_decimal(snapshot.get("traded_value"))
+    if traded_value is not None:
+        metrics["traded_value"] = traded_value
+
+    if previous_snapshot is not None:
+        current_trading_date = _get_trading_date(snapshot)
+        previous_trading_date = _get_trading_date(previous_snapshot)
+        current_timestamp = _parse_timestamp(snapshot.get("captured_at"))
+        previous_timestamp = _parse_timestamp(previous_snapshot.get("captured_at"))
+        previous_traded_volume = to_decimal(previous_snapshot.get("traded_volume"))
+        previous_traded_value = to_decimal(previous_snapshot.get("traded_value"))
+
+        if (
+            current_trading_date
+            and previous_trading_date
+            and current_trading_date == previous_trading_date
+            and current_timestamp is not None
+            and previous_timestamp is not None
+            and previous_traded_volume is not None
+            and previous_traded_value is not None
+        ):
+            delta_seconds = Decimal(str((current_timestamp - previous_timestamp).total_seconds()))
+            delta_volume = traded_volume - previous_traded_volume if traded_volume is not None else None
+            delta_value = traded_value - previous_traded_value if traded_value is not None else None
+            if (
+                delta_seconds > 0
+                and delta_volume is not None
+                and delta_value is not None
+                and delta_volume > 0
+                and delta_value > 0
+            ):
+                metrics["volume_rate"] = delta_volume / delta_seconds
+                metrics["value_rate"] = delta_value / delta_seconds
+
     return metrics
 
 
 def extract_metric_values(
     snapshot: dict[str, Any],
     enabled_metric_keys: Any = None,
+    *,
+    previous_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Decimal]:
-    derived_metrics = derive_metric_values(snapshot)
+    derived_metrics = derive_metric_values(snapshot, previous_snapshot=previous_snapshot)
     selected_metric_keys = set(normalize_metric_keys(enabled_metric_keys))
     return {
         key: value

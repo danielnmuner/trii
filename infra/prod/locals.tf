@@ -12,6 +12,10 @@ locals {
     "obi_top_5",
     "book_pressure_ratio",
     "depth_weighted_microprice_deviation",
+    "traded_volume",
+    "traded_value",
+    "volume_rate",
+    "value_rate",
   ]
 
   common_tags = {
