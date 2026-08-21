@@ -173,8 +173,10 @@ module "api_handler" {
   current_snapshots_index_arns            = module.current_snapshots_table.index_arns
   snapshot_ingestion_raw_table_name       = module.snapshot_ingestion_raw.name
   snapshot_ingestion_raw_table_arn        = module.snapshot_ingestion_raw.arn
+  snapshot_ingestion_raw_index_arns       = module.snapshot_ingestion_raw.index_arns
   snapshot_ingestion_checksums_table_name = module.snapshot_ingestion_checksums_table.name
   snapshot_ingestion_checksums_table_arn  = module.snapshot_ingestion_checksums_table.arn
+  snapshot_ingestion_checksums_index_arns = module.snapshot_ingestion_checksums_table.index_arns
   stock_orders_table_arn                  = module.stock_orders_table.arn
   stock_orders_index_arns                 = module.stock_orders_table.index_arns
   parsed_invoices_table_arn               = module.parsed_invoices_table.arn
@@ -187,6 +189,15 @@ module "api_handler" {
   historic_stats_table_name               = module.historic_stats_table.name
   historic_stats_table_arn                = module.historic_stats_table.arn
   historic_stats_index_arns               = module.historic_stats_table.index_arns
+  processed_stats_events_table_name       = module.processed_stats_events_table.name
+  processed_stats_events_table_arn        = module.processed_stats_events_table.arn
+  processed_stats_events_index_arns       = module.processed_stats_events_table.index_arns
+  daily_closing_snapshots_table_name      = module.daily_closing_snapshots_table.name
+  daily_closing_snapshots_table_arn       = module.daily_closing_snapshots_table.arn
+  daily_closing_snapshots_index_arns      = module.daily_closing_snapshots_table.index_arns
+  zscore_opportunities_table_name         = module.zscore_opportunities_table.name
+  zscore_opportunities_table_arn          = module.zscore_opportunities_table.arn
+  zscore_opportunities_index_arns         = module.zscore_opportunities_table.index_arns
   market_ai_recommendations_table_name    = module.market_ai_recommendations_table.name
   market_ai_recommendations_table_arn     = module.market_ai_recommendations_table.arn
   market_ai_recommendations_index_arns    = module.market_ai_recommendations_table.index_arns

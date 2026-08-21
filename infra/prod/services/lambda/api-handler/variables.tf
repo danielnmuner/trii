@@ -33,6 +33,11 @@ variable "snapshot_ingestion_raw_table_arn" {
   type        = string
 }
 
+variable "snapshot_ingestion_raw_index_arns" {
+  description = "Snapshot ingestion raw table index ARNs."
+  type        = list(string)
+}
+
 variable "snapshot_ingestion_checksums_table_name" {
   description = "Snapshot ingestion checksums table name."
   type        = string
@@ -41,6 +46,11 @@ variable "snapshot_ingestion_checksums_table_name" {
 variable "snapshot_ingestion_checksums_table_arn" {
   description = "Snapshot ingestion checksums table ARN."
   type        = string
+}
+
+variable "snapshot_ingestion_checksums_index_arns" {
+  description = "Snapshot ingestion checksums table index ARNs."
+  type        = list(string)
 }
 
 variable "stock_orders_table_name" {
@@ -85,6 +95,51 @@ variable "historic_stats_table_arn" {
 
 variable "historic_stats_index_arns" {
   description = "Historic stats table index ARNs."
+  type        = list(string)
+}
+
+variable "processed_stats_events_table_name" {
+  description = "Processed stats events table name."
+  type        = string
+}
+
+variable "processed_stats_events_table_arn" {
+  description = "Processed stats events table ARN."
+  type        = string
+}
+
+variable "processed_stats_events_index_arns" {
+  description = "Processed stats events table index ARNs."
+  type        = list(string)
+}
+
+variable "daily_closing_snapshots_table_name" {
+  description = "Daily closing snapshots table name."
+  type        = string
+}
+
+variable "daily_closing_snapshots_table_arn" {
+  description = "Daily closing snapshots table ARN."
+  type        = string
+}
+
+variable "daily_closing_snapshots_index_arns" {
+  description = "Daily closing snapshots table index ARNs."
+  type        = list(string)
+}
+
+variable "zscore_opportunities_table_name" {
+  description = "Z-score opportunities table name."
+  type        = string
+}
+
+variable "zscore_opportunities_table_arn" {
+  description = "Z-score opportunities table ARN."
+  type        = string
+}
+
+variable "zscore_opportunities_index_arns" {
+  description = "Z-score opportunities table index ARNs."
   type        = list(string)
 }
 
