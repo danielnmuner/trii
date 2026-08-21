@@ -2,7 +2,7 @@ table_name: trii-prod-zscore-opportunities
 
 purpose:
 - persist realtime z-score opportunity events derived from current snapshots
-- capture the triggering z-scores together with full order-book context and approved FIFO inventory state
+- capture all monitored z-scores for snapshots where at least one metric crosses the trigger threshold, together with full order-book context and approved FIFO inventory state
 - support intraday analytics on symbols and opportunity windows without rescanning current snapshots
 
 primary_key:
@@ -25,12 +25,12 @@ record_type:
 - trading_date: string, yyyy-mm-dd in America/Bogota
 - symbol_captured_at: string, formatted as SYMBOL#captured_at
 - created_at: string, iso-8601 timestamp with timezone when the opportunity record was persisted
-- triggered_z_scores: map keyed by metric name
+- triggered_z_scores: map keyed by monitored metric name; persisted when at least one monitored metric crosses the trigger threshold
 - triggered_z_scores.<metric>.sample_value: number
 - triggered_z_scores.<metric>.z_score: number
 - last_price: number | null
 - daily_change_amount: number | null
-- daily_change_percent: number | null
+- daily_change_percent: number | null, stored as a fraction (for example 0.0028 for 0.28%)
 - previous_close: number | null
 - high_price: number | null
 - low_price: number | null

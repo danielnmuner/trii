@@ -12,8 +12,9 @@ from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 from botocore.exceptions import ClientError
 from data_quality import build_data_quality_item, parse_captured_at
 from opportunity_events import (
-    build_triggered_z_scores,
+    build_monitored_z_scores,
     build_zscore_opportunity_item,
+    has_triggered_z_score,
     summarize_approved_position,
 )
 from seasonality_profile import (
@@ -240,8 +241,8 @@ def _persist_zscore_opportunity(
     stat_items: dict[str, dict[str, Any]],
     created_at: datetime,
 ) -> bool:
-    triggered_z_scores = build_triggered_z_scores(stat_items)
-    if not triggered_z_scores:
+    monitored_z_scores = build_monitored_z_scores(stat_items)
+    if not has_triggered_z_score(monitored_z_scores):
         return False
 
     symbol = str(snapshot["symbol"]).strip().upper()
@@ -252,7 +253,7 @@ def _persist_zscore_opportunity(
     )
     opportunity_item = build_zscore_opportunity_item(
         snapshot,
-        triggered_z_scores,
+        monitored_z_scores,
         position_summary,
         created_at,
     )

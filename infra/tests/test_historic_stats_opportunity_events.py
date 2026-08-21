@@ -25,12 +25,13 @@ _opportunity_spec = importlib.util.spec_from_file_location(
 assert _opportunity_spec is not None and _opportunity_spec.loader is not None
 _opportunity_module = importlib.util.module_from_spec(_opportunity_spec)
 _opportunity_spec.loader.exec_module(_opportunity_module)
-build_triggered_z_scores = _opportunity_module.build_triggered_z_scores
+build_monitored_z_scores = _opportunity_module.build_monitored_z_scores
 build_zscore_opportunity_item = _opportunity_module.build_zscore_opportunity_item
+has_triggered_z_score = _opportunity_module.has_triggered_z_score
 summarize_approved_position = _opportunity_module.summarize_approved_position
 
 
-def test_build_triggered_z_scores_keeps_only_metrics_over_threshold() -> None:
+def test_build_monitored_z_scores_keeps_all_metrics_with_computable_z_score() -> None:
     stat_items = {
         "obi_l1": {
             "latest_value": Decimal("0.50"),
@@ -46,14 +47,41 @@ def test_build_triggered_z_scores_keeps_only_metrics_over_threshold() -> None:
         },
     }
 
-    triggered = build_triggered_z_scores(stat_items)
+    monitored = build_monitored_z_scores(stat_items)
 
-    assert triggered == {
+    assert monitored == {
         "obi_l1": {
             "sample_value": Decimal("0.50"),
             "z_score": Decimal("2"),
+        },
+        "spread_bps": {
+            "sample_value": Decimal("50"),
+            "z_score": Decimal("0.5"),
         }
     }
+
+
+def test_has_triggered_z_score_requires_any_metric_over_threshold() -> None:
+    assert has_triggered_z_score(
+        {
+            "spread_bps": {
+                "sample_value": Decimal("50"),
+                "z_score": Decimal("0.5"),
+            },
+            "obi_l1": {
+                "sample_value": Decimal("0.50"),
+                "z_score": Decimal("2"),
+            },
+        }
+    )
+    assert not has_triggered_z_score(
+        {
+            "spread_bps": {
+                "sample_value": Decimal("50"),
+                "z_score": Decimal("0.5"),
+            },
+        }
+    )
 
 
 def test_summarize_approved_position_uses_fifo_to_keep_remaining_cost_basis() -> None:
@@ -133,5 +161,6 @@ def test_build_zscore_opportunity_item_keeps_only_required_context() -> None:
     assert item["symbol_captured_at"] == "NUCO#2026-08-21T10:56:08.134-05:00"
     assert item["triggered_z_scores"] == triggered_z_scores
     assert item["approved_position_summary"]["available_quantity"] == Decimal("80")
+    assert item["daily_change_percent"] == Decimal("0.0028")
     assert "best_bid_price" not in item
     assert "best_ask_price" not in item

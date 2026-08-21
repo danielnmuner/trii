@@ -32,27 +32,33 @@ def compute_z_score(stat_item: dict[str, Any]) -> Decimal | None:
     return (latest_value - mean) / stddev
 
 
-def build_triggered_z_scores(
+def build_monitored_z_scores(
     stat_items: dict[str, dict[str, Any]],
-    *,
-    threshold: Decimal = Z_SCORE_THRESHOLD,
 ) -> dict[str, dict[str, Decimal]]:
-    triggered: dict[str, dict[str, Decimal]] = {}
+    monitored: dict[str, dict[str, Decimal]] = {}
     for metric_key in TRIGGER_METRIC_KEYS:
         stat_item = stat_items.get(metric_key)
         if stat_item is None:
             continue
         z_score = compute_z_score(stat_item)
-        if z_score is None or abs(z_score) < threshold:
+        if z_score is None:
             continue
         sample_value = to_decimal(stat_item.get("latest_value"))
         if sample_value is None:
             continue
-        triggered[metric_key] = {
+        monitored[metric_key] = {
             "sample_value": sample_value,
             "z_score": z_score,
         }
-    return triggered
+    return monitored
+
+
+def has_triggered_z_score(
+    monitored_z_scores: dict[str, dict[str, Decimal]],
+    *,
+    threshold: Decimal = Z_SCORE_THRESHOLD,
+) -> bool:
+    return any(abs(item["z_score"]) >= threshold for item in monitored_z_scores.values())
 
 
 def summarize_approved_position(orders: list[dict[str, Any]], symbol: str) -> dict[str, Any]:
@@ -127,7 +133,7 @@ def summarize_approved_position(orders: list[dict[str, Any]], symbol: str) -> di
 
 def build_zscore_opportunity_item(
     snapshot: dict[str, Any],
-    triggered_z_scores: dict[str, dict[str, Decimal]],
+    monitored_z_scores: dict[str, dict[str, Decimal]],
     position_summary: dict[str, Any],
     created_at: datetime,
 ) -> dict[str, Any]:
@@ -142,10 +148,14 @@ def build_zscore_opportunity_item(
         "trading_date": trading_date,
         "symbol_captured_at": f"{symbol}#{captured_at}",
         "created_at": created_at.isoformat(),
-        "triggered_z_scores": triggered_z_scores,
+        "triggered_z_scores": monitored_z_scores,
         "last_price": to_decimal(snapshot.get("last_price")),
         "daily_change_amount": to_decimal(snapshot.get("daily_change_amount")),
-        "daily_change_percent": to_decimal(snapshot.get("daily_change_percent")),
+        "daily_change_percent": (
+            None
+            if to_decimal(snapshot.get("daily_change_percent")) is None
+            else to_decimal(snapshot.get("daily_change_percent")) / Decimal("100")
+        ),
         "previous_close": to_decimal(snapshot.get("previous_close")),
         "high_price": to_decimal(snapshot.get("high_price")),
         "low_price": to_decimal(snapshot.get("low_price")),

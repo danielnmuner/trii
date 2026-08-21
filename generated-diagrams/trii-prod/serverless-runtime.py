@@ -71,6 +71,7 @@ with Diagram(
                 historic_stats_table = Dynamodb("trii-prod-historic-stats")
                 processed_stats_events_table = Dynamodb("trii-prod-processed-stats-events")
                 daily_closing_snapshots_table = Dynamodb("trii-prod-daily-closing-snapshots")
+                zscore_opportunities_table = Dynamodb("trii-prod-zscore-opportunities")
                 market_ai_recommendations_table = Dynamodb("trii-prod-market-ai-recommendations")
 
     streamlit_operator >> Edge(label="read analytics / upload docs") >> http_api >> api_handler
@@ -85,6 +86,8 @@ with Diagram(
     current_snapshots_table >> Edge(label="stream inserts", color="darkorange") >> historic_stats_updater
     historic_stats_updater >> Edge(label="update stats", color="darkorange") >> historic_stats_table
     historic_stats_updater >> Edge(label="write idempotency", color="darkorange") >> processed_stats_events_table
+    historic_stats_updater >> Edge(label="read approved orders", color="darkorange", style="dashed") >> stock_orders_table
+    historic_stats_updater >> Edge(label="store z-score events", color="darkorange") >> zscore_opportunities_table
     historic_stats_updater >> Edge(label="trigger AI rules", color="steelblue") >> market_ai_recommendation_handler
 
     historic_stats_backfill_workflow >> Edge(label="manual invoke", color="slateblue") >> historic_stats_backfill
