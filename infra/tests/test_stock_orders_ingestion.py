@@ -74,12 +74,19 @@ def test_persist_orders_imports_all_new_records() -> None:
     handler.STOCK_ORDERS_TABLE = fake_table
 
     result = handler._persist_orders(_build_orders_payload())
+    first_checksum = next(iter(fake_table.record_checksums))
+    stored_record = next(
+        record
+        for record in handler._normalize_order_records(base64.b64decode(_build_orders_payload()["file_content_base64"]))
+        if record["record_checksum"] == first_checksum
+    )
 
     assert result["received_records"] > 0
     assert result["imported_records"] == result["received_records"]
     assert result["duplicate_records"] == 0
     assert len(fake_table.record_checksums) == result["received_records"]
     assert result["source_file_checksum"]
+    assert str(stored_record["imported_at"]).endswith("-05:00")
 
 
 def test_persist_orders_skips_duplicate_records_from_same_csv_replay() -> None:

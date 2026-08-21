@@ -817,7 +817,7 @@ def _order_record_checksum(record: dict[str, Any]) -> str:
 
 def _normalize_order_records(raw_bytes: bytes) -> list[dict[str, Any]]:
     rows = _load_csv_rows(raw_bytes)
-    imported_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    imported_at = datetime.now(BOGOTA_TIMEZONE).replace(microsecond=0).isoformat()
     source_file_checksum = hashlib.sha256(raw_bytes).hexdigest()
 
     records: list[dict[str, Any]] = []
@@ -881,7 +881,7 @@ def _normalize_payload_order_records(body: dict[str, Any]) -> list[dict[str, Any
     if not source_file_checksum:
         source_file_checksum = _json_checksum(payload_records)
 
-    imported_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    imported_at = datetime.now(BOGOTA_TIMEZONE).replace(microsecond=0).isoformat()
     records: list[dict[str, Any]] = []
     seen_checksums: set[str] = set()
 

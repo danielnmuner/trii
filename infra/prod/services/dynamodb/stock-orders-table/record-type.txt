@@ -37,7 +37,7 @@ record_type:
 - commission_amount: number
 - net_amount: number
 - currency: string
-- imported_at: string, iso-8601 timestamp with timezone
+- imported_at: string, iso-8601 timestamp with timezone in America/Bogota
 
 duplicate_rule:
 - every record_checksum must be unique
