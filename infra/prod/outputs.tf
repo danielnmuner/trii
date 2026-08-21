@@ -53,6 +53,11 @@ output "stock_orders_table_name" {
   value       = module.stock_orders_table.name
 }
 
+output "daily_closing_snapshots_table_name" {
+  description = "Daily closing snapshots DynamoDB table name."
+  value       = module.daily_closing_snapshots_table.name
+}
+
 output "parsed_invoices_table_name" {
   description = "Parsed invoices DynamoDB table name."
   value       = module.parsed_invoices_table.name
@@ -71,6 +76,11 @@ output "historic_stats_updater_function_name" {
 output "historic_stats_backfill_function_name" {
   description = "Historic stats backfill Lambda function name."
   value       = module.historic_stats_backfill.function_name
+}
+
+output "daily_closing_snapshots_updater_function_name" {
+  description = "Daily closing snapshots updater Lambda function name."
+  value       = module.daily_closing_snapshots_updater.function_name
 }
 
 output "market_ai_recommendation_handler_function_name" {

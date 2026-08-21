@@ -3,6 +3,7 @@ from pathlib import Path
 from diagrams import Cluster, Diagram, Edge
 from diagrams.aws.compute import Lambda
 from diagrams.aws.database import Dynamodb
+from diagrams.aws.integration import Eventbridge
 from diagrams.aws.ml import Bedrock
 from diagrams.aws.network import APIGateway
 from diagrams.aws.storage import S3
@@ -48,7 +49,9 @@ with Diagram(
 
         with Cluster("Background analytics"):
             historic_stats_updater = Lambda("historic_stats_updater\nLambda")
+            daily_closing_snapshots_updater = Lambda("daily_closing_snapshots_updater\nLambda")
             market_ai_recommendation_handler = Lambda("market_ai_recommendation_handler\nLambda")
+            daily_closing_schedule = Eventbridge("24h closing\nschedule")
 
         with Cluster("Bedrock inference"):
             bedrock_nova = Bedrock("Bedrock\nNova Pro")
@@ -64,6 +67,7 @@ with Diagram(
             with Cluster("Analytics persistence"):
                 historic_stats_table = Dynamodb("trii-prod-historic-stats")
                 processed_stats_events_table = Dynamodb("trii-prod-processed-stats-events")
+                daily_closing_snapshots_table = Dynamodb("trii-prod-daily-closing-snapshots")
                 market_ai_recommendations_table = Dynamodb("trii-prod-market-ai-recommendations")
 
     streamlit_operator >> Edge(label="read analytics / upload docs") >> http_api >> api_handler
@@ -79,6 +83,10 @@ with Diagram(
     historic_stats_updater >> Edge(label="update stats", color="darkorange") >> historic_stats_table
     historic_stats_updater >> Edge(label="write idempotency", color="darkorange") >> processed_stats_events_table
     historic_stats_updater >> Edge(label="trigger AI rules", color="steelblue") >> market_ai_recommendation_handler
+
+    daily_closing_schedule >> Edge(label="run every 24h", color="mediumpurple") >> daily_closing_snapshots_updater
+    daily_closing_snapshots_updater >> Edge(label="read daily snapshots", color="mediumpurple", style="dashed") >> current_snapshots_table
+    daily_closing_snapshots_updater >> Edge(label="store daily closing", color="mediumpurple") >> daily_closing_snapshots_table
 
     market_ai_recommendation_handler >> Edge(label="read current + prev", color="darkgreen", style="dashed") >> current_snapshots_table
     market_ai_recommendation_handler >> Edge(label="read stats bucket", color="darkgreen", style="dashed") >> historic_stats_table

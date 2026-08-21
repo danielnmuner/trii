@@ -16,6 +16,14 @@ module "stock_orders_table" {
   tags         = local.common_tags
 }
 
+module "daily_closing_snapshots_table" {
+  source = "./services/dynamodb/daily-closing-snapshots-table"
+
+  environment  = local.environment
+  project_name = local.project_name
+  tags         = local.common_tags
+}
+
 module "parsed_invoices_table" {
   source = "./services/dynamodb/parsed-invoices-table"
 
@@ -107,6 +115,21 @@ module "historic_stats_backfill" {
   historic_stats_table_name    = module.historic_stats_table.name
   historic_stats_table_arn     = module.historic_stats_table.arn
   enabled_statistical_metrics  = local.enabled_statistical_metrics
+}
+
+module "daily_closing_snapshots_updater" {
+  source = "./services/lambda/daily-closing-snapshots-updater"
+
+  environment                        = local.environment
+  project_name                       = local.project_name
+  tags                               = local.common_tags
+  current_snapshots_table_name       = module.current_snapshots_table.name
+  current_snapshots_table_arn        = module.current_snapshots_table.arn
+  current_snapshots_index_arns       = module.current_snapshots_table.index_arns
+  daily_closing_snapshots_table_name = module.daily_closing_snapshots_table.name
+  daily_closing_snapshots_table_arn  = module.daily_closing_snapshots_table.arn
+  daily_closing_snapshots_index_arns = module.daily_closing_snapshots_table.index_arns
+  schedule_expression                = "cron(20 20 * * ? *)"
 }
 
 module "market_ai_recommendation_handler" {
