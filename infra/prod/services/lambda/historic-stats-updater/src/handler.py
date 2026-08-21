@@ -11,6 +11,11 @@ from boto3.dynamodb.conditions import Key
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 from botocore.exceptions import ClientError
 from data_quality import build_data_quality_item, parse_captured_at
+from opportunity_events import (
+    build_triggered_z_scores,
+    build_zscore_opportunity_item,
+    summarize_approved_position,
+)
 from seasonality_profile import (
     SEASONALITY_PROFILE_KEY,
     build_seasonality_profile_item,
@@ -29,6 +34,8 @@ BOGOTA_TIMEZONE = ZoneInfo("America/Bogota")
 CURRENT_SNAPSHOTS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["CURRENT_SNAPSHOTS_TABLE"])
 HISTORIC_STATS_TABLE = os.environ["HISTORIC_STATS_TABLE"]
 PROCESSED_STATS_EVENTS_TABLE = os.environ["PROCESSED_STATS_EVENTS_TABLE"]
+STOCK_ORDERS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["STOCK_ORDERS_TABLE"])
+ZSCORE_OPPORTUNITIES_TABLE = DYNAMODB_RESOURCE.Table(os.environ["ZSCORE_OPPORTUNITIES_TABLE"])
 MARKET_AI_RECOMMENDATION_HANDLER_FUNCTION = os.environ["MARKET_AI_RECOMMENDATION_HANDLER_FUNCTION"]
 ENABLED_STATISTICAL_METRICS = parse_metric_keys(os.environ.get("ENABLED_STATISTICAL_METRICS"))
 
@@ -133,6 +140,14 @@ def _build_ai_trigger_payload(
     }
 
 
+def _zscore_opportunity_exists(snapshot_checksum: str) -> bool:
+    response = ZSCORE_OPPORTUNITIES_TABLE.get_item(
+        Key={"snapshot_checksum": snapshot_checksum},
+        ProjectionExpression="snapshot_checksum",
+    )
+    return "Item" in response
+
+
 def _invoke_market_ai_recommendation_handler(payload: dict[str, Any]) -> None:
     LAMBDA_CLIENT.invoke(
         FunctionName=MARKET_AI_RECOMMENDATION_HANDLER_FUNCTION,
@@ -199,6 +214,57 @@ def _load_existing_seasonality_item(symbol: str) -> dict[str, Any] | None:
     )
     item = response.get("Item")
     return None if item is None else _deserialize_item(item)
+
+
+def _load_approved_orders_for_symbol(symbol: str, captured_at: str) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    query_kwargs: dict[str, Any] = {
+        "IndexName": "symbol-created-at-index",
+        "KeyConditionExpression": Key("symbol").eq(symbol) & Key("created_at").lte(captured_at),
+        "ScanIndexForward": True,
+    }
+    while True:
+        response = STOCK_ORDERS_TABLE.query(**query_kwargs)
+        for item in response.get("Items", []):
+            if str(item.get("normalized_status") or "").strip().lower() == "approved":
+                items.append(item)
+        last_evaluated_key = response.get("LastEvaluatedKey")
+        if last_evaluated_key is None:
+            break
+        query_kwargs["ExclusiveStartKey"] = last_evaluated_key
+    return items
+
+
+def _persist_zscore_opportunity(
+    snapshot: dict[str, Any],
+    stat_items: dict[str, dict[str, Any]],
+    created_at: datetime,
+) -> bool:
+    triggered_z_scores = build_triggered_z_scores(stat_items)
+    if not triggered_z_scores:
+        return False
+
+    symbol = str(snapshot["symbol"]).strip().upper()
+    captured_at = str(snapshot["captured_at"]).strip()
+    position_summary = summarize_approved_position(
+        _load_approved_orders_for_symbol(symbol, captured_at),
+        symbol,
+    )
+    opportunity_item = build_zscore_opportunity_item(
+        snapshot,
+        triggered_z_scores,
+        position_summary,
+        created_at,
+    )
+    try:
+        ZSCORE_OPPORTUNITIES_TABLE.put_item(
+            Item=opportunity_item,
+            ConditionExpression="attribute_not_exists(snapshot_checksum)",
+        )
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") != "ConditionalCheckFailedException":
+            raise
+    return True
 
 
 def _transact_snapshot(snapshot: dict[str, Any], source_event_id: str) -> str:
@@ -322,6 +388,7 @@ def _transact_snapshot(snapshot: dict[str, Any], source_event_id: str) -> str:
 
         try:
             DYNAMODB_CLIENT.transact_write_items(TransactItems=transact_items)
+            _persist_zscore_opportunity(snapshot, updated_items, updated_at)
             trigger_payload = _build_ai_trigger_payload(snapshot, updated_items)
             if trigger_payload is not None:
                 _invoke_market_ai_recommendation_handler(trigger_payload)
@@ -331,6 +398,8 @@ def _transact_snapshot(snapshot: dict[str, Any], source_event_id: str) -> str:
                 raise
             if _processed_event_exists(snapshot_checksum):
                 current_items = _load_existing_stat_items(symbol, metric_names)
+                if not _zscore_opportunity_exists(snapshot_checksum):
+                    _persist_zscore_opportunity(snapshot, current_items, updated_at)
                 trigger_payload = _build_ai_trigger_payload(snapshot, current_items)
                 if trigger_payload is not None:
                     _invoke_market_ai_recommendation_handler(trigger_payload)

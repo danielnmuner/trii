@@ -53,6 +53,36 @@ variable "processed_stats_events_index_arns" {
   type        = list(string)
 }
 
+variable "stock_orders_table_name" {
+  description = "Stock orders table name."
+  type        = string
+}
+
+variable "stock_orders_table_arn" {
+  description = "Stock orders table ARN."
+  type        = string
+}
+
+variable "stock_orders_index_arns" {
+  description = "Stock orders table index ARNs."
+  type        = list(string)
+}
+
+variable "zscore_opportunities_table_name" {
+  description = "Z-score opportunities table name."
+  type        = string
+}
+
+variable "zscore_opportunities_table_arn" {
+  description = "Z-score opportunities table ARN."
+  type        = string
+}
+
+variable "zscore_opportunities_index_arns" {
+  description = "Z-score opportunities table index ARNs."
+  type        = list(string)
+}
+
 variable "market_ai_recommendation_handler_function_name" {
   description = "Market AI recommendation handler Lambda function name."
   type        = string

@@ -16,6 +16,14 @@ module "stock_orders_table" {
   tags         = local.common_tags
 }
 
+module "zscore_opportunities_table" {
+  source = "./services/dynamodb/zscore-opportunities-table"
+
+  environment  = local.environment
+  project_name = local.project_name
+  tags         = local.common_tags
+}
+
 module "daily_closing_snapshots_table" {
   source = "./services/dynamodb/daily-closing-snapshots-table"
 
@@ -99,6 +107,12 @@ module "historic_stats_updater" {
   processed_stats_events_table_name              = module.processed_stats_events_table.name
   processed_stats_events_table_arn               = module.processed_stats_events_table.arn
   processed_stats_events_index_arns              = module.processed_stats_events_table.index_arns
+  stock_orders_table_name                        = module.stock_orders_table.name
+  stock_orders_table_arn                         = module.stock_orders_table.arn
+  stock_orders_index_arns                        = module.stock_orders_table.index_arns
+  zscore_opportunities_table_name                = module.zscore_opportunities_table.name
+  zscore_opportunities_table_arn                 = module.zscore_opportunities_table.arn
+  zscore_opportunities_index_arns                = module.zscore_opportunities_table.index_arns
   market_ai_recommendation_handler_function_name = module.market_ai_recommendation_handler.function_name
   market_ai_recommendation_handler_function_arn  = module.market_ai_recommendation_handler.function_arn
   enabled_statistical_metrics                    = local.enabled_statistical_metrics

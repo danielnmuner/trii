@@ -38,6 +38,30 @@ data "aws_iam_policy_document" "inline" {
   }
 
   statement {
+    sid    = "ReadStockOrders"
+    effect = "Allow"
+    actions = [
+      "dynamodb:Query",
+    ]
+    resources = concat(
+      [var.stock_orders_table_arn],
+      var.stock_orders_index_arns,
+    )
+  }
+
+  statement {
+    sid    = "WriteZscoreOpportunities"
+    effect = "Allow"
+    actions = [
+      "dynamodb:PutItem",
+    ]
+    resources = concat(
+      [var.zscore_opportunities_table_arn],
+      var.zscore_opportunities_index_arns,
+    )
+  }
+
+  statement {
     sid     = "InvokeMarketAiRecommendationHandler"
     effect  = "Allow"
     actions = ["lambda:InvokeFunction"]
@@ -62,6 +86,8 @@ module "function" {
     CURRENT_SNAPSHOTS_TABLE                   = var.current_snapshots_table_name
     HISTORIC_STATS_TABLE                      = var.historic_stats_table_name
     PROCESSED_STATS_EVENTS_TABLE              = var.processed_stats_events_table_name
+    STOCK_ORDERS_TABLE                        = var.stock_orders_table_name
+    ZSCORE_OPPORTUNITIES_TABLE                = var.zscore_opportunities_table_name
     MARKET_AI_RECOMMENDATION_HANDLER_FUNCTION = var.market_ai_recommendation_handler_function_name
     ENABLED_STATISTICAL_METRICS               = join(",", var.enabled_statistical_metrics)
   }

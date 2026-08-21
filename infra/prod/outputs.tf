@@ -53,6 +53,11 @@ output "stock_orders_table_name" {
   value       = module.stock_orders_table.name
 }
 
+output "zscore_opportunities_table_name" {
+  description = "Z-score opportunities DynamoDB table name."
+  value       = module.zscore_opportunities_table.name
+}
+
 output "daily_closing_snapshots_table_name" {
   description = "Daily closing snapshots DynamoDB table name."
   value       = module.daily_closing_snapshots_table.name
