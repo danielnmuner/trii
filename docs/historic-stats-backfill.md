@@ -271,8 +271,8 @@ Workflow behavior:
 
 Current implementation note:
 
-- `seasonality_profile` is now supported by the backfill Lambda with 30-minute intraday buckets in `America/Bogota`.
-- `historic-stats-updater` still keeps only the live scalar metrics and has not yet been extended to maintain `seasonality_profile` in real time.
+- `seasonality_profile` is supported by the backfill Lambda with 30-minute intraday buckets in `America/Bogota`.
+- `historic-stats-updater` now continues `seasonality_profile` in real time through a dedicated branch that keeps intraday pending state until the trading day can be finalized.
 
 Operational note:
 

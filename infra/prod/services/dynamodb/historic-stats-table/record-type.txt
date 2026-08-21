@@ -50,6 +50,14 @@ seasonality_profile_record_type:
 - last_updated_at: string, iso-8601 timestamp with timezone
 - stats_scope: string, currently weekly_intraday_seasonality
 - stats_version: number, currently 1 for full backfill rewrites
+- pending_day: optional map used by the live updater until a trading day can be finalized into weekly_profile
+- pending_day.trading_date: string, yyyy-mm-dd in America/Bogota
+- pending_day.weekday: string, ISO weekday number
+- pending_day.last_source_captured_at: string, iso-8601 timestamp with timezone
+- pending_day.total_day_volume: number
+- pending_day.total_day_value: number
+- pending_day.hours.<hh:mm>.bucket_volume: number
+- pending_day.hours.<hh:mm>.bucket_value: number
 - weekly_profile: map keyed by ISO weekday number
 - weekly_profile.<weekday>.weekday_label: string, monday through friday for trading sessions
 - weekly_profile.<weekday>.days_processed: number
@@ -136,3 +144,4 @@ backfill_policy:
 - historical rebuilds for newly introduced metrics are executed manually through historic-stats-backfill
 - current-snapshots remains the deduplicated raw source of truth for any backfill
 - live writes stay controlled by local.enabled_statistical_metrics so a new metric can be backfilled before it is enabled in real time
+- seasonality_profile is maintained by a dedicated live-updater branch and is not part of local.enabled_statistical_metrics
