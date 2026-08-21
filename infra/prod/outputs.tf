@@ -48,6 +48,11 @@ output "processed_stats_events_table_name" {
   value       = module.processed_stats_events_table.name
 }
 
+output "analytics_catalog_table_name" {
+  description = "Analytics catalog DynamoDB table name."
+  value       = module.analytics_catalog_table.name
+}
+
 output "stock_orders_table_name" {
   description = "Stock orders DynamoDB table name."
   value       = module.stock_orders_table.name
@@ -91,4 +96,14 @@ output "daily_closing_snapshots_updater_function_name" {
 output "market_ai_recommendation_handler_function_name" {
   description = "Market AI recommendation handler Lambda function name."
   value       = module.market_ai_recommendation_handler.function_name
+}
+
+output "analytics_catalog_updater_function_name" {
+  description = "Analytics catalog updater Lambda function name."
+  value       = module.analytics_catalog_updater.function_name
+}
+
+output "analytics_catalog_backfill_function_name" {
+  description = "Analytics catalog backfill Lambda function name."
+  value       = module.analytics_catalog_backfill.function_name
 }

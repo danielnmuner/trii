@@ -28,6 +28,7 @@ HISTORIC_STATS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["HISTORIC_STATS_TABLE"
 DAILY_CLOSING_SNAPSHOTS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["DAILY_CLOSING_SNAPSHOTS_TABLE"])
 ZSCORE_OPPORTUNITIES_TABLE = DYNAMODB_RESOURCE.Table(os.environ["ZSCORE_OPPORTUNITIES_TABLE"])
 MARKET_AI_RECOMMENDATIONS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["MARKET_AI_RECOMMENDATIONS_TABLE"])
+ANALYTICS_CATALOG_TABLE = DYNAMODB_RESOURCE.Table(os.environ["ANALYTICS_CATALOG_TABLE"])
 STOCK_ORDERS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["STOCK_ORDERS_TABLE"])
 API_SHARED_TOKEN = os.environ["API_SHARED_TOKEN"]
 BOGOTA_TIMEZONE = ZoneInfo("America/Bogota")
@@ -101,6 +102,14 @@ def _query_params(event: dict[str, Any]) -> dict[str, str]:
 
 
 def _is_authorized(event: dict[str, Any]) -> bool:
+    iam_context = (
+        event.get("requestContext", {})
+        .get("authorizer", {})
+        .get("iam")
+    )
+    if isinstance(iam_context, dict) and iam_context:
+        return True
+
     headers = _normalize_headers(event.get("headers"))
     provided_token = headers.get("x-api-token")
     if provided_token:
@@ -390,50 +399,25 @@ def _list_recent_snapshots(event: dict[str, Any]) -> dict[str, Any]:
 
 
 def _list_analytics_catalog(event: dict[str, Any]) -> dict[str, Any]:
-    latest_captured_date = _find_latest_snapshot_captured_date()
-    if latest_captured_date is None:
+    response = ANALYTICS_CATALOG_TABLE.get_item(Key={"pk": "analytics_catalog"})
+    item = response.get("Item")
+    if not item:
         return {
             "symbols": [],
             "symbol_count": 0,
             "trading_date": None,
             "to_timestamp": None,
             "record_count": 0,
+            "records": [],
         }
 
-    records: list[dict[str, Any]] = []
-    query_kwargs = {
-        "IndexName": "captured-date-index",
-        "KeyConditionExpression": Key("captured_date").eq(latest_captured_date),
-    }
-    while True:
-        response = CURRENT_SNAPSHOTS_TABLE.query(**query_kwargs)
-        records.extend(response.get("Items", []))
-        last_evaluated_key = response.get("LastEvaluatedKey")
-        if not last_evaluated_key:
-            break
-        query_kwargs["ExclusiveStartKey"] = last_evaluated_key
-
-    symbols = sorted(
-        {
-            str(record.get("symbol", "")).strip().upper()
-            for record in records
-            if str(record.get("symbol", "")).strip()
-        }
-    )
-    latest_captured_at = max(
-        (
-            str(record.get("captured_at") or "").strip()
-            for record in records
-            if str(record.get("captured_at") or "").strip()
-        ),
-        default=None,
-    )
     return {
-        "symbols": symbols,
-        "symbol_count": len(symbols),
-        "trading_date": latest_captured_date,
-        "to_timestamp": latest_captured_at,
-        "record_count": len(records),
+        "symbols": _json_ready(item.get("symbols", [])),
+        "symbol_count": int(item.get("symbol_count", 0) or 0),
+        "trading_date": item.get("trading_date"),
+        "to_timestamp": item.get("to_timestamp"),
+        "record_count": int(item.get("record_count", 0) or 0),
+        "records": _json_ready(item.get("records", [])),
     }
 
 
@@ -633,24 +617,26 @@ def _query_snapshots_for_symbol(
 
 def _load_historic_stats_for_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     symbol = str(snapshot["symbol"]).strip().upper()
-    captured_at = str(snapshot["captured_at"]).strip()
+    return _load_historic_stats(symbol)
 
+
+def _load_historic_stats(symbol: str, metric: str | None = None) -> dict[str, Any]:
     response = HISTORIC_STATS_TABLE.query(
         KeyConditionExpression=Key("pk").eq(symbol),
     )
     items = response.get("Items", [])
-    metrics = {
-        str(item["metric"]): _json_ready(item)
+    filtered_items = [
+        item
         for item in items
-        if "metric" in item
-    }
+        if "metric" in item and (metric is None or str(item["metric"]) == metric)
+    ]
+    filtered_items.sort(key=lambda item: str(item.get("metric") or ""))
 
     return {
         "symbol": symbol,
-        "captured_at": captured_at,
-        "snapshot": _json_ready(snapshot),
-        "stats": metrics,
-        "stats_count": len(metrics),
+        "metric": metric,
+        "record_count": len(filtered_items),
+        "records": _json_ready(filtered_items),
     }
 
 
@@ -701,8 +687,6 @@ def _get_analytics_snapshot(event: dict[str, Any]) -> dict[str, Any]:
         elif len(previous_snapshots) > 1:
             previous_snapshot = previous_snapshots[1]
 
-    current_stats = _load_historic_stats_for_snapshot(current_snapshot)
-
     snapshots = [_json_ready(current_snapshot)]
     if previous_snapshot is not None:
         snapshots.append(_json_ready(previous_snapshot))
@@ -714,10 +698,21 @@ def _get_analytics_snapshot(event: dict[str, Any]) -> dict[str, Any]:
         "to_timestamp": str(current_snapshot.get("captured_at", "")),
         "current_snapshot": _json_ready(current_snapshot),
         "previous_snapshot": None if previous_snapshot is None else _json_ready(previous_snapshot),
-        "current_stats": current_stats.get("stats", {}),
-        "previous_stats": {},
         "snapshots": snapshots,
     }
+
+
+def _get_historic_stats(event: dict[str, Any]) -> dict[str, Any]:
+    params = _query_params(event)
+    symbol = str(params.get("symbol") or "").strip().upper()
+    if not symbol:
+        raise ValueError("El parametro `symbol` es obligatorio para consultar historic stats.")
+
+    metric = str(params.get("metric") or "").strip()
+    if not metric:
+        metric = None
+
+    return _load_historic_stats(symbol, metric=metric)
 
 
 def _parse_spanish_datetime(raw_value: str) -> str:
@@ -1242,6 +1237,16 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
                     "status": "ok",
                     "route": route_key,
                     "result": _get_analytics_snapshot(event),
+                },
+            )
+
+        if route_key == "GET /analytics/historic-stats":
+            return _response(
+                200,
+                {
+                    "status": "ok",
+                    "route": route_key,
+                    "result": _get_historic_stats(event),
                 },
             )
 

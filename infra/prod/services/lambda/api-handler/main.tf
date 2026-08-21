@@ -14,6 +14,20 @@ data "aws_iam_policy_document" "inline" {
   }
 
   statement {
+    sid    = "ReadAnalyticsCatalog"
+    effect = "Allow"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:BatchGetItem",
+      "dynamodb:Query",
+    ]
+    resources = concat(
+      [var.analytics_catalog_table_arn],
+      var.analytics_catalog_table_index_arns,
+    )
+  }
+
+  statement {
     sid    = "ReadSnapshotIngestionRaw"
     effect = "Allow"
     actions = [
@@ -216,6 +230,7 @@ module "function" {
     DAILY_CLOSING_SNAPSHOTS_TABLE      = var.daily_closing_snapshots_table_name
     ZSCORE_OPPORTUNITIES_TABLE         = var.zscore_opportunities_table_name
     MARKET_AI_RECOMMENDATIONS_TABLE    = var.market_ai_recommendations_table_name
+    ANALYTICS_CATALOG_TABLE            = var.analytics_catalog_table_name
     STOCK_ORDERS_TABLE                 = var.stock_orders_table_name
     PARSED_INVOICES_TABLE              = var.parsed_invoices_table_name
     SOURCE_DOCUMENTS_BUCKET            = var.source_documents_bucket_name

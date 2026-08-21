@@ -4,17 +4,51 @@ module "http_api" {
   name                 = "${var.project_name}-${var.environment}-http-api"
   lambda_function_name = var.api_handler_function_name
   lambda_invoke_arn    = var.api_handler_invoke_arn
-  route_keys = toset([
-    "GET /health",
-    "GET /analytics/catalog",
-    "GET /analytics/daily-closing",
-    "GET /analytics/snapshot",
-    "GET /analytics/zscore-opportunities",
-    "GET /snapshots",
-    "POST /snapshots",
-    "POST /orders",
-    "POST /invoices",
-    "POST /documents",
-  ])
+  route_definitions = [
+    {
+      route_key          = "GET /health"
+      authorization_type = "NONE"
+    },
+    {
+      route_key          = "GET /analytics/catalog"
+      authorization_type = "AWS_IAM"
+    },
+    {
+      route_key          = "GET /analytics/daily-closing"
+      authorization_type = "AWS_IAM"
+    },
+    {
+      route_key          = "GET /analytics/historic-stats"
+      authorization_type = "AWS_IAM"
+    },
+    {
+      route_key          = "GET /analytics/snapshot"
+      authorization_type = "AWS_IAM"
+    },
+    {
+      route_key          = "GET /analytics/zscore-opportunities"
+      authorization_type = "AWS_IAM"
+    },
+    {
+      route_key          = "GET /snapshots"
+      authorization_type = "AWS_IAM"
+    },
+    {
+      route_key          = "POST /snapshots"
+      authorization_type = "NONE"
+    },
+    {
+      route_key          = "POST /orders"
+      authorization_type = "NONE"
+    },
+    {
+      route_key          = "POST /invoices"
+      authorization_type = "NONE"
+    },
+    {
+      route_key          = "POST /documents"
+      authorization_type = "NONE"
+    },
+  ]
   tags = var.tags
 }

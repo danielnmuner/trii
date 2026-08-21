@@ -158,6 +158,21 @@ variable "market_ai_recommendations_index_arns" {
   type        = list(string)
 }
 
+variable "analytics_catalog_table_name" {
+  description = "Analytics catalog table name."
+  type        = string
+}
+
+variable "analytics_catalog_table_arn" {
+  description = "Analytics catalog table ARN."
+  type        = string
+}
+
+variable "analytics_catalog_table_index_arns" {
+  description = "Analytics catalog table index ARNs."
+  type        = list(string)
+}
+
 variable "source_documents_bucket_name" {
   description = "Source documents bucket name."
   type        = string

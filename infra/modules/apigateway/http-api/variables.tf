@@ -19,9 +19,12 @@ variable "lambda_invoke_arn" {
   type        = string
 }
 
-variable "route_keys" {
-  description = "HTTP API route keys."
-  type        = set(string)
+variable "route_definitions" {
+  description = "HTTP API routes and their authorization modes."
+  type = list(object({
+    route_key          = string
+    authorization_type = optional(string, "NONE")
+  }))
 }
 
 variable "cors_allow_origins" {

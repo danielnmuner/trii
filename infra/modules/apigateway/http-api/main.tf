@@ -20,11 +20,14 @@ resource "aws_apigatewayv2_integration" "lambda" {
 }
 
 resource "aws_apigatewayv2_route" "this" {
-  for_each = var.route_keys
+  for_each = {
+    for route in var.route_definitions : route.route_key => route
+  }
 
-  api_id    = aws_apigatewayv2_api.this.id
-  route_key = each.value
-  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = each.value.route_key
+  authorization_type = each.value.authorization_type
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
 resource "aws_apigatewayv2_stage" "this" {

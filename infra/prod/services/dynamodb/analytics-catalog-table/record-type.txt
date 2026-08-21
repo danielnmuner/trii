@@ -1,0 +1,20 @@
+Analytics catalog record
+
+Primary key
+- pk: fixed string, always `analytics_catalog`
+
+Fields
+- record_type: string, always `analytics_catalog`
+- trading_date: string, latest trading date represented by the catalog
+- to_timestamp: string, latest snapshot timestamp seen for the trading date
+- symbol_count: number, count of unique symbols in the catalog
+- record_count: number, mirrors symbol_count because the catalog only stores one live entry per symbol
+- symbols: list[string], sorted symbol list used by the UI to drive lookups
+- records: list[object], one live record per symbol with:
+  - symbol: string
+  - current_snapshot_key.symbol: string
+  - current_snapshot_key.captured_at: string
+  - previous_snapshot_key.symbol: string|null
+  - previous_snapshot_key.captured_at: string|null
+- catalog_version: number, optimistic locking version
+- updated_at: string, last catalog refresh timestamp

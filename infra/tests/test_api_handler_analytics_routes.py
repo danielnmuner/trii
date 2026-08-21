@@ -19,6 +19,7 @@ os.environ.setdefault("HISTORIC_STATS_TABLE", "test-historic-stats")
 os.environ.setdefault("DAILY_CLOSING_SNAPSHOTS_TABLE", "test-daily-closing")
 os.environ.setdefault("ZSCORE_OPPORTUNITIES_TABLE", "test-zscore-opportunities")
 os.environ.setdefault("MARKET_AI_RECOMMENDATIONS_TABLE", "test-market-ai")
+os.environ.setdefault("ANALYTICS_CATALOG_TABLE", "test-analytics-catalog")
 os.environ.setdefault("STOCK_ORDERS_TABLE", "test-stock-orders")
 os.environ.setdefault("PARSED_INVOICES_TABLE", "test-parsed-invoices")
 os.environ.setdefault("SOURCE_DOCUMENTS_BUCKET", "test-source-documents")
@@ -139,32 +140,52 @@ class FakeHistoricStatsTable:
         }
 
 
+class FailingHistoricStatsTable:
+    def query(self, **kwargs) -> dict:
+        raise AssertionError("historic_stats should not be queried by analytics/snapshot")
+
+
 class FailingMarketAiRecommendationsTable:
     def query(self, **kwargs) -> dict:
         raise AssertionError("market_ai_recommendations should not be queried by analytics/snapshot")
 
 
-class FakeCurrentSnapshotsCatalogTable:
-    def __init__(self) -> None:
-        self.catalog_probe_calls = 0
+class FailingCurrentSnapshotsTable:
+    def get_item(self, *, Key: dict) -> dict:
+        raise AssertionError("current_snapshots should not be queried by analytics/historic-stats")
 
     def query(self, **kwargs) -> dict:
-        if kwargs.get("IndexName") != "captured-date-index":
-            return {"Items": []}
+        raise AssertionError("current_snapshots should not be queried by analytics/historic-stats")
 
-        limit = kwargs.get("Limit")
-        if limit == 1:
-            self.catalog_probe_calls += 1
-            if self.catalog_probe_calls == 1:
-                return {"Items": []}
-            return {"Items": [{"symbol": "NUCO", "captured_at": "2026-08-20T15:00:00-05:00"}]}
 
+class FakeAnalyticsCatalogTable:
+    def get_item(self, *, Key: dict) -> dict:
+        assert Key == {"pk": "analytics_catalog"}
         return {
-            "Items": [
-                {"symbol": "ISA", "captured_at": "2026-08-20T14:58:00-05:00"},
-                {"symbol": "NUCO", "captured_at": "2026-08-20T15:00:00-05:00"},
-                {"symbol": "NUCO", "captured_at": "2026-08-20T14:55:00-05:00"},
-            ]
+            "Item": {
+                "pk": "analytics_catalog",
+                "trading_date": "2026-08-20",
+                "to_timestamp": "2026-08-20T15:00:00-05:00",
+                "symbol_count": 2,
+                "record_count": 2,
+                "symbols": ["ISA", "NUCO"],
+                "records": [
+                    {
+                        "symbol": "ISA",
+                        "current_snapshot_key": {
+                            "symbol": "ISA",
+                            "captured_at": "2026-08-20T14:58:00-05:00",
+                        },
+                    },
+                    {
+                        "symbol": "NUCO",
+                        "current_snapshot_key": {
+                            "symbol": "NUCO",
+                            "captured_at": "2026-08-20T15:00:00-05:00",
+                        },
+                    },
+                ],
+            }
         }
 
 
@@ -211,7 +232,7 @@ def test_handler_returns_daily_closing_record_for_exact_symbol_and_date() -> Non
 
 def test_handler_snapshot_uses_only_current_snapshots_and_historic_stats() -> None:
     handler.CURRENT_SNAPSHOTS_TABLE = FakeCurrentSnapshotsTable()
-    handler.HISTORIC_STATS_TABLE = FakeHistoricStatsTable()
+    handler.HISTORIC_STATS_TABLE = FailingHistoricStatsTable()
     handler.MARKET_AI_RECOMMENDATIONS_TABLE = FailingMarketAiRecommendationsTable()
 
     response = handler.handler(
@@ -228,11 +249,40 @@ def test_handler_snapshot_uses_only_current_snapshots_and_historic_stats() -> No
     assert payload["status"] == "ok"
     assert payload["result"]["symbol"] == "NUCO"
     assert payload["result"]["record_count"] == 2
+    assert "current_stats" not in payload["result"]
+    assert "previous_stats" not in payload["result"]
     assert "market_ai_recommendation" not in payload["result"]
 
 
+def test_handler_historic_stats_uses_only_historic_stats_and_accepts_iam_auth() -> None:
+    handler.CURRENT_SNAPSHOTS_TABLE = FailingCurrentSnapshotsTable()
+    handler.HISTORIC_STATS_TABLE = FakeHistoricStatsTable()
+
+    response = handler.handler(
+        {
+            "routeKey": "GET /analytics/historic-stats",
+            "requestContext": {
+                "authorizer": {
+                    "iam": {
+                        "userArn": "arn:aws:iam::311923415472:user/test-user",
+                    }
+                }
+            },
+            "queryStringParameters": {"symbol": "nuco"},
+        },
+        None,
+    )
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 200
+    assert payload["status"] == "ok"
+    assert payload["result"]["symbol"] == "NUCO"
+    assert payload["result"]["record_count"] == 1
+    assert payload["result"]["records"][0]["metric"] == "spread_bps"
+
+
 def test_handler_catalog_uses_latest_available_snapshot_date() -> None:
-    handler.CURRENT_SNAPSHOTS_TABLE = FakeCurrentSnapshotsCatalogTable()
+    handler.ANALYTICS_CATALOG_TABLE = FakeAnalyticsCatalogTable()
 
     response = handler.handler(
         {
@@ -249,4 +299,5 @@ def test_handler_catalog_uses_latest_available_snapshot_date() -> None:
     assert payload["result"]["trading_date"] == "2026-08-20"
     assert payload["result"]["symbol_count"] == 2
     assert payload["result"]["symbols"] == ["ISA", "NUCO"]
-    assert payload["result"]["record_count"] == 3
+    assert payload["result"]["record_count"] == 2
+    assert payload["result"]["records"][0]["current_snapshot_key"]["symbol"] == "ISA"

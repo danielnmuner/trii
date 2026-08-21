@@ -80,6 +80,14 @@ module "processed_stats_events_table" {
   tags         = local.common_tags
 }
 
+module "analytics_catalog_table" {
+  source = "./services/dynamodb/analytics-catalog-table"
+
+  environment  = local.environment
+  project_name = local.project_name
+  tags         = local.common_tags
+}
+
 module "source_documents_bucket" {
   source = "./services/s3/source-documents-bucket"
 
@@ -163,6 +171,30 @@ module "market_ai_recommendation_handler" {
   bedrock_model_id                     = module.bedrock_nova_pro.model_id
 }
 
+module "analytics_catalog_updater" {
+  source = "./services/lambda/analytics-catalog-updater"
+
+  environment                  = local.environment
+  project_name                 = local.project_name
+  tags                         = local.common_tags
+  current_snapshots_stream_arn = module.current_snapshots_table.stream_arn
+  analytics_catalog_table_name = module.analytics_catalog_table.name
+  analytics_catalog_table_arn  = module.analytics_catalog_table.arn
+}
+
+module "analytics_catalog_backfill" {
+  source = "./services/lambda/analytics-catalog-backfill"
+
+  environment                  = local.environment
+  project_name                 = local.project_name
+  tags                         = local.common_tags
+  current_snapshots_table_name = module.current_snapshots_table.name
+  current_snapshots_table_arn  = module.current_snapshots_table.arn
+  current_snapshots_index_arns = module.current_snapshots_table.index_arns
+  analytics_catalog_table_name = module.analytics_catalog_table.name
+  analytics_catalog_table_arn  = module.analytics_catalog_table.arn
+}
+
 module "api_handler" {
   source = "./services/lambda/api-handler"
 
@@ -201,6 +233,9 @@ module "api_handler" {
   market_ai_recommendations_table_name    = module.market_ai_recommendations_table.name
   market_ai_recommendations_table_arn     = module.market_ai_recommendations_table.arn
   market_ai_recommendations_index_arns    = module.market_ai_recommendations_table.index_arns
+  analytics_catalog_table_name            = module.analytics_catalog_table.name
+  analytics_catalog_table_arn             = module.analytics_catalog_table.arn
+  analytics_catalog_table_index_arns      = module.analytics_catalog_table.index_arns
   api_gateway_shared_token                = var.api_gateway_shared_token
 }
 

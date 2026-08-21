@@ -42,6 +42,7 @@ with Diagram(
     streamlit_operator = Custom("Streamlit\noperator", STREAMLIT_ICON)
     chrome_extension = Custom("Chrome\nextension", CHROME_EXTENSION_ICON)
     historic_stats_backfill_workflow = GithubActions("historic-stats-backfill\nworkflow")
+    analytics_catalog_backfill_workflow = GithubActions("analytics-catalog-backfill\nworkflow")
 
     with Cluster("AWS prod"):
         http_api = APIGateway("HTTP API")
@@ -53,6 +54,8 @@ with Diagram(
             historic_stats_updater = Lambda("historic_stats_updater\nLambda")
             historic_stats_backfill = Lambda("historic_stats_backfill\nLambda")
             daily_closing_snapshots_updater = Lambda("daily_closing_snapshots_updater\nLambda")
+            analytics_catalog_updater = Lambda("analytics_catalog_updater\nLambda")
+            analytics_catalog_backfill = Lambda("analytics_catalog_backfill\nLambda")
             market_ai_recommendation_handler = Lambda("market_ai_recommendation_handler\nLambda")
             daily_closing_schedule = Eventbridge("24h closing\nschedule")
 
@@ -71,6 +74,7 @@ with Diagram(
                 historic_stats_table = Dynamodb("trii-prod-historic-stats")
                 processed_stats_events_table = Dynamodb("trii-prod-processed-stats-events")
                 daily_closing_snapshots_table = Dynamodb("trii-prod-daily-closing-snapshots")
+                analytics_catalog_table = Dynamodb("trii-prod-analytics-catalog")
                 zscore_opportunities_table = Dynamodb("trii-prod-zscore-opportunities")
                 market_ai_recommendations_table = Dynamodb("trii-prod-market-ai-recommendations")
 
@@ -83,7 +87,8 @@ with Diagram(
     api_handler >> Edge(label="write orders", color="firebrick") >> stock_orders_table
     api_handler >> Edge(label="store files", color="firebrick") >> source_documents_bucket
 
-    current_snapshots_table >> Edge(label="stream inserts", color="darkorange") >> historic_stats_updater
+    current_snapshots_table >> Edge(label="stream INSERTs", color="darkorange") >> historic_stats_updater
+    current_snapshots_table >> Edge(label="stream INSERTs", color="royalblue") >> analytics_catalog_updater
     historic_stats_updater >> Edge(label="update stats", color="darkorange") >> historic_stats_table
     historic_stats_updater >> Edge(label="write idempotency", color="darkorange") >> processed_stats_events_table
     historic_stats_updater >> Edge(label="read approved orders", color="darkorange", style="dashed") >> stock_orders_table
@@ -93,10 +98,18 @@ with Diagram(
     historic_stats_backfill_workflow >> Edge(label="manual invoke", color="slateblue") >> historic_stats_backfill
     historic_stats_backfill >> Edge(label="query raw history", color="slateblue", style="dashed") >> current_snapshots_table
     historic_stats_backfill >> Edge(label="rebuild metrics", color="slateblue") >> historic_stats_table
+    analytics_catalog_backfill_workflow >> Edge(label="manual invoke", color="dodgerblue4") >> analytics_catalog_backfill
+    analytics_catalog_backfill >> Edge(label="query latest trading date", color="dodgerblue4", style="dashed") >> current_snapshots_table
+    analytics_catalog_backfill >> Edge(label="overwrite catalog", color="dodgerblue4") >> analytics_catalog_table
 
     daily_closing_schedule >> Edge(label="run every 24h", color="mediumpurple") >> daily_closing_snapshots_updater
     daily_closing_snapshots_updater >> Edge(label="read daily snapshots", color="mediumpurple", style="dashed") >> current_snapshots_table
     daily_closing_snapshots_updater >> Edge(label="store daily closing", color="mediumpurple") >> daily_closing_snapshots_table
+
+    analytics_catalog_updater >> Edge(
+        label="overwrite latest\nrecord per symbol",
+        color="royalblue",
+    ) >> analytics_catalog_table
 
     market_ai_recommendation_handler >> Edge(label="read current + prev", color="darkgreen", style="dashed") >> current_snapshots_table
     market_ai_recommendation_handler >> Edge(label="read stats bucket", color="darkgreen", style="dashed") >> historic_stats_table
@@ -106,3 +119,8 @@ with Diagram(
 
     api_handler >> Edge(label="return response") >> http_api >> streamlit_operator
     http_api >> Edge(label="acknowledge ingest") >> chrome_extension
+    analytics_catalog_table >> Edge(
+        label="GetItem catalog\nprojection",
+        color="royalblue",
+        style="dashed",
+    ) >> api_handler
