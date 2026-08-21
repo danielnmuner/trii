@@ -71,11 +71,6 @@ pages = {
             title="FAQS",
             icon=":material/live_help:",
         ),
-        st.Page(
-            "app_pages/glossary.py",
-            title="Glosario",
-            icon=":material/menu_book:",
-        ),
     ]
 }
 

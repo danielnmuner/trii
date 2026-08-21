@@ -22,7 +22,7 @@ class InvoiceArchivesServiceTests(unittest.TestCase):
         ]
 
     def test_inspects_invoice_archives(self) -> None:
-        result = self.service.inspect_archives(archives=self.samples)
+        result = self.service.prepare_archives(archives=self.samples).upload_result
 
         self.assertEqual(result.archive_count, 2)
         self.assertEqual(result.xml_count, 2)
@@ -46,7 +46,7 @@ class InvoiceArchivesServiceTests(unittest.TestCase):
 
     def test_rejects_invalid_archive_payload(self) -> None:
         with self.assertRaises(ValueError):
-            self.service.inspect_archives(archives=[("broken.zip", b"not-a-zip")])
+            self.service.prepare_archives(archives=[("broken.zip", b"not-a-zip")])
 
 
 if __name__ == "__main__":

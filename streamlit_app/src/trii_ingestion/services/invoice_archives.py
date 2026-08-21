@@ -70,9 +70,6 @@ class InvoiceArchivesService:
             documents=tuple(documents),
         )
 
-    def inspect_archives(self, *, archives: list[tuple[str, bytes]]) -> InvoiceArchivesUploadResult:
-        return self.prepare_archives(archives=archives).upload_result
-
     def _prepare_single_archive(
         self,
         *,
