@@ -34,6 +34,10 @@ module "http_api" {
       authorization_type = "NONE"
     },
     {
+      route_key          = "GET /orders"
+      authorization_type = "NONE"
+    },
+    {
       route_key          = "POST /snapshots"
       authorization_type = "NONE"
     },

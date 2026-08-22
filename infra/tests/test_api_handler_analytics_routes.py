@@ -124,6 +124,45 @@ class FakeCurrentSnapshotsTable:
         }
 
 
+class FakeStockOrdersLookupTable:
+    def get_item(self, *, Key: dict, ProjectionExpression: str) -> dict:
+        assert ProjectionExpression == "imported_at, created_at_symbol"
+        if Key["record_checksum"] != "checksum-1":
+            return {}
+        return {
+            "Item": {
+                "imported_at": "2026-08-21T11:58:09-05:00",
+                "created_at_symbol": "2026-08-13T13:59:00-05:00#NUCO",
+            }
+        }
+
+    def query(self, **kwargs) -> dict:
+        assert kwargs["ProjectionExpression"] == "imported_at, created_at_symbol"
+        if kwargs.get("IndexName") == "symbol-created-at-index":
+            return {
+                "Items": [
+                    {
+                        "imported_at": "2026-08-21T11:58:09-05:00",
+                        "created_at_symbol": "2026-08-13T13:59:00-05:00#NUCO",
+                    },
+                    {
+                        "imported_at": "2026-08-20T09:40:00-05:00",
+                        "created_at_symbol": "2026-08-12T10:05:00-05:00#NUCO",
+                    },
+                ]
+            }
+        if kwargs.get("IndexName") == "created-month-index":
+            return {
+                "Items": [
+                    {
+                        "imported_at": "2026-08-21T11:58:09-05:00",
+                        "created_at_symbol": "2026-08-13T13:59:00-05:00#NUCO",
+                    }
+                ]
+            }
+        return {"Items": []}
+
+
 class FakeHistoricStatsTable:
     def query(self, **kwargs) -> dict:
         return {
@@ -249,6 +288,66 @@ def test_handler_returns_daily_closing_record_for_exact_symbol_and_date() -> Non
     assert payload["result"]["trading_date"] == "2026-08-20"
     assert payload["result"]["record_count"] == 1
     assert payload["result"]["records"][0]["last_price"] == 44000
+
+
+def test_handler_orders_requires_exactly_one_indexed_filter() -> None:
+    response = handler.handler(
+        {
+            "routeKey": "GET /orders",
+            "headers": {"X-Api-Token": "test-token"},
+            "queryStringParameters": {},
+        },
+        None,
+    )
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 400
+    assert payload["status"] == "error"
+    assert "exactamente uno" in payload["message"]
+
+
+def test_handler_orders_can_lookup_by_symbol_with_minimal_projection() -> None:
+    handler.STOCK_ORDERS_TABLE = FakeStockOrdersLookupTable()
+
+    response = handler.handler(
+        {
+            "routeKey": "GET /orders",
+            "headers": {"X-Api-Token": "test-token"},
+            "queryStringParameters": {"symbol": "nuco", "limit": "2"},
+        },
+        None,
+    )
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 200
+    assert payload["status"] == "ok"
+    assert payload["result"]["lookup_mode"] == "symbol"
+    assert payload["result"]["symbol"] == "NUCO"
+    assert payload["result"]["record_count"] == 2
+    assert payload["result"]["records"][0] == {
+        "imported_at": "2026-08-21T11:58:09-05:00",
+        "created_at_symbol": "2026-08-13T13:59:00-05:00#NUCO",
+    }
+
+
+def test_handler_orders_can_lookup_by_record_checksum() -> None:
+    handler.STOCK_ORDERS_TABLE = FakeStockOrdersLookupTable()
+
+    response = handler.handler(
+        {
+            "routeKey": "GET /orders",
+            "headers": {"X-Api-Token": "test-token"},
+            "queryStringParameters": {"record_checksum": "checksum-1"},
+        },
+        None,
+    )
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 200
+    assert payload["status"] == "ok"
+    assert payload["result"]["lookup_mode"] == "record_checksum"
+    assert payload["result"]["record_count"] == 1
+    assert payload["result"]["records"][0]["imported_at"] == "2026-08-21T11:58:09-05:00"
 
 
 def test_handler_snapshot_uses_only_current_snapshots_and_historic_stats() -> None:

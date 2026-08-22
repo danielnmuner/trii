@@ -336,6 +336,15 @@ def _parse_iso_date(raw_value: str | None, *, field_name: str) -> str | None:
         raise ValueError(f"El parámetro `{field_name}` debe tener formato YYYY-MM-DD.") from exc
 
 
+def _parse_year_month(raw_value: str | None, *, field_name: str) -> str | None:
+    if raw_value is None or raw_value == "":
+        return None
+    normalized = str(raw_value).strip()
+    if not re.fullmatch(r"\d{4}-\d{2}", normalized):
+        raise ValueError(f"El parámetro `{field_name}` debe tener formato YYYY-MM.")
+    return normalized
+
+
 def _parse_snapshot_timestamp(raw_value: str) -> datetime:
     normalized = raw_value.strip()
     if normalized.endswith("Z"):
@@ -498,6 +507,78 @@ def _list_zscore_opportunities(event: dict[str, Any]) -> dict[str, Any]:
         "trading_date": normalized_trading_date,
         "record_count": len(records),
         "records": _json_ready(records),
+    }
+
+
+def _project_order_record(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "imported_at": str(item.get("imported_at") or "").strip() or None,
+        "created_at_symbol": str(item.get("created_at_symbol") or "").strip() or None,
+    }
+
+
+def _list_orders(event: dict[str, Any]) -> dict[str, Any]:
+    params = _query_params(event)
+    record_checksum = str(params.get("record_checksum") or "").strip()
+    symbol = str(params.get("symbol") or "").strip().upper()
+    created_month = _parse_year_month(params.get("created_month"), field_name="created_month")
+    limit = _parse_positive_limit(params.get("limit"), default=100, maximum=500)
+
+    filters_used = [
+        bool(record_checksum),
+        bool(symbol),
+        bool(created_month),
+    ]
+    if sum(filters_used) != 1:
+        raise ValueError(
+            "Debes enviar exactamente uno de estos parámetros: `record_checksum`, `symbol`, o `created_month`."
+        )
+
+    projection_expression = "imported_at, created_at_symbol"
+
+    if record_checksum:
+        response = STOCK_ORDERS_TABLE.get_item(
+            Key={"record_checksum": record_checksum},
+            ProjectionExpression=projection_expression,
+        )
+        item = response.get("Item")
+        records = [] if item is None else [_project_order_record(item)]
+        return {
+            "lookup_mode": "record_checksum",
+            "record_checksum": record_checksum,
+            "record_count": len(records),
+            "records": records,
+        }
+
+    if symbol:
+        response = STOCK_ORDERS_TABLE.query(
+            IndexName="symbol-created-at-index",
+            KeyConditionExpression=Key("symbol").eq(symbol),
+            ProjectionExpression=projection_expression,
+            ScanIndexForward=False,
+            Limit=limit,
+        )
+        records = [_project_order_record(item) for item in response.get("Items", [])]
+        return {
+            "lookup_mode": "symbol",
+            "symbol": symbol,
+            "record_count": len(records),
+            "records": records,
+        }
+
+    response = STOCK_ORDERS_TABLE.query(
+        IndexName="created-month-index",
+        KeyConditionExpression=Key("created_month").eq(created_month),
+        ProjectionExpression=projection_expression,
+        ScanIndexForward=False,
+        Limit=limit,
+    )
+    records = [_project_order_record(item) for item in response.get("Items", [])]
+    return {
+        "lookup_mode": "created_month",
+        "created_month": created_month,
+        "record_count": len(records),
+        "records": records,
     }
 
 
@@ -1252,6 +1333,16 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
                     "status": "ok",
                     "route": route_key,
                     "result": _list_recent_snapshots(event),
+                },
+            )
+
+        if route_key == "GET /orders":
+            return _response(
+                200,
+                {
+                    "status": "ok",
+                    "route": route_key,
+                    "result": _list_orders(event),
                 },
             )
 
