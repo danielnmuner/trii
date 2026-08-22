@@ -135,7 +135,25 @@ class FakeHistoricStatsTable:
                     "mean": 4.1,
                     "stddev": 0.2,
                     "sample_count": 24,
-                }
+                },
+                {
+                    "pk": "NUCO",
+                    "sk": "seasonality_profile",
+                    "record_type": "seasonality_profile",
+                    "bucket_granularity_minutes": 30,
+                    "timezone": "America/Bogota",
+                    "weekly_profile": {
+                        "1": {
+                            "weekday_label": "monday",
+                            "days_processed": 3,
+                            "hours": {
+                                "09:00": {
+                                    "accumulated_volume": 1200,
+                                }
+                            },
+                        }
+                    },
+                },
             ]
         }
 
@@ -164,10 +182,13 @@ class FakeAnalyticsCatalogTable:
         return {
             "Item": {
                 "pk": "analytics_catalog",
+                "record_type": "analytics_catalog",
                 "trading_date": "2026-08-20",
                 "to_timestamp": "2026-08-20T15:00:00-05:00",
                 "symbol_count": 2,
                 "record_count": 2,
+                "catalog_version": 5,
+                "updated_at": "2026-08-20T15:00:10-05:00",
                 "symbols": ["ISA", "NUCO"],
                 "records": [
                     {
@@ -277,8 +298,31 @@ def test_handler_historic_stats_uses_only_historic_stats_and_accepts_iam_auth() 
     assert response["statusCode"] == 200
     assert payload["status"] == "ok"
     assert payload["result"]["symbol"] == "NUCO"
-    assert payload["result"]["record_count"] == 1
+    assert payload["result"]["record_count"] == 2
     assert payload["result"]["records"][0]["metric"] == "spread_bps"
+    assert payload["result"]["records"][1]["record_type"] == "seasonality_profile"
+
+
+def test_handler_historic_stats_can_return_seasonality_profile_only() -> None:
+    handler.CURRENT_SNAPSHOTS_TABLE = FailingCurrentSnapshotsTable()
+    handler.HISTORIC_STATS_TABLE = FakeHistoricStatsTable()
+
+    response = handler.handler(
+        {
+            "routeKey": "GET /analytics/historic-stats",
+            "headers": {"X-Api-Token": "test-token"},
+            "queryStringParameters": {"symbol": "nuco", "metric": "seasonality_profile"},
+        },
+        None,
+    )
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 200
+    assert payload["status"] == "ok"
+    assert payload["result"]["symbol"] == "NUCO"
+    assert payload["result"]["metric"] == "seasonality_profile"
+    assert payload["result"]["record_count"] == 1
+    assert payload["result"]["records"][0]["record_type"] == "seasonality_profile"
 
 
 def test_handler_catalog_uses_latest_available_snapshot_date() -> None:
@@ -301,3 +345,6 @@ def test_handler_catalog_uses_latest_available_snapshot_date() -> None:
     assert payload["result"]["symbols"] == ["ISA", "NUCO"]
     assert payload["result"]["record_count"] == 2
     assert payload["result"]["records"][0]["current_snapshot_key"]["symbol"] == "ISA"
+    assert payload["result"]["catalog"]["pk"] == "analytics_catalog"
+    assert payload["result"]["catalog"]["record_type"] == "analytics_catalog"
+    assert payload["result"]["catalog"]["catalog_version"] == 5

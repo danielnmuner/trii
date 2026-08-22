@@ -403,6 +403,7 @@ def _list_analytics_catalog(event: dict[str, Any]) -> dict[str, Any]:
     item = response.get("Item")
     if not item:
         return {
+            "catalog": None,
             "symbols": [],
             "symbol_count": 0,
             "trading_date": None,
@@ -412,6 +413,7 @@ def _list_analytics_catalog(event: dict[str, Any]) -> dict[str, Any]:
         }
 
     return {
+        "catalog": _json_ready(item),
         "symbols": _json_ready(item.get("symbols", [])),
         "symbol_count": int(item.get("symbol_count", 0) or 0),
         "trading_date": item.get("trading_date"),
@@ -625,12 +627,35 @@ def _load_historic_stats(symbol: str, metric: str | None = None) -> dict[str, An
         KeyConditionExpression=Key("pk").eq(symbol),
     )
     items = response.get("Items", [])
-    filtered_items = [
-        item
-        for item in items
-        if "metric" in item and (metric is None or str(item["metric"]) == metric)
-    ]
-    filtered_items.sort(key=lambda item: str(item.get("metric") or ""))
+    seasonality_key = "seasonality_profile"
+
+    filtered_items = []
+    for item in items:
+        item_metric = str(item.get("metric") or "").strip()
+        item_sk = str(item.get("sk") or "").strip()
+        item_record_type = str(item.get("record_type") or "").strip()
+        is_seasonality_profile = item_sk == seasonality_key or item_record_type == seasonality_key
+
+        if metric is None:
+            if item_metric or is_seasonality_profile:
+                filtered_items.append(item)
+            continue
+
+        if metric == seasonality_key:
+            if is_seasonality_profile:
+                filtered_items.append(item)
+            continue
+
+        if item_metric == metric:
+            filtered_items.append(item)
+
+    filtered_items.sort(
+        key=lambda item: (
+            0 if item.get("metric") else 1,
+            str(item.get("metric") or ""),
+            str(item.get("sk") or ""),
+        )
+    )
 
     return {
         "symbol": symbol,
