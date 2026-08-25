@@ -4,6 +4,7 @@ data "aws_iam_policy_document" "inline" {
     effect = "Allow"
     actions = [
       "dynamodb:Query",
+      "dynamodb:Scan",
     ]
     resources = concat(
       [var.current_snapshots_table_arn],

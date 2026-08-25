@@ -32,10 +32,68 @@ _handler_spec.loader.exec_module(sampler)
 
 
 class FakeCurrentSnapshotsTable:
+    def scan(self, **kwargs) -> dict:
+        assert kwargs["ProjectionExpression"] == "captured_date"
+        return {
+            "Items": [
+                {"captured_date": "2026-08-20"},
+                {"captured_date": "2026-08-21"},
+                {"captured_date": "2026-08-21"},
+            ]
+        }
+
     def query(self, **kwargs) -> dict:
         if kwargs.get("Limit") == 1:
             return {"Items": [{"symbol": "NUCO", "captured_at": "2026-08-21T11:10:00-05:00"}]}
         assert kwargs["IndexName"] == "captured-date-index"
+        trading_date = str(kwargs["KeyConditionExpression"]._values[1])
+        if trading_date == "2026-08-20":
+            return {
+                "Items": [
+                    {
+                        "symbol": "NUCO",
+                        "captured_at": "2026-08-20T09:00:00-05:00",
+                        "captured_date": "2026-08-20",
+                        "snapshot_checksum": "checksum-200900",
+                        "last_price": 43800,
+                        "daily_change_amount": 90,
+                        "daily_change_percent": 0.20,
+                        "previous_close": 43710,
+                        "high_price": 43900,
+                        "low_price": 43650,
+                        "bid_levels": [{"price": 43790, "quantity": 100}],
+                        "ask_levels": [{"price": 43810, "quantity": 95}],
+                    },
+                    {
+                        "symbol": "NUCO",
+                        "captured_at": "2026-08-20T09:07:00-05:00",
+                        "captured_date": "2026-08-20",
+                        "snapshot_checksum": "checksum-200907",
+                        "last_price": 43820,
+                        "daily_change_amount": 92,
+                        "daily_change_percent": 0.21,
+                        "previous_close": 43728,
+                        "high_price": 43910,
+                        "low_price": 43650,
+                        "bid_levels": [{"price": 43810, "quantity": 120}],
+                        "ask_levels": [{"price": 43830, "quantity": 96}],
+                    },
+                    {
+                        "symbol": "NUCO",
+                        "captured_at": "2026-08-20T09:12:00-05:00",
+                        "captured_date": "2026-08-20",
+                        "snapshot_checksum": "checksum-200912",
+                        "last_price": 43840,
+                        "daily_change_amount": 95,
+                        "daily_change_percent": 0.22,
+                        "previous_close": 43745,
+                        "high_price": 43920,
+                        "low_price": 43660,
+                        "bid_levels": [{"price": 43830, "quantity": 130}],
+                        "ask_levels": [{"price": 43850, "quantity": 98}],
+                    },
+                ]
+            }
         return {
             "Items": [
                 {
@@ -79,6 +137,7 @@ class FakeCurrentSnapshotsTable:
 class FakeStockOrdersTable:
     def query(self, **kwargs) -> dict:
         assert kwargs["IndexName"] == "symbol-created-at-index"
+        assert "lte" not in str(kwargs["KeyConditionExpression"]).lower()
         return {
             "Items": [
                 {
@@ -189,4 +248,86 @@ def test_sampler_manual_mode_supports_dry_run_for_backfill() -> None:
     assert payload["records_written"] == 0
     assert payload["symbols_sampled"] == 1
     assert len(payload["records"]) == 1
+    assert fake_table.items == []
+
+
+def test_sampler_manual_mode_skips_colombian_holiday() -> None:
+    fake_table = FakeZscoreOpportunitiesTable()
+    sampler.CURRENT_SNAPSHOTS_TABLE = FakeCurrentSnapshotsTable()
+    sampler.STOCK_ORDERS_TABLE = FakeStockOrdersTable()
+    sampler.ZSCORE_OPPORTUNITIES_TABLE = fake_table
+    sampler.DYNAMODB_CLIENT = FakeDynamoDbClient()
+
+    response = sampler.handler(
+        {
+            "apply": True,
+            "trading_date": "2026-07-20",
+        },
+        None,
+    )
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 200
+    assert payload["timezone"] == "America/Bogota"
+    assert payload["records_written"] == 0
+    assert payload["updated"] is False
+    assert payload["skipped_reason"] == "non_business_day_colombia"
+    assert fake_table.items == []
+
+
+def test_sampler_manual_mode_skips_weekend() -> None:
+    fake_table = FakeZscoreOpportunitiesTable()
+    sampler.CURRENT_SNAPSHOTS_TABLE = FakeCurrentSnapshotsTable()
+    sampler.STOCK_ORDERS_TABLE = FakeStockOrdersTable()
+    sampler.ZSCORE_OPPORTUNITIES_TABLE = fake_table
+    sampler.DYNAMODB_CLIENT = FakeDynamoDbClient()
+
+    response = sampler.handler(
+        {
+            "apply": True,
+            "trading_date": "2026-08-22",
+        },
+        None,
+    )
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 200
+    assert payload["timezone"] == "America/Bogota"
+    assert payload["records_written"] == 0
+    assert payload["updated"] is False
+    assert payload["skipped_reason"] == "non_business_day_colombia"
+    assert fake_table.items == []
+
+
+def test_sampler_manual_mode_backfills_all_business_days_from_snapshot_min_date() -> None:
+    fake_table = FakeZscoreOpportunitiesTable()
+    sampler.CURRENT_SNAPSHOTS_TABLE = FakeCurrentSnapshotsTable()
+    sampler.STOCK_ORDERS_TABLE = FakeStockOrdersTable()
+    sampler.ZSCORE_OPPORTUNITIES_TABLE = fake_table
+    sampler.DYNAMODB_CLIENT = FakeDynamoDbClient()
+
+    response = sampler.handler(
+        {
+            "apply": False,
+        },
+        None,
+    )
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 200
+    assert payload["invocation_mode"] == "manual"
+    assert payload["backfill_mode"] is True
+    assert payload["trading_date"] is None
+    assert payload["trading_date_count"] == 2
+    assert payload["trading_date_from"] == "2026-08-20"
+    assert payload["trading_date_to"] == "2026-08-21"
+    assert payload["snapshots_read"] == 6
+    assert payload["symbols_sampled"] == 4
+    assert payload["records_written"] == 0
+    assert [record["snapshot_checksum"] for record in payload["records"]] == [
+        "checksum-200907",
+        "checksum-200912",
+        "checksum-old",
+        "checksum-new",
+    ]
     assert fake_table.items == []
