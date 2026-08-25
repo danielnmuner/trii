@@ -212,8 +212,9 @@ def _select_bucketed_snapshots_per_symbol(
     snapshots: list[dict[str, Any]],
     *,
     bucket_seconds: int = TEN_MINUTE_BUCKET_SECONDS,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[tuple[str, str], dict[str, Decimal | None]]]:
     latest_by_symbol_bucket: dict[tuple[str, int], dict[str, Any]] = {}
+    bucket_price_extremes: dict[tuple[str, int], dict[str, Decimal | None]] = {}
     for snapshot in snapshots:
         symbol = str(snapshot.get("symbol") or "").strip().upper()
         captured_at = str(snapshot.get("captured_at") or "").strip()
@@ -227,9 +228,37 @@ def _select_bucketed_snapshots_per_symbol(
         if current is None or captured_at > str(current.get("captured_at") or ""):
             latest_by_symbol_bucket[bucket_key] = snapshot
 
+        last_price = to_decimal(snapshot.get("last_price"))
+        if last_price is not None:
+            price_extremes = bucket_price_extremes.setdefault(
+                bucket_key,
+                {
+                    "bucket_min_last_price_10m": last_price,
+                    "bucket_max_last_price_10m": last_price,
+                },
+            )
+            current_min = price_extremes["bucket_min_last_price_10m"]
+            current_max = price_extremes["bucket_max_last_price_10m"]
+            if current_min is None or last_price < current_min:
+                price_extremes["bucket_min_last_price_10m"] = last_price
+            if current_max is None or last_price > current_max:
+                price_extremes["bucket_max_last_price_10m"] = last_price
+
     selected = list(latest_by_symbol_bucket.values())
     selected.sort(key=lambda item: (str(item.get("symbol") or ""), str(item.get("captured_at") or "")))
-    return selected
+    price_extremes_by_snapshot: dict[tuple[str, str], dict[str, Decimal | None]] = {}
+    for (symbol, bucket_index), snapshot in latest_by_symbol_bucket.items():
+        captured_at = str(snapshot.get("captured_at") or "").strip()
+        if not captured_at:
+            continue
+        price_extremes_by_snapshot[(symbol, captured_at)] = bucket_price_extremes.get(
+            (symbol, bucket_index),
+            {
+                "bucket_min_last_price_10m": None,
+                "bucket_max_last_price_10m": None,
+            },
+        )
+    return selected, price_extremes_by_snapshot
 
 
 def _index_previous_snapshots(
@@ -479,6 +508,9 @@ def build_zscore_opportunity_item(
     monitored_z_scores: dict[str, dict[str, Decimal]],
     position_summary: dict[str, Any],
     created_at: datetime,
+    *,
+    bucket_min_last_price_10m: Decimal | None = None,
+    bucket_max_last_price_10m: Decimal | None = None,
 ) -> dict[str, Any]:
     symbol = str(snapshot["symbol"]).strip().upper()
     captured_at = str(snapshot["captured_at"]).strip()
@@ -493,6 +525,8 @@ def build_zscore_opportunity_item(
         "created_at": created_at.isoformat(),
         "triggered_z_scores": monitored_z_scores,
         "last_price": to_decimal(snapshot.get("last_price")),
+        "bucket_min_last_price_10m": bucket_min_last_price_10m,
+        "bucket_max_last_price_10m": bucket_max_last_price_10m,
         "daily_change_amount": to_decimal(snapshot.get("daily_change_amount")),
         "daily_change_percent": (
             None
@@ -569,6 +603,7 @@ def _build_sample_item(
     stat_cache: dict[str, dict[str, dict[str, Any]]],
     approved_orders_cache: dict[str, list[dict[str, Any]]],
     previous_snapshot: dict[str, Any] | None = None,
+    bucket_price_extremes: dict[str, Decimal | None] | None = None,
 ) -> dict[str, Any] | None:
     symbol = str(snapshot.get("symbol") or "").strip().upper()
     captured_at = str(snapshot.get("captured_at") or "").strip()
@@ -601,6 +636,12 @@ def _build_sample_item(
         monitored_z_scores,
         position_summary,
         sampled_at,
+        bucket_min_last_price_10m=None
+        if bucket_price_extremes is None
+        else bucket_price_extremes.get("bucket_min_last_price_10m"),
+        bucket_max_last_price_10m=None
+        if bucket_price_extremes is None
+        else bucket_price_extremes.get("bucket_max_last_price_10m"),
     )
 
 
@@ -686,11 +727,20 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
         snapshots = _load_snapshots_for_trading_date(trading_date)
         snapshots_read += len(snapshots)
         previous_snapshot_by_key = _index_previous_snapshots(snapshots)
-        candidate_snapshots = (
-            _select_bucketed_snapshots_per_symbol(snapshots)
-            if backfill_mode
-            else list(_select_latest_snapshot_per_symbol(snapshots).values())
-        )
+        if backfill_mode:
+            candidate_snapshots, bucket_price_extremes_by_snapshot = _select_bucketed_snapshots_per_symbol(snapshots)
+        else:
+            candidate_snapshots = list(_select_latest_snapshot_per_symbol(snapshots).values())
+            bucket_price_extremes_by_snapshot = {
+                (
+                    str(snapshot.get("symbol") or "").strip().upper(),
+                    str(snapshot.get("captured_at") or "").strip(),
+                ): {
+                    "bucket_min_last_price_10m": to_decimal(snapshot.get("last_price")),
+                    "bucket_max_last_price_10m": to_decimal(snapshot.get("last_price")),
+                }
+                for snapshot in candidate_snapshots
+            }
         for snapshot in candidate_snapshots:
             symbol = str(snapshot.get("symbol") or "").strip().upper()
             captured_at = str(snapshot.get("captured_at") or "").strip()
@@ -700,6 +750,7 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
                 stat_cache=stat_cache,
                 approved_orders_cache=approved_orders_cache,
                 previous_snapshot=previous_snapshot_by_key.get((symbol, captured_at)),
+                bucket_price_extremes=bucket_price_extremes_by_snapshot.get((symbol, captured_at)),
             )
             if sample_item is None:
                 if symbol and symbol not in skipped_symbols:

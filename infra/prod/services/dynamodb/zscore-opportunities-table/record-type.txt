@@ -29,6 +29,8 @@ record_type:
 - triggered_z_scores.<metric>.sample_value: number
 - triggered_z_scores.<metric>.z_score: number
 - last_price: number | null
+- bucket_min_last_price_10m: number | null, minimum observed last_price inside the sampled 10-minute bucket
+- bucket_max_last_price_10m: number | null, maximum observed last_price inside the sampled 10-minute bucket
 - daily_change_amount: number | null
 - daily_change_percent: number | null, stored as a fraction (for example 0.0028 for 0.28%)
 - previous_close: number | null

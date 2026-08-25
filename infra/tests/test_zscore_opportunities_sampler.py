@@ -292,6 +292,8 @@ def test_sampler_scheduled_mode_persists_latest_snapshot_without_threshold_gate(
     assert fake_table.items[0]["triggered_z_scores"]["traded_value"]["sample_value"] != Decimal("999999999")
     assert fake_table.items[0]["triggered_z_scores"]["volume_rate"]["sample_value"] == Decimal("0.4")
     assert fake_table.items[0]["triggered_z_scores"]["value_rate"]["sample_value"] == Decimal("22000")
+    assert fake_table.items[0]["bucket_min_last_price_10m"] == Decimal("44000")
+    assert fake_table.items[0]["bucket_max_last_price_10m"] == Decimal("44000")
     assert fake_table.items[0]["approved_position_summary"]["available_quantity"] == Decimal("7")
 
 
@@ -428,3 +430,7 @@ def test_sampler_backfill_uses_snapshot_values_per_bucket_instead_of_flat_histor
     assert item_by_checksum["checksum-200912"]["triggered_z_scores"]["traded_value"]["sample_value"] == Decimal("52600000")
     assert item_by_checksum["checksum-old"]["triggered_z_scores"]["traded_value"]["sample_value"] == Decimal("2200292380")
     assert item_by_checksum["checksum-new"]["triggered_z_scores"]["traded_value"]["sample_value"] == Decimal("2213492380")
+    assert item_by_checksum["checksum-200907"]["bucket_min_last_price_10m"] == Decimal("43800")
+    assert item_by_checksum["checksum-200907"]["bucket_max_last_price_10m"] == Decimal("43820")
+    assert item_by_checksum["checksum-200912"]["bucket_min_last_price_10m"] == Decimal("43840")
+    assert item_by_checksum["checksum-200912"]["bucket_max_last_price_10m"] == Decimal("43840")

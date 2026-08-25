@@ -20,6 +20,66 @@ MARKET_CLOSE_TIME = time(hour=15, minute=0)
 DEFAULT_TIMEZONE_NAME = "America/Bogota"
 
 
+def _next_monday(value: date) -> date:
+    days_until_monday = (7 - value.weekday()) % 7
+    if days_until_monday == 0:
+        return value
+    return value + timedelta(days=days_until_monday)
+
+
+def _easter_sunday(year: int) -> date:
+    a = year % 19
+    b = year // 100
+    c = year % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month = (h + l - 7 * m + 114) // 31
+    day = ((h + l - 7 * m + 114) % 31) + 1
+    return date(year, month, day)
+
+
+def _colombian_holidays(year: int) -> set[date]:
+    easter = _easter_sunday(year)
+    fixed_holidays = {
+        date(year, 1, 1),
+        date(year, 5, 1),
+        date(year, 7, 20),
+        date(year, 8, 7),
+        date(year, 12, 8),
+        date(year, 12, 25),
+    }
+    emiliani_holidays = {
+        _next_monday(date(year, 1, 6)),
+        _next_monday(date(year, 3, 19)),
+        _next_monday(date(year, 6, 29)),
+        _next_monday(date(year, 8, 15)),
+        _next_monday(date(year, 10, 12)),
+        _next_monday(date(year, 11, 1)),
+        _next_monday(date(year, 11, 11)),
+    }
+    easter_related_holidays = {
+        easter - timedelta(days=3),
+        easter - timedelta(days=2),
+        _next_monday(easter + timedelta(days=43)),
+        _next_monday(easter + timedelta(days=64)),
+        _next_monday(easter + timedelta(days=71)),
+    }
+    return fixed_holidays | emiliani_holidays | easter_related_holidays
+
+
+def _is_colombian_business_day(value: date) -> bool:
+    if value.weekday() >= 5:
+        return False
+    return value not in _colombian_holidays(value.year)
+
+
 def _normalize_decimal(value: Any) -> Decimal | None:
     if value is None:
         return None
@@ -244,6 +304,9 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
 
     for target_date in _iter_dates(start_date, end_date):
         dates_considered += 1
+        if not _is_colombian_business_day(target_date):
+            dates_without_snapshots += 1
+            continue
         trading_date = target_date.isoformat()
         snapshots = _load_snapshots_for_trading_date(trading_date)
         if not snapshots:

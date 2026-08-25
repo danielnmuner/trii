@@ -71,6 +71,66 @@ SPANISH_DATETIME_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+
+def _next_monday(value: date) -> date:
+    days_until_monday = (7 - value.weekday()) % 7
+    if days_until_monday == 0:
+        return value
+    return value + timedelta(days=days_until_monday)
+
+
+def _easter_sunday(year: int) -> date:
+    a = year % 19
+    b = year // 100
+    c = year % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month = (h + l - 7 * m + 114) // 31
+    day = ((h + l - 7 * m + 114) % 31) + 1
+    return date(year, month, day)
+
+
+def _colombian_holidays(year: int) -> set[date]:
+    easter = _easter_sunday(year)
+    fixed_holidays = {
+        date(year, 1, 1),
+        date(year, 5, 1),
+        date(year, 7, 20),
+        date(year, 8, 7),
+        date(year, 12, 8),
+        date(year, 12, 25),
+    }
+    emiliani_holidays = {
+        _next_monday(date(year, 1, 6)),
+        _next_monday(date(year, 3, 19)),
+        _next_monday(date(year, 6, 29)),
+        _next_monday(date(year, 8, 15)),
+        _next_monday(date(year, 10, 12)),
+        _next_monday(date(year, 11, 1)),
+        _next_monday(date(year, 11, 11)),
+    }
+    easter_related_holidays = {
+        easter - timedelta(days=3),
+        easter - timedelta(days=2),
+        _next_monday(easter + timedelta(days=43)),
+        _next_monday(easter + timedelta(days=64)),
+        _next_monday(easter + timedelta(days=71)),
+    }
+    return fixed_holidays | emiliani_holidays | easter_related_holidays
+
+
+def _is_colombian_business_day(value: date) -> bool:
+    if value.weekday() >= 5:
+        return False
+    return value not in _colombian_holidays(value.year)
+
 def _response(status_code: int, payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "statusCode": status_code,
@@ -778,7 +838,10 @@ def _list_orders(event: dict[str, Any]) -> dict[str, Any]:
 
 def _find_latest_daily_closing_trading_date(*, lookback_days: int = 14) -> str | None:
     for offset in range(lookback_days + 1):
-        candidate = (datetime.now(BOGOTA_TIMEZONE).date() - timedelta(days=offset)).isoformat()
+        candidate_date = datetime.now(BOGOTA_TIMEZONE).date() - timedelta(days=offset)
+        if not _is_colombian_business_day(candidate_date):
+            continue
+        candidate = candidate_date.isoformat()
         response = DAILY_CLOSING_SNAPSHOTS_TABLE.query(
             IndexName="trading-date-index",
             KeyConditionExpression=Key("trading_date").eq(candidate),
@@ -794,6 +857,13 @@ def _list_daily_closing_snapshots(event: dict[str, Any]) -> dict[str, Any]:
     symbol = str(params.get("symbol") or "").strip().upper()
     trading_date = _parse_iso_date(params.get("trading_date"), field_name="trading_date")
     limit = _parse_positive_limit(params.get("limit"), default=60, maximum=500)
+    if trading_date and not _is_colombian_business_day(date.fromisoformat(trading_date)):
+        return {
+            "symbol": symbol or None,
+            "trading_date": trading_date,
+            "record_count": 0,
+            "records": [],
+        }
 
     if symbol and trading_date:
         response = DAILY_CLOSING_SNAPSHOTS_TABLE.get_item(
@@ -814,7 +884,11 @@ def _list_daily_closing_snapshots(event: dict[str, Any]) -> dict[str, Any]:
             ScanIndexForward=False,
             Limit=limit,
         )
-        records = response.get("Items", [])
+        records = [
+            item
+            for item in response.get("Items", [])
+            if _is_colombian_business_day(date.fromisoformat(str(item.get("trading_date") or "")))
+        ]
         return {
             "symbol": symbol,
             "trading_date": None,
@@ -844,6 +918,11 @@ def _list_daily_closing_snapshots(event: dict[str, Any]) -> dict[str, Any]:
             break
         query_kwargs["ExclusiveStartKey"] = last_evaluated_key
 
+    records = [
+        item
+        for item in records
+        if _is_colombian_business_day(date.fromisoformat(str(item.get("trading_date") or "")))
+    ]
     records = sorted(records, key=lambda item: str(item.get("symbol") or ""))[:limit]
     return {
         "symbol": None,
