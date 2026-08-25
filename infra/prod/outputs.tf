@@ -93,6 +93,11 @@ output "daily_closing_snapshots_updater_function_name" {
   value       = module.daily_closing_snapshots_updater.function_name
 }
 
+output "zscore_opportunities_sampler_function_name" {
+  description = "Z-score opportunities sampler Lambda function name."
+  value       = module.zscore_opportunities_sampler.function_name
+}
+
 output "market_ai_recommendation_handler_function_name" {
   description = "Market AI recommendation handler Lambda function name."
   value       = module.market_ai_recommendation_handler.function_name

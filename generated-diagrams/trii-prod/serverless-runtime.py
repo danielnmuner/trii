@@ -54,10 +54,12 @@ with Diagram(
             historic_stats_updater = Lambda("historic_stats_updater\nLambda")
             historic_stats_backfill = Lambda("historic_stats_backfill\nLambda")
             daily_closing_snapshots_updater = Lambda("daily_closing_snapshots_updater\nLambda")
+            zscore_opportunities_sampler = Lambda("zscore_opportunities_sampler\nLambda")
             analytics_catalog_updater = Lambda("analytics_catalog_updater\nLambda")
             analytics_catalog_backfill = Lambda("analytics_catalog_backfill\nLambda")
             market_ai_recommendation_handler = Lambda("market_ai_recommendation_handler\nLambda")
             daily_closing_schedule = Eventbridge("24h closing\nschedule")
+            zscore_sampling_schedule = Eventbridge("10 min z-score\nschedule")
 
         with Cluster("Bedrock inference"):
             bedrock_nova = Bedrock("Bedrock\nNova Pro")
@@ -91,8 +93,6 @@ with Diagram(
     current_snapshots_table >> Edge(label="stream INSERTs", color="royalblue") >> analytics_catalog_updater
     historic_stats_updater >> Edge(label="update stats", color="darkorange") >> historic_stats_table
     historic_stats_updater >> Edge(label="write idempotency", color="darkorange") >> processed_stats_events_table
-    historic_stats_updater >> Edge(label="read approved orders", color="darkorange", style="dashed") >> stock_orders_table
-    historic_stats_updater >> Edge(label="store z-score events", color="darkorange") >> zscore_opportunities_table
     historic_stats_updater >> Edge(label="trigger AI rules", color="steelblue") >> market_ai_recommendation_handler
 
     historic_stats_backfill_workflow >> Edge(label="manual invoke", color="slateblue") >> historic_stats_backfill
@@ -105,6 +105,11 @@ with Diagram(
     daily_closing_schedule >> Edge(label="run every 24h", color="mediumpurple") >> daily_closing_snapshots_updater
     daily_closing_snapshots_updater >> Edge(label="read daily snapshots", color="mediumpurple", style="dashed") >> current_snapshots_table
     daily_closing_snapshots_updater >> Edge(label="store daily closing", color="mediumpurple") >> daily_closing_snapshots_table
+    zscore_sampling_schedule >> Edge(label="run every 10m", color="darkgoldenrod4") >> zscore_opportunities_sampler
+    zscore_opportunities_sampler >> Edge(label="read latest day snapshots", color="darkgoldenrod4", style="dashed") >> current_snapshots_table
+    zscore_opportunities_sampler >> Edge(label="read z-score stats", color="darkgoldenrod4", style="dashed") >> historic_stats_table
+    zscore_opportunities_sampler >> Edge(label="read approved orders", color="darkgoldenrod4", style="dashed") >> stock_orders_table
+    zscore_opportunities_sampler >> Edge(label="upsert sampled records", color="darkgoldenrod4") >> zscore_opportunities_table
 
     analytics_catalog_updater >> Edge(
         label="overwrite latest\nrecord per symbol",

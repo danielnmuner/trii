@@ -115,15 +115,28 @@ module "historic_stats_updater" {
   processed_stats_events_table_name              = module.processed_stats_events_table.name
   processed_stats_events_table_arn               = module.processed_stats_events_table.arn
   processed_stats_events_index_arns              = module.processed_stats_events_table.index_arns
-  stock_orders_table_name                        = module.stock_orders_table.name
-  stock_orders_table_arn                         = module.stock_orders_table.arn
-  stock_orders_index_arns                        = module.stock_orders_table.index_arns
-  zscore_opportunities_table_name                = module.zscore_opportunities_table.name
-  zscore_opportunities_table_arn                 = module.zscore_opportunities_table.arn
-  zscore_opportunities_index_arns                = module.zscore_opportunities_table.index_arns
   market_ai_recommendation_handler_function_name = module.market_ai_recommendation_handler.function_name
   market_ai_recommendation_handler_function_arn  = module.market_ai_recommendation_handler.function_arn
   enabled_statistical_metrics                    = local.enabled_statistical_metrics
+}
+
+module "zscore_opportunities_sampler" {
+  source = "./services/lambda/zscore-opportunities-sampler"
+
+  environment                     = local.environment
+  project_name                    = local.project_name
+  tags                            = local.common_tags
+  current_snapshots_table_name    = module.current_snapshots_table.name
+  current_snapshots_table_arn     = module.current_snapshots_table.arn
+  current_snapshots_index_arns    = module.current_snapshots_table.index_arns
+  historic_stats_table_name       = module.historic_stats_table.name
+  historic_stats_table_arn        = module.historic_stats_table.arn
+  stock_orders_table_name         = module.stock_orders_table.name
+  stock_orders_table_arn          = module.stock_orders_table.arn
+  stock_orders_index_arns         = module.stock_orders_table.index_arns
+  zscore_opportunities_table_name = module.zscore_opportunities_table.name
+  zscore_opportunities_table_arn  = module.zscore_opportunities_table.arn
+  schedule_expression             = "rate(10 minutes)"
 }
 
 module "historic_stats_backfill" {
