@@ -511,10 +511,28 @@ def _list_zscore_opportunities(event: dict[str, Any]) -> dict[str, Any]:
 
 
 def _project_order_record(item: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "imported_at": str(item.get("imported_at") or "").strip() or None,
-        "created_at_symbol": str(item.get("created_at_symbol") or "").strip() or None,
+    projected_item = {
+        "record_checksum": item.get("record_checksum"),
+        "source_file_checksum": item.get("source_file_checksum"),
+        "source_line_number": item.get("source_line_number"),
+        "created_at": item.get("created_at"),
+        "created_month": item.get("created_month"),
+        "created_at_symbol": item.get("created_at_symbol"),
+        "symbol": item.get("symbol"),
+        "order_side": item.get("order_side"),
+        "raw_status": item.get("raw_status"),
+        "normalized_status": item.get("normalized_status"),
+        "requested_quantity": item.get("requested_quantity"),
+        "filled_quantity": item.get("filled_quantity"),
+        "pending_quantity": item.get("pending_quantity"),
+        "price_per_share": item.get("price_per_share"),
+        "gross_amount": item.get("gross_amount"),
+        "commission_amount": item.get("commission_amount"),
+        "net_amount": item.get("net_amount"),
+        "currency": item.get("currency"),
+        "imported_at": item.get("imported_at"),
     }
+    return _json_ready(projected_item)
 
 
 def _list_orders(event: dict[str, Any]) -> dict[str, Any]:
@@ -534,7 +552,13 @@ def _list_orders(event: dict[str, Any]) -> dict[str, Any]:
             "Debes enviar exactamente uno de estos parámetros: `record_checksum`, `symbol`, o `created_month`."
         )
 
-    projection_expression = "imported_at, created_at_symbol"
+    projection_expression = (
+        "record_checksum, source_file_checksum, source_line_number, "
+        "created_at, created_month, created_at_symbol, symbol, order_side, "
+        "raw_status, normalized_status, requested_quantity, filled_quantity, "
+        "pending_quantity, price_per_share, gross_amount, commission_amount, "
+        "net_amount, currency, imported_at"
+    )
 
     if record_checksum:
         response = STOCK_ORDERS_TABLE.get_item(

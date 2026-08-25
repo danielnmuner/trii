@@ -126,28 +126,91 @@ class FakeCurrentSnapshotsTable:
 
 class FakeStockOrdersLookupTable:
     def get_item(self, *, Key: dict, ProjectionExpression: str) -> dict:
-        assert ProjectionExpression == "imported_at, created_at_symbol"
+        assert ProjectionExpression == (
+            "record_checksum, source_file_checksum, source_line_number, "
+            "created_at, created_month, created_at_symbol, symbol, order_side, "
+            "raw_status, normalized_status, requested_quantity, filled_quantity, "
+            "pending_quantity, price_per_share, gross_amount, commission_amount, "
+            "net_amount, currency, imported_at"
+        )
         if Key["record_checksum"] != "checksum-1":
             return {}
         return {
             "Item": {
+                "record_checksum": "checksum-1",
+                "source_file_checksum": "source-1",
+                "source_line_number": 4,
+                "created_at": "2026-08-13T13:59:00-05:00",
+                "created_month": "2026-08",
                 "imported_at": "2026-08-21T11:58:09-05:00",
                 "created_at_symbol": "2026-08-13T13:59:00-05:00#NUCO",
+                "symbol": "NUCO",
+                "order_side": "sell",
+                "raw_status": "Cancelado",
+                "normalized_status": "cancelled",
+                "requested_quantity": 0,
+                "filled_quantity": 0,
+                "pending_quantity": 0,
+                "price_per_share": 43700,
+                "gross_amount": 8303000,
+                "commission_amount": 0,
+                "net_amount": 8303000,
+                "currency": "COP",
             }
         }
 
     def query(self, **kwargs) -> dict:
-        assert kwargs["ProjectionExpression"] == "imported_at, created_at_symbol"
+        assert kwargs["ProjectionExpression"] == (
+            "record_checksum, source_file_checksum, source_line_number, "
+            "created_at, created_month, created_at_symbol, symbol, order_side, "
+            "raw_status, normalized_status, requested_quantity, filled_quantity, "
+            "pending_quantity, price_per_share, gross_amount, commission_amount, "
+            "net_amount, currency, imported_at"
+        )
         if kwargs.get("IndexName") == "symbol-created-at-index":
             return {
                 "Items": [
                     {
+                        "record_checksum": "checksum-1",
+                        "source_file_checksum": "source-1",
+                        "source_line_number": 4,
+                        "created_at": "2026-08-13T13:59:00-05:00",
+                        "created_month": "2026-08",
                         "imported_at": "2026-08-21T11:58:09-05:00",
                         "created_at_symbol": "2026-08-13T13:59:00-05:00#NUCO",
+                        "symbol": "NUCO",
+                        "order_side": "sell",
+                        "raw_status": "Cancelado",
+                        "normalized_status": "cancelled",
+                        "requested_quantity": 0,
+                        "filled_quantity": 0,
+                        "pending_quantity": 0,
+                        "price_per_share": 43700,
+                        "gross_amount": 8303000,
+                        "commission_amount": 0,
+                        "net_amount": 8303000,
+                        "currency": "COP",
                     },
                     {
+                        "record_checksum": "checksum-2",
+                        "source_file_checksum": "source-2",
+                        "source_line_number": 9,
+                        "created_at": "2026-08-12T10:05:00-05:00",
+                        "created_month": "2026-08",
                         "imported_at": "2026-08-20T09:40:00-05:00",
                         "created_at_symbol": "2026-08-12T10:05:00-05:00#NUCO",
+                        "symbol": "NUCO",
+                        "order_side": "buy",
+                        "raw_status": "Aprobado",
+                        "normalized_status": "approved",
+                        "requested_quantity": 10,
+                        "filled_quantity": 10,
+                        "pending_quantity": 0,
+                        "price_per_share": 43000,
+                        "gross_amount": 430000,
+                        "commission_amount": 0,
+                        "net_amount": 430000,
+                        "currency": "COP",
                     },
                 ]
             }
@@ -155,8 +218,25 @@ class FakeStockOrdersLookupTable:
             return {
                 "Items": [
                     {
+                        "record_checksum": "checksum-1",
+                        "source_file_checksum": "source-1",
+                        "source_line_number": 4,
+                        "created_at": "2026-08-13T13:59:00-05:00",
+                        "created_month": "2026-08",
                         "imported_at": "2026-08-21T11:58:09-05:00",
                         "created_at_symbol": "2026-08-13T13:59:00-05:00#NUCO",
+                        "symbol": "NUCO",
+                        "order_side": "sell",
+                        "raw_status": "Cancelado",
+                        "normalized_status": "cancelled",
+                        "requested_quantity": 0,
+                        "filled_quantity": 0,
+                        "pending_quantity": 0,
+                        "price_per_share": 43700,
+                        "gross_amount": 8303000,
+                        "commission_amount": 0,
+                        "net_amount": 8303000,
+                        "currency": "COP",
                     }
                 ]
             }
@@ -306,7 +386,7 @@ def test_handler_orders_requires_exactly_one_indexed_filter() -> None:
     assert "exactamente uno" in payload["message"]
 
 
-def test_handler_orders_can_lookup_by_symbol_with_minimal_projection() -> None:
+def test_handler_orders_can_lookup_by_symbol_with_full_projection() -> None:
     handler.STOCK_ORDERS_TABLE = FakeStockOrdersLookupTable()
 
     response = handler.handler(
@@ -325,8 +405,25 @@ def test_handler_orders_can_lookup_by_symbol_with_minimal_projection() -> None:
     assert payload["result"]["symbol"] == "NUCO"
     assert payload["result"]["record_count"] == 2
     assert payload["result"]["records"][0] == {
+        "record_checksum": "checksum-1",
+        "source_file_checksum": "source-1",
+        "source_line_number": 4,
+        "created_at": "2026-08-13T13:59:00-05:00",
+        "created_month": "2026-08",
         "imported_at": "2026-08-21T11:58:09-05:00",
         "created_at_symbol": "2026-08-13T13:59:00-05:00#NUCO",
+        "symbol": "NUCO",
+        "order_side": "sell",
+        "raw_status": "Cancelado",
+        "normalized_status": "cancelled",
+        "requested_quantity": 0,
+        "filled_quantity": 0,
+        "pending_quantity": 0,
+        "price_per_share": 43700,
+        "gross_amount": 8303000,
+        "commission_amount": 0,
+        "net_amount": 8303000,
+        "currency": "COP",
     }
 
 
@@ -348,6 +445,8 @@ def test_handler_orders_can_lookup_by_record_checksum() -> None:
     assert payload["result"]["lookup_mode"] == "record_checksum"
     assert payload["result"]["record_count"] == 1
     assert payload["result"]["records"][0]["imported_at"] == "2026-08-21T11:58:09-05:00"
+    assert payload["result"]["records"][0]["commission_amount"] == 0
+    assert payload["result"]["records"][0]["normalized_status"] == "cancelled"
 
 
 def test_handler_snapshot_uses_only_current_snapshots_and_historic_stats() -> None:
