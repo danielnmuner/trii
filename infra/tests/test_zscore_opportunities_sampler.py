@@ -50,48 +50,66 @@ class FakeCurrentSnapshotsTable:
         if trading_date == "2026-08-20":
             return {
                 "Items": [
-                    {
-                        "symbol": "NUCO",
-                        "captured_at": "2026-08-20T09:00:00-05:00",
-                        "captured_date": "2026-08-20",
-                        "snapshot_checksum": "checksum-200900",
-                        "last_price": 43800,
-                        "daily_change_amount": 90,
-                        "daily_change_percent": 0.20,
-                        "previous_close": 43710,
-                        "high_price": 43900,
-                        "low_price": 43650,
-                        "bid_levels": [{"price": 43790, "quantity": 100}],
-                        "ask_levels": [{"price": 43810, "quantity": 95}],
-                    },
-                    {
-                        "symbol": "NUCO",
-                        "captured_at": "2026-08-20T09:07:00-05:00",
-                        "captured_date": "2026-08-20",
-                        "snapshot_checksum": "checksum-200907",
-                        "last_price": 43820,
-                        "daily_change_amount": 92,
-                        "daily_change_percent": 0.21,
-                        "previous_close": 43728,
-                        "high_price": 43910,
-                        "low_price": 43650,
-                        "bid_levels": [{"price": 43810, "quantity": 120}],
-                        "ask_levels": [{"price": 43830, "quantity": 96}],
-                    },
-                    {
-                        "symbol": "NUCO",
-                        "captured_at": "2026-08-20T09:12:00-05:00",
-                        "captured_date": "2026-08-20",
-                        "snapshot_checksum": "checksum-200912",
-                        "last_price": 43840,
-                        "daily_change_amount": 95,
-                        "daily_change_percent": 0.22,
-                        "previous_close": 43745,
-                        "high_price": 43920,
-                        "low_price": 43660,
-                        "bid_levels": [{"price": 43830, "quantity": 130}],
-                        "ask_levels": [{"price": 43850, "quantity": 98}],
-                    },
+                {
+                    "symbol": "NUCO",
+                    "captured_at": "2026-08-20T09:00:00-05:00",
+                    "captured_date": "2026-08-20",
+                    "snapshot_checksum": "checksum-200900",
+                    "best_bid_price": 43790,
+                    "best_ask_price": 43810,
+                    "best_bid_quantity": 100,
+                    "best_ask_quantity": 95,
+                    "last_price": 43800,
+                    "daily_change_amount": 90,
+                    "daily_change_percent": 0.20,
+                    "previous_close": 43710,
+                    "high_price": 43900,
+                    "low_price": 43650,
+                    "traded_volume": 1000,
+                    "traded_value": 43800000,
+                    "bid_levels": [{"price": 43790, "quantity": 100}],
+                    "ask_levels": [{"price": 43810, "quantity": 95}],
+                },
+                {
+                    "symbol": "NUCO",
+                    "captured_at": "2026-08-20T09:07:00-05:00",
+                    "captured_date": "2026-08-20",
+                    "snapshot_checksum": "checksum-200907",
+                    "best_bid_price": 43810,
+                    "best_ask_price": 43830,
+                    "best_bid_quantity": 120,
+                    "best_ask_quantity": 96,
+                    "last_price": 43820,
+                    "daily_change_amount": 92,
+                    "daily_change_percent": 0.21,
+                    "previous_close": 43728,
+                    "high_price": 43910,
+                    "low_price": 43650,
+                    "traded_volume": 1120,
+                    "traded_value": 49000000,
+                    "bid_levels": [{"price": 43810, "quantity": 120}],
+                    "ask_levels": [{"price": 43830, "quantity": 96}],
+                },
+                {
+                    "symbol": "NUCO",
+                    "captured_at": "2026-08-20T09:12:00-05:00",
+                    "captured_date": "2026-08-20",
+                    "snapshot_checksum": "checksum-200912",
+                    "best_bid_price": 43830,
+                    "best_ask_price": 43850,
+                    "best_bid_quantity": 130,
+                    "best_ask_quantity": 98,
+                    "last_price": 43840,
+                    "daily_change_amount": 95,
+                    "daily_change_percent": 0.22,
+                    "previous_close": 43745,
+                    "high_price": 43920,
+                    "low_price": 43660,
+                    "traded_volume": 1200,
+                    "traded_value": 52600000,
+                    "bid_levels": [{"price": 43830, "quantity": 130}],
+                    "ask_levels": [{"price": 43850, "quantity": 98}],
+                },
                 ]
             }
         return {
@@ -101,12 +119,18 @@ class FakeCurrentSnapshotsTable:
                     "captured_at": "2026-08-21T11:00:00-05:00",
                     "captured_date": "2026-08-21",
                     "snapshot_checksum": "checksum-old",
+                    "best_bid_price": 43890,
+                    "best_ask_price": 43910,
+                    "best_bid_quantity": 100,
+                    "best_ask_quantity": 90,
                     "last_price": 43900,
                     "daily_change_amount": 100,
                     "daily_change_percent": 0.25,
                     "previous_close": 43800,
                     "high_price": 44000,
                     "low_price": 43750,
+                    "traded_volume": 50016,
+                    "traded_value": 2200292380,
                     "bid_levels": [{"price": 43890, "quantity": 100}],
                     "ask_levels": [{"price": 43910, "quantity": 90}],
                 },
@@ -115,12 +139,18 @@ class FakeCurrentSnapshotsTable:
                     "captured_at": "2026-08-21T11:10:00-05:00",
                     "captured_date": "2026-08-21",
                     "snapshot_checksum": "checksum-new",
+                    "best_bid_price": 43990,
+                    "best_ask_price": 44010,
+                    "best_bid_quantity": 200,
+                    "best_ask_quantity": 180,
                     "last_price": 44000,
                     "daily_change_amount": 120,
                     "daily_change_percent": 0.28,
                     "previous_close": 43880,
                     "high_price": 44100,
                     "low_price": 43750,
+                    "traded_volume": 50256,
+                    "traded_value": 2213492380,
                     "bid_levels": [{"price": 43990, "quantity": 200}],
                     "ask_levels": [{"price": 44010, "quantity": 180}],
                 },
@@ -129,6 +159,8 @@ class FakeCurrentSnapshotsTable:
                     "captured_at": "2026-08-21T11:08:00-05:00",
                     "captured_date": "2026-08-21",
                     "snapshot_checksum": "checksum-isa",
+                    "traded_volume": 100,
+                    "traded_value": 1000000,
                 },
             ]
         }
@@ -195,6 +227,38 @@ class FakeDynamoDbClient:
                         "stddev": {"N": "0.20"},
                         "sample_count": {"N": "10"},
                     },
+                    {
+                        "pk": {"S": "NUCO"},
+                        "sk": {"S": "traded_volume"},
+                        "latest_value": {"N": "999999"},
+                        "mean": {"N": "49000"},
+                        "stddev": {"N": "500"},
+                        "sample_count": {"N": "10"},
+                    },
+                    {
+                        "pk": {"S": "NUCO"},
+                        "sk": {"S": "traded_value"},
+                        "latest_value": {"N": "999999999"},
+                        "mean": {"N": "2200000000"},
+                        "stddev": {"N": "10000000"},
+                        "sample_count": {"N": "10"},
+                    },
+                    {
+                        "pk": {"S": "NUCO"},
+                        "sk": {"S": "volume_rate"},
+                        "latest_value": {"N": "999"},
+                        "mean": {"N": "3"},
+                        "stddev": {"N": "1"},
+                        "sample_count": {"N": "10"},
+                    },
+                    {
+                        "pk": {"S": "NUCO"},
+                        "sk": {"S": "value_rate"},
+                        "latest_value": {"N": "999"},
+                        "mean": {"N": "200000"},
+                        "stddev": {"N": "50000"},
+                        "sample_count": {"N": "10"},
+                    },
                 ]
             }
         }
@@ -219,10 +283,15 @@ def test_sampler_scheduled_mode_persists_latest_snapshot_without_threshold_gate(
     assert payload["records_written"] == 1
     assert payload["skipped_symbols"] == ["ISA"]
     assert payload["records"][0]["snapshot_checksum"] == "checksum-new"
-    assert payload["records"][0]["zscore_metric_count"] == 2
+    assert payload["records"][0]["zscore_metric_count"] == 6
     assert len(fake_table.items) == 1
     assert fake_table.items[0]["snapshot_checksum"] == "checksum-new"
-    assert fake_table.items[0]["triggered_z_scores"]["spread_bps"]["z_score"] == Decimal("0.5")
+    assert fake_table.items[0]["triggered_z_scores"]["spread_bps"]["sample_value"] == Decimal("4.545454545454545454545454545")
+    assert fake_table.items[0]["triggered_z_scores"]["spread_bps"]["z_score"] == Decimal("-4.045454545454545454545454546")
+    assert fake_table.items[0]["triggered_z_scores"]["traded_value"]["sample_value"] == Decimal("2213492380")
+    assert fake_table.items[0]["triggered_z_scores"]["traded_value"]["sample_value"] != Decimal("999999999")
+    assert fake_table.items[0]["triggered_z_scores"]["volume_rate"]["sample_value"] == Decimal("0.4")
+    assert fake_table.items[0]["triggered_z_scores"]["value_rate"]["sample_value"] == Decimal("22000")
     assert fake_table.items[0]["approved_position_summary"]["available_quantity"] == Decimal("7")
 
 
@@ -331,3 +400,31 @@ def test_sampler_manual_mode_backfills_all_business_days_from_snapshot_min_date(
         "checksum-new",
     ]
     assert fake_table.items == []
+
+
+def test_sampler_backfill_uses_snapshot_values_per_bucket_instead_of_flat_historic_latest() -> None:
+    fake_table = FakeZscoreOpportunitiesTable()
+    sampler.CURRENT_SNAPSHOTS_TABLE = FakeCurrentSnapshotsTable()
+    sampler.STOCK_ORDERS_TABLE = FakeStockOrdersTable()
+    sampler.ZSCORE_OPPORTUNITIES_TABLE = fake_table
+    sampler.DYNAMODB_CLIENT = FakeDynamoDbClient()
+
+    response = sampler.handler(
+        {
+            "apply": True,
+        },
+        None,
+    )
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 200
+    assert payload["records_written"] == 4
+
+    item_by_checksum = {
+        item["snapshot_checksum"]: item
+        for item in fake_table.items
+    }
+    assert item_by_checksum["checksum-200907"]["triggered_z_scores"]["traded_value"]["sample_value"] == Decimal("49000000")
+    assert item_by_checksum["checksum-200912"]["triggered_z_scores"]["traded_value"]["sample_value"] == Decimal("52600000")
+    assert item_by_checksum["checksum-old"]["triggered_z_scores"]["traded_value"]["sample_value"] == Decimal("2200292380")
+    assert item_by_checksum["checksum-new"]["triggered_z_scores"]["traded_value"]["sample_value"] == Decimal("2213492380")

@@ -29,6 +29,36 @@ os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 handler = importlib.import_module("handler")
 
 
+class FakeDynamoDbClient:
+    def batch_get_item(self, *, RequestItems: dict) -> dict:
+        table_name = next(iter(RequestItems))
+        keys = RequestItems[table_name]["Keys"]
+        items = []
+        for key in keys:
+            symbol = key["symbol"]["S"]
+            captured_at = key["captured_at"]["S"]
+            if symbol == "NUCO" and captured_at == "2026-08-21T10:56:08-05:00":
+                items.append(
+                    {
+                        "symbol": {"S": "NUCO"},
+                        "captured_at": {"S": "2026-08-21T10:56:08-05:00"},
+                        "best_bid_price": {"N": "43990"},
+                        "best_bid_quantity": {"N": "200"},
+                        "best_ask_price": {"N": "44010"},
+                        "best_ask_quantity": {"N": "180"},
+                        "traded_value": {"N": "2213492380"},
+                        "traded_volume": {"N": "50256"},
+                        "bid_levels": {"L": [{"M": {"price": {"N": "43990"}, "quantity": {"N": "200"}, "level": {"N": "1"}}}]},
+                        "ask_levels": {"L": [{"M": {"price": {"N": "44010"}, "quantity": {"N": "180"}, "level": {"N": "1"}}}]},
+                    }
+                )
+        return {
+            "Responses": {
+                table_name: items,
+            }
+        }
+
+
 class FakeZscoreOpportunitiesTable:
     def get_item(self, *, Key: dict) -> dict:
         if Key["snapshot_checksum"] != "checksum-1":
@@ -331,6 +361,7 @@ class FakeAnalyticsCatalogTable:
 
 def test_handler_returns_zscore_opportunities_for_trading_date() -> None:
     handler.ZSCORE_OPPORTUNITIES_TABLE = FakeZscoreOpportunitiesTable()
+    handler.DYNAMODB_CLIENT = FakeDynamoDbClient()
 
     response = handler.handler(
         {

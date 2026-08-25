@@ -11,7 +11,7 @@ from typing import Any
 
 import boto3
 from boto3.dynamodb.conditions import Key
-from boto3.dynamodb.types import TypeSerializer
+from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 from botocore.exceptions import ClientError
 from zoneinfo import ZoneInfo
 
@@ -20,6 +20,7 @@ DYNAMODB_CLIENT = boto3.client("dynamodb")
 DYNAMODB_RESOURCE = boto3.resource("dynamodb")
 S3_CLIENT = boto3.client("s3")
 SERIALIZER = TypeSerializer()
+DESERIALIZER = TypeDeserializer()
 
 CURRENT_SNAPSHOTS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["CURRENT_SNAPSHOTS_TABLE"])
 SNAPSHOT_INGESTION_RAW_TABLE = os.environ["SNAPSHOT_INGESTION_RAW_TABLE"]
@@ -162,6 +163,10 @@ def _serialize_item(item: dict[str, Any]) -> dict[str, Any]:
     return {key: SERIALIZER.serialize(value) for key, value in item.items()}
 
 
+def _deserialize_item(item: dict[str, Any]) -> dict[str, Any]:
+    return {key: DESERIALIZER.deserialize(value) for key, value in item.items()}
+
+
 def _decimalize(value: Any) -> Any:
     if isinstance(value, bool) or value is None:
         return value
@@ -176,6 +181,171 @@ def _decimalize(value: Any) -> Any:
     if isinstance(value, dict):
         return {key: _decimalize(item) for key, item in value.items()}
     return value
+
+
+def _to_decimal(value: Any) -> Decimal | None:
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, bool):
+        return None
+    try:
+        return Decimal(str(value))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _safe_divide(numerator: Decimal, denominator: Decimal) -> Decimal | None:
+    if denominator == 0:
+        return None
+    return numerator / denominator
+
+
+def _sum_level_quantities(levels: Any, *, depth: int = 5) -> Decimal | None:
+    if not isinstance(levels, list):
+        return None
+
+    total = Decimal("0")
+    found = False
+    for level in levels[:depth]:
+        if not isinstance(level, dict):
+            continue
+        quantity = _to_decimal(level.get("quantity"))
+        if quantity is None:
+            continue
+        total += quantity
+        found = True
+    return total if found else None
+
+
+def _chunk_items(items: list[Any], size: int) -> list[list[Any]]:
+    return [items[index:index + size] for index in range(0, len(items), size)]
+
+
+def _derive_snapshot_metric_samples(snapshot: dict[str, Any]) -> dict[str, Decimal]:
+    metrics: dict[str, Decimal] = {}
+
+    best_bid_price = _to_decimal(snapshot.get("best_bid_price"))
+    best_ask_price = _to_decimal(snapshot.get("best_ask_price"))
+    best_bid_quantity = _to_decimal(snapshot.get("best_bid_quantity"))
+    best_ask_quantity = _to_decimal(snapshot.get("best_ask_quantity"))
+    bid_depth_total_5 = _sum_level_quantities(snapshot.get("bid_levels"))
+    ask_depth_total_5 = _sum_level_quantities(snapshot.get("ask_levels"))
+
+    if best_bid_price is not None and best_ask_price is not None:
+        spread = best_ask_price - best_bid_price
+        mid_price = (best_bid_price + best_ask_price) / Decimal("2")
+        spread_bps = _safe_divide(spread * Decimal("10000"), mid_price)
+        if spread_bps is not None:
+            metrics["spread_bps"] = spread_bps
+
+    if (
+        best_bid_price is not None
+        and best_ask_price is not None
+        and best_bid_quantity is not None
+        and best_ask_quantity is not None
+    ):
+        total_l1_quantity = best_bid_quantity + best_ask_quantity
+        obi_l1 = _safe_divide(best_bid_quantity - best_ask_quantity, total_l1_quantity)
+        if obi_l1 is not None:
+            metrics["obi_l1"] = obi_l1
+
+    if bid_depth_total_5 is not None and ask_depth_total_5 is not None:
+        total_depth = bid_depth_total_5 + ask_depth_total_5
+        obi_top_5 = _safe_divide(bid_depth_total_5 - ask_depth_total_5, total_depth)
+        if obi_top_5 is not None:
+            metrics["obi_top_5"] = obi_top_5
+
+    traded_value = _to_decimal(snapshot.get("traded_value"))
+    traded_volume = _to_decimal(snapshot.get("traded_volume"))
+    if traded_value is not None:
+        metrics["traded_value"] = traded_value
+    if traded_volume is not None:
+        metrics["traded_volume"] = traded_volume
+
+    return metrics
+
+
+def _load_snapshots_by_symbol_captured_at(records: list[dict[str, Any]]) -> dict[tuple[str, str], dict[str, Any]]:
+    snapshot_map: dict[tuple[str, str], dict[str, Any]] = {}
+    keys: list[dict[str, Any]] = []
+    seen_keys: set[tuple[str, str]] = set()
+
+    for record in records:
+        symbol = str(record.get("symbol") or "").strip().upper()
+        captured_at = str(record.get("captured_at") or "").strip()
+        if not symbol or not captured_at:
+            continue
+        key = (symbol, captured_at)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        keys.append({"symbol": symbol, "captured_at": captured_at})
+
+    if not keys:
+        return snapshot_map
+
+    for chunk in _chunk_items(keys, 100):
+        response = DYNAMODB_CLIENT.batch_get_item(
+            RequestItems={
+                os.environ["CURRENT_SNAPSHOTS_TABLE"]: {
+                    "Keys": [_serialize_item(key) for key in chunk],
+                }
+            }
+        )
+        items = response.get("Responses", {}).get(os.environ["CURRENT_SNAPSHOTS_TABLE"], [])
+        for raw_item in items:
+            snapshot = _deserialize_item(raw_item)
+            symbol = str(snapshot.get("symbol") or "").strip().upper()
+            captured_at = str(snapshot.get("captured_at") or "").strip()
+            if symbol and captured_at:
+                snapshot_map[(symbol, captured_at)] = snapshot
+
+    return snapshot_map
+
+
+def _enrich_zscore_opportunity_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not records:
+        return records
+
+    snapshots_by_key = _load_snapshots_by_symbol_captured_at(records)
+    enriched_records: list[dict[str, Any]] = []
+
+    for record in records:
+        symbol = str(record.get("symbol") or "").strip().upper()
+        captured_at = str(record.get("captured_at") or "").strip()
+        snapshot = snapshots_by_key.get((symbol, captured_at))
+        if snapshot is None:
+            enriched_records.append(record)
+            continue
+
+        enriched = dict(record)
+        triggered = dict(enriched.get("triggered_z_scores") or {})
+        derived_samples = _derive_snapshot_metric_samples(snapshot)
+
+        for field_name in (
+            "best_bid_price",
+            "best_bid_quantity",
+            "best_ask_price",
+            "best_ask_quantity",
+            "traded_value",
+            "traded_volume",
+            "bid_levels",
+            "ask_levels",
+        ):
+            if snapshot.get(field_name) is not None:
+                enriched[field_name] = snapshot.get(field_name)
+
+        for metric_key, sample_value in derived_samples.items():
+            metric_payload = dict(triggered.get(metric_key) or {})
+            metric_payload["sample_value"] = sample_value
+            triggered[metric_key] = metric_payload
+
+        enriched["triggered_z_scores"] = triggered
+        enriched_records.append(enriched)
+
+    return enriched_records
 
 
 def _validate_snapshot_levels(levels: Any, *, field_name: str) -> None:
@@ -455,7 +625,7 @@ def _list_zscore_opportunities(event: dict[str, Any]) -> dict[str, Any]:
     if snapshot_checksum:
         response = ZSCORE_OPPORTUNITIES_TABLE.get_item(Key={"snapshot_checksum": snapshot_checksum})
         item = response.get("Item")
-        records = [] if item is None else [_json_ready(item)]
+        records = [] if item is None else _json_ready(_enrich_zscore_opportunity_records([item]))
         return {
             "snapshot_checksum": snapshot_checksum,
             "record_count": len(records),
@@ -506,7 +676,7 @@ def _list_zscore_opportunities(event: dict[str, Any]) -> dict[str, Any]:
         "symbol": symbol or None,
         "trading_date": normalized_trading_date,
         "record_count": len(records),
-        "records": _json_ready(records),
+        "records": _json_ready(_enrich_zscore_opportunity_records(records)),
     }
 
 

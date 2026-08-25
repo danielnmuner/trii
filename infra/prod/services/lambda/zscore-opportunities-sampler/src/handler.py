@@ -198,6 +198,16 @@ def _parse_captured_at(raw_value: str) -> datetime:
     return timestamp.astimezone(BOGOTA_TIMEZONE)
 
 
+def _get_trading_date(snapshot: dict[str, Any]) -> str | None:
+    captured_date = str(snapshot.get("captured_date") or "").strip()
+    if captured_date:
+        return captured_date
+    captured_at = str(snapshot.get("captured_at") or "").strip()
+    if captured_at:
+        return captured_at[:10]
+    return None
+
+
 def _select_bucketed_snapshots_per_symbol(
     snapshots: list[dict[str, Any]],
     *,
@@ -222,6 +232,30 @@ def _select_bucketed_snapshots_per_symbol(
     return selected
 
 
+def _index_previous_snapshots(
+    snapshots: list[dict[str, Any]],
+) -> dict[tuple[str, str], dict[str, Any]]:
+    previous_by_snapshot: dict[tuple[str, str], dict[str, Any]] = {}
+    snapshots_by_symbol: dict[str, list[dict[str, Any]]] = {}
+    for snapshot in snapshots:
+        symbol = str(snapshot.get("symbol") or "").strip().upper()
+        captured_at = str(snapshot.get("captured_at") or "").strip()
+        if not symbol or not captured_at:
+            continue
+        snapshots_by_symbol.setdefault(symbol, []).append(snapshot)
+
+    for symbol, items in snapshots_by_symbol.items():
+        items.sort(key=lambda item: str(item.get("captured_at") or ""))
+        previous_snapshot: dict[str, Any] | None = None
+        for item in items:
+            captured_at = str(item.get("captured_at") or "").strip()
+            if previous_snapshot is not None:
+                previous_by_snapshot[(symbol, captured_at)] = previous_snapshot
+            previous_snapshot = item
+
+    return previous_by_snapshot
+
+
 def to_decimal(value: Any) -> Decimal | None:
     if value is None:
         return None
@@ -235,8 +269,35 @@ def to_decimal(value: Any) -> Decimal | None:
         return None
 
 
-def compute_z_score(stat_item: dict[str, Any]) -> Decimal | None:
-    latest_value = to_decimal(stat_item.get("latest_value"))
+def safe_divide(numerator: Decimal, denominator: Decimal) -> Decimal | None:
+    if denominator == 0:
+        return None
+    return numerator / denominator
+
+
+def sum_level_quantities(levels: Any, *, depth: int = 5) -> Decimal | None:
+    if not isinstance(levels, list):
+        return None
+
+    total = Decimal("0")
+    found = False
+    for level in levels[:depth]:
+        if not isinstance(level, dict):
+            continue
+        quantity = to_decimal(level.get("quantity"))
+        if quantity is None:
+            continue
+        total += quantity
+        found = True
+    return total if found else None
+
+
+def compute_z_score(
+    stat_item: dict[str, Any],
+    *,
+    sample_value: Decimal | None = None,
+) -> Decimal | None:
+    latest_value = sample_value if sample_value is not None else to_decimal(stat_item.get("latest_value"))
     mean = to_decimal(stat_item.get("mean"))
     stddev = to_decimal(stat_item.get("stddev"))
     sample_count = int(stat_item.get("sample_count", 0) or 0)
@@ -247,19 +308,97 @@ def compute_z_score(stat_item: dict[str, Any]) -> Decimal | None:
     return (latest_value - mean) / stddev
 
 
+def derive_snapshot_metric_samples(
+    snapshot: dict[str, Any],
+    previous_snapshot: dict[str, Any] | None = None,
+) -> dict[str, Decimal]:
+    metrics: dict[str, Decimal] = {}
+
+    best_bid_price = to_decimal(snapshot.get("best_bid_price"))
+    best_ask_price = to_decimal(snapshot.get("best_ask_price"))
+    best_bid_quantity = to_decimal(snapshot.get("best_bid_quantity"))
+    best_ask_quantity = to_decimal(snapshot.get("best_ask_quantity"))
+    bid_depth_total_5 = sum_level_quantities(snapshot.get("bid_levels"))
+    ask_depth_total_5 = sum_level_quantities(snapshot.get("ask_levels"))
+
+    if best_bid_price is not None and best_ask_price is not None:
+        spread = best_ask_price - best_bid_price
+        mid_price = (best_bid_price + best_ask_price) / Decimal("2")
+        spread_bps = safe_divide(spread * Decimal("10000"), mid_price)
+        if spread_bps is not None:
+            metrics["spread_bps"] = spread_bps
+
+    if (
+        best_bid_quantity is not None
+        and best_ask_quantity is not None
+    ):
+        total_l1_quantity = best_bid_quantity + best_ask_quantity
+        obi_l1 = safe_divide(best_bid_quantity - best_ask_quantity, total_l1_quantity)
+        if obi_l1 is not None:
+            metrics["obi_l1"] = obi_l1
+
+    if bid_depth_total_5 is not None and ask_depth_total_5 is not None:
+        total_depth = bid_depth_total_5 + ask_depth_total_5
+        obi_top_5 = safe_divide(bid_depth_total_5 - ask_depth_total_5, total_depth)
+        if obi_top_5 is not None:
+            metrics["obi_top_5"] = obi_top_5
+
+    traded_volume = to_decimal(snapshot.get("traded_volume"))
+    traded_value = to_decimal(snapshot.get("traded_value"))
+    if traded_volume is not None:
+        metrics["traded_volume"] = traded_volume
+    if traded_value is not None:
+        metrics["traded_value"] = traded_value
+
+    if previous_snapshot is not None:
+        current_trading_date = _get_trading_date(snapshot)
+        previous_trading_date = _get_trading_date(previous_snapshot)
+        current_timestamp = _parse_captured_at(str(snapshot.get("captured_at") or ""))
+        previous_timestamp = _parse_captured_at(str(previous_snapshot.get("captured_at") or ""))
+        previous_traded_volume = to_decimal(previous_snapshot.get("traded_volume"))
+        previous_traded_value = to_decimal(previous_snapshot.get("traded_value"))
+
+        if (
+            current_trading_date
+            and previous_trading_date
+            and current_trading_date == previous_trading_date
+            and previous_traded_volume is not None
+            and previous_traded_value is not None
+            and traded_volume is not None
+            and traded_value is not None
+        ):
+            delta_seconds = Decimal(str((current_timestamp - previous_timestamp).total_seconds()))
+            delta_volume = traded_volume - previous_traded_volume
+            delta_value = traded_value - previous_traded_value
+            if delta_seconds > 0 and delta_volume > 0 and delta_value > 0:
+                metrics["volume_rate"] = delta_volume / delta_seconds
+                metrics["value_rate"] = delta_value / delta_seconds
+
+    return metrics
+
+
 def build_monitored_z_scores(
+    snapshot: dict[str, Any],
     stat_items: dict[str, dict[str, Any]],
+    *,
+    previous_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, dict[str, Decimal]]:
     monitored: dict[str, dict[str, Decimal]] = {}
+    snapshot_samples = derive_snapshot_metric_samples(
+        snapshot,
+        previous_snapshot=previous_snapshot,
+    )
     for metric_key in TRIGGER_METRIC_KEYS:
         stat_item = stat_items.get(metric_key)
         if stat_item is None:
             continue
-        z_score = compute_z_score(stat_item)
-        if z_score is None:
-            continue
-        sample_value = to_decimal(stat_item.get("latest_value"))
+        sample_value = snapshot_samples.get(metric_key)
         if sample_value is None:
+            sample_value = to_decimal(stat_item.get("latest_value"))
+        if sample_value is None:
+            continue
+        z_score = compute_z_score(stat_item, sample_value=sample_value)
+        if z_score is None:
             continue
         monitored[metric_key] = {
             "sample_value": sample_value,
@@ -363,6 +502,12 @@ def build_zscore_opportunity_item(
         "previous_close": to_decimal(snapshot.get("previous_close")),
         "high_price": to_decimal(snapshot.get("high_price")),
         "low_price": to_decimal(snapshot.get("low_price")),
+        "best_bid_price": to_decimal(snapshot.get("best_bid_price")),
+        "best_bid_quantity": to_decimal(snapshot.get("best_bid_quantity")),
+        "best_ask_price": to_decimal(snapshot.get("best_ask_price")),
+        "best_ask_quantity": to_decimal(snapshot.get("best_ask_quantity")),
+        "traded_volume": to_decimal(snapshot.get("traded_volume")),
+        "traded_value": to_decimal(snapshot.get("traded_value")),
         "bid_levels": snapshot.get("bid_levels", []),
         "ask_levels": snapshot.get("ask_levels", []),
         "approved_position_summary": position_summary,
@@ -423,6 +568,7 @@ def _build_sample_item(
     *,
     stat_cache: dict[str, dict[str, dict[str, Any]]],
     approved_orders_cache: dict[str, list[dict[str, Any]]],
+    previous_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     symbol = str(snapshot.get("symbol") or "").strip().upper()
     captured_at = str(snapshot.get("captured_at") or "").strip()
@@ -434,7 +580,11 @@ def _build_sample_item(
     if stat_items is None:
         stat_items = _load_stat_items(symbol)
         stat_cache[symbol] = stat_items
-    monitored_z_scores = build_monitored_z_scores(stat_items)
+    monitored_z_scores = build_monitored_z_scores(
+        snapshot,
+        stat_items,
+        previous_snapshot=previous_snapshot,
+    )
     if not monitored_z_scores:
         return None
 
@@ -535,20 +685,23 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
     for trading_date in trading_dates:
         snapshots = _load_snapshots_for_trading_date(trading_date)
         snapshots_read += len(snapshots)
+        previous_snapshot_by_key = _index_previous_snapshots(snapshots)
         candidate_snapshots = (
             _select_bucketed_snapshots_per_symbol(snapshots)
             if backfill_mode
             else list(_select_latest_snapshot_per_symbol(snapshots).values())
         )
         for snapshot in candidate_snapshots:
+            symbol = str(snapshot.get("symbol") or "").strip().upper()
+            captured_at = str(snapshot.get("captured_at") or "").strip()
             sample_item = _build_sample_item(
                 snapshot,
                 sampled_at,
                 stat_cache=stat_cache,
                 approved_orders_cache=approved_orders_cache,
+                previous_snapshot=previous_snapshot_by_key.get((symbol, captured_at)),
             )
             if sample_item is None:
-                symbol = str(snapshot.get("symbol") or "").strip().upper()
                 if symbol and symbol not in skipped_symbols:
                     skipped_symbols.append(symbol)
                 continue
