@@ -52,6 +52,36 @@ class FakeDynamoDbClient:
                         "ask_levels": {"L": [{"M": {"price": {"N": "44010"}, "quantity": {"N": "180"}, "level": {"N": "1"}}}]},
                     }
                 )
+            if symbol == "NUCO" and captured_at == "2026-08-20T15:00:00-05:00":
+                items.append(
+                    {
+                        "symbol": {"S": "NUCO"},
+                        "captured_at": {"S": "2026-08-20T15:00:00-05:00"},
+                        "best_bid_price": {"N": "43890"},
+                        "best_bid_quantity": {"N": "120"},
+                        "best_ask_price": {"N": "43910"},
+                        "best_ask_quantity": {"N": "110"},
+                        "traded_value": {"N": "2200292380"},
+                        "traded_volume": {"N": "50016"},
+                        "bid_levels": {"L": [{"M": {"price": {"N": "43890"}, "quantity": {"N": "120"}, "level": {"N": "1"}}}]},
+                        "ask_levels": {"L": [{"M": {"price": {"N": "43910"}, "quantity": {"N": "110"}, "level": {"N": "1"}}}]},
+                    }
+                )
+            if symbol == "NUCO" and captured_at == "2026-08-22T09:10:00-05:00":
+                items.append(
+                    {
+                        "symbol": {"S": "NUCO"},
+                        "captured_at": {"S": "2026-08-22T09:10:00-05:00"},
+                        "best_bid_price": {"N": "44020"},
+                        "best_bid_quantity": {"N": "210"},
+                        "best_ask_price": {"N": "44040"},
+                        "best_ask_quantity": {"N": "190"},
+                        "traded_value": {"N": "2215492380"},
+                        "traded_volume": {"N": "50300"},
+                        "bid_levels": {"L": [{"M": {"price": {"N": "44020"}, "quantity": {"N": "210"}, "level": {"N": "1"}}}]},
+                        "ask_levels": {"L": [{"M": {"price": {"N": "44040"}, "quantity": {"N": "190"}, "level": {"N": "1"}}}]},
+                    }
+                )
         return {
             "Responses": {
                 table_name: items,
@@ -91,6 +121,39 @@ class FakeZscoreOpportunitiesTable:
                         "symbol": "NUCO",
                         "captured_at": "2026-08-21T10:56:08-05:00",
                         "trading_date": "2026-08-21",
+                    },
+                ]
+            }
+        if kwargs.get("IndexName") == "symbol-created-at-index":
+            return {
+                "Items": [
+                    {
+                        "snapshot_checksum": "checksum-3",
+                        "symbol": "NUCO",
+                        "captured_at": "2026-08-22T09:10:00-05:00",
+                        "trading_date": "2026-08-22",
+                        "triggered_z_scores": {
+                            "traded_value": {"sample_value": 2215492380, "z_score": 1.1},
+                        },
+                    },
+                    {
+                        "snapshot_checksum": "checksum-1",
+                        "symbol": "NUCO",
+                        "captured_at": "2026-08-21T10:56:08-05:00",
+                        "trading_date": "2026-08-21",
+                        "triggered_z_scores": {
+                            "spread_bps": {"sample_value": 4.3, "z_score": -1.79},
+                            "obi_l1": {"sample_value": 0.11, "z_score": 0.22},
+                        },
+                    },
+                    {
+                        "snapshot_checksum": "checksum-0",
+                        "symbol": "NUCO",
+                        "captured_at": "2026-08-20T15:00:00-05:00",
+                        "trading_date": "2026-08-20",
+                        "triggered_z_scores": {
+                            "traded_value": {"sample_value": 2200292380, "z_score": 0.9},
+                        },
                     },
                 ]
             }
@@ -380,6 +443,80 @@ def test_handler_returns_zscore_opportunities_for_trading_date() -> None:
     assert payload["result"]["records"][0]["symbol"] == "ISA"
 
 
+def test_handler_returns_zscore_opportunities_for_symbol_date_range() -> None:
+    handler.ZSCORE_OPPORTUNITIES_TABLE = FakeZscoreOpportunitiesTable()
+    handler.DYNAMODB_CLIENT = FakeDynamoDbClient()
+
+    response = handler.handler(
+        {
+            "routeKey": "GET /analytics/zscore-opportunities",
+            "headers": {"X-Api-Token": "test-token"},
+            "queryStringParameters": {
+                "symbol": "nuco",
+                "from_trading_date": "2026-08-20",
+                "to_trading_date": "2026-08-22",
+                "limit": "200",
+            },
+        },
+        None,
+    )
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 200
+    assert payload["status"] == "ok"
+    assert payload["result"]["symbol"] == "NUCO"
+    assert payload["result"]["from_trading_date"] == "2026-08-20"
+    assert payload["result"]["to_trading_date"] == "2026-08-22"
+    assert payload["result"]["since_captured_at"] is None
+    assert payload["result"]["record_count"] == 3
+    assert payload["result"]["records"][0]["captured_at"] == "2026-08-22T09:10:00-05:00"
+
+
+def test_handler_returns_incremental_zscore_opportunities_since_captured_at() -> None:
+    handler.ZSCORE_OPPORTUNITIES_TABLE = FakeZscoreOpportunitiesTable()
+    handler.DYNAMODB_CLIENT = FakeDynamoDbClient()
+
+    response = handler.handler(
+        {
+            "routeKey": "GET /analytics/zscore-opportunities",
+            "headers": {"X-Api-Token": "test-token"},
+            "queryStringParameters": {
+                "symbol": "nuco",
+                "since_captured_at": "2026-08-21T00:00:00-05:00",
+                "limit": "200",
+            },
+        },
+        None,
+    )
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 200
+    assert payload["status"] == "ok"
+    assert payload["result"]["symbol"] == "NUCO"
+    assert payload["result"]["since_captured_at"] == "2026-08-21T00:00:00-05:00"
+    assert payload["result"]["record_count"] == 3
+    assert payload["result"]["records"][0]["captured_at"] == "2026-08-22T09:10:00-05:00"
+
+
+def test_handler_rejects_incremental_params_without_symbol() -> None:
+    response = handler.handler(
+        {
+            "routeKey": "GET /analytics/zscore-opportunities",
+            "headers": {"X-Api-Token": "test-token"},
+            "queryStringParameters": {
+                "from_trading_date": "2026-08-20",
+                "to_trading_date": "2026-08-22",
+            },
+        },
+        None,
+    )
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 400
+    assert payload["status"] == "error"
+    assert "requieren `symbol`" in payload["message"]
+
+
 def test_handler_returns_daily_closing_record_for_exact_symbol_and_date() -> None:
     handler.DAILY_CLOSING_SNAPSHOTS_TABLE = FakeDailyClosingSnapshotsTable()
 
@@ -502,6 +639,25 @@ def test_handler_snapshot_uses_only_current_snapshots_and_historic_stats() -> No
     assert "current_stats" not in payload["result"]
     assert "previous_stats" not in payload["result"]
     assert "market_ai_recommendation" not in payload["result"]
+
+
+def test_handler_snapshot_accepts_optional_limit() -> None:
+    handler.CURRENT_SNAPSHOTS_TABLE = FakeCurrentSnapshotsTable()
+
+    response = handler.handler(
+        {
+            "routeKey": "GET /analytics/snapshot",
+            "headers": {"X-Api-Token": "test-token"},
+            "queryStringParameters": {"symbol": "nuco", "limit": "5"},
+        },
+        None,
+    )
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 200
+    assert payload["status"] == "ok"
+    assert payload["result"]["symbol"] == "NUCO"
+    assert payload["result"]["record_count"] == 2
 
 
 def test_handler_historic_stats_uses_only_historic_stats_and_accepts_iam_auth() -> None:

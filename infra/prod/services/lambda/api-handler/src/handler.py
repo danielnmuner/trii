@@ -675,12 +675,43 @@ def _find_latest_snapshot_captured_date(*, lookback_days: int = 14) -> str | Non
     return None
 
 
+def _start_of_trading_date(trading_date: str) -> str:
+    return f"{trading_date}T00:00:00-05:00"
+
+
+def _end_of_trading_date(trading_date: str) -> str:
+    return f"{trading_date}T23:59:59.999999-05:00"
+
+
 def _list_zscore_opportunities(event: dict[str, Any]) -> dict[str, Any]:
     params = _query_params(event)
     snapshot_checksum = str(params.get("snapshot_checksum") or "").strip()
     symbol = str(params.get("symbol") or "").strip().upper()
     trading_date = _parse_iso_date(params.get("trading_date"), field_name="trading_date")
+    from_trading_date = _parse_iso_date(params.get("from_trading_date"), field_name="from_trading_date")
+    to_trading_date = _parse_iso_date(params.get("to_trading_date"), field_name="to_trading_date")
+    since_captured_at = str(params.get("since_captured_at") or "").strip()
     limit = _parse_positive_limit(params.get("limit"), default=100, maximum=500)
+
+    if from_trading_date and to_trading_date and from_trading_date > to_trading_date:
+        raise ValueError("`from_trading_date` no puede ser mayor que `to_trading_date`.")
+
+    if since_captured_at:
+        _parse_snapshot_timestamp(since_captured_at)
+
+    if from_trading_date or to_trading_date or since_captured_at:
+        if not symbol:
+            raise ValueError(
+                "Los parametros `from_trading_date`, `to_trading_date` y `since_captured_at` requieren `symbol`."
+            )
+        if trading_date:
+            raise ValueError(
+                "`trading_date` no se puede combinar con `from_trading_date`/`to_trading_date` o `since_captured_at`."
+            )
+        if since_captured_at and (from_trading_date or to_trading_date):
+            raise ValueError(
+                "`since_captured_at` no se puede combinar con `from_trading_date` o `to_trading_date`."
+            )
 
     if snapshot_checksum:
         response = ZSCORE_OPPORTUNITIES_TABLE.get_item(Key={"snapshot_checksum": snapshot_checksum})
@@ -697,7 +728,18 @@ def _list_zscore_opportunities(event: dict[str, Any]) -> dict[str, Any]:
 
     if symbol:
         key_condition = Key("symbol").eq(symbol)
-        if trading_date:
+        if since_captured_at:
+            key_condition &= Key("captured_at").gt(since_captured_at)
+        elif from_trading_date and to_trading_date:
+            key_condition &= Key("captured_at").between(
+                _start_of_trading_date(from_trading_date),
+                _end_of_trading_date(to_trading_date),
+            )
+        elif from_trading_date:
+            key_condition &= Key("captured_at").gte(_start_of_trading_date(from_trading_date))
+        elif to_trading_date:
+            key_condition &= Key("captured_at").lte(_end_of_trading_date(to_trading_date))
+        elif trading_date:
             key_condition &= Key("captured_at").begins_with(trading_date)
         query_kwargs = {
             "IndexName": "symbol-created-at-index",
@@ -735,6 +777,9 @@ def _list_zscore_opportunities(event: dict[str, Any]) -> dict[str, Any]:
     return {
         "symbol": symbol or None,
         "trading_date": normalized_trading_date,
+        "from_trading_date": from_trading_date,
+        "to_trading_date": to_trading_date,
+        "since_captured_at": since_captured_at or None,
         "record_count": len(records),
         "records": _json_ready(_enrich_zscore_opportunity_records(records)),
     }
@@ -1026,6 +1071,7 @@ def _get_analytics_snapshot(event: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("El parametro `symbol` es obligatorio para consultar analytics.")
 
     captured_at = str(params.get("captured_at") or "").strip()
+    limit = _parse_positive_limit(params.get("limit"), default=2, maximum=20)
     if captured_at:
         response = CURRENT_SNAPSHOTS_TABLE.get_item(
             Key={
@@ -1039,12 +1085,12 @@ def _get_analytics_snapshot(event: dict[str, Any]) -> dict[str, Any]:
             previous_snapshots = _query_snapshots_for_symbol(
                 symbol,
                 to_timestamp=_parse_snapshot_timestamp(captured_at),
-                limit=2,
+                limit=limit,
             )
     else:
         previous_snapshots = _query_snapshots_for_symbol(
             symbol,
-            limit=2,
+            limit=limit,
         )
         snapshot = previous_snapshots[0] if previous_snapshots else None
 

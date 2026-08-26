@@ -1,0 +1,52 @@
+endpoint: GET /analytics/zscore-opportunities
+
+authentication:
+- API Gateway route authorization_type is NONE
+- the Lambda still requires the shared token through X-Api-Token or Authorization: Bearer ...
+
+supported_query_modes:
+- exact lookup
+  - snapshot_checksum=<checksum>
+
+- single trading day
+  - trading_date=YYYY-MM-DD
+  - optional symbol=<SYMBOL>
+  - optional limit=<1..500>, default 100
+
+- initial range load for one symbol
+  - symbol=<SYMBOL>
+  - from_trading_date=YYYY-MM-DD
+  - to_trading_date=YYYY-MM-DD
+  - optional limit=<1..500>, default 100
+
+- incremental refresh for one symbol
+  - symbol=<SYMBOL>
+  - since_captured_at=<ISO-8601 timestamp with timezone>
+  - optional limit=<1..500>, default 100
+
+constraints:
+- limit is capped at 500
+- from_trading_date, to_trading_date, and since_captured_at require symbol
+- trading_date cannot be combined with from_trading_date, to_trading_date, or since_captured_at
+- since_captured_at cannot be combined with from_trading_date or to_trading_date
+- from_trading_date cannot be greater than to_trading_date
+- there is no public pagination token yet; callers should use incremental refresh with since_captured_at
+
+recommended_ui_flow_for_72h:
+- first load:
+  - GET /analytics/zscore-opportunities?symbol=ISA&from_trading_date=2026-08-24&to_trading_date=2026-08-26&limit=200
+- incremental refresh after the chart already has data:
+  - GET /analytics/zscore-opportunities?symbol=ISA&since_captured_at=2026-08-26T10:10:00-05:00&limit=200
+
+response_shape:
+- symbol: string | null
+- trading_date: string | null
+- from_trading_date: string | null
+- to_trading_date: string | null
+- since_captured_at: string | null
+- record_count: integer
+- records: list
+
+notes:
+- records are returned newest first for symbol queries
+- day queries without symbol are still capped by limit and may truncate if the day has more than 500 records
