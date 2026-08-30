@@ -37,6 +37,7 @@ data "aws_iam_policy_document" "inline" {
     sid    = "ReadWriteSessionVectors"
     effect = "Allow"
     actions = [
+      "dynamodb:BatchWriteItem",
       "dynamodb:GetItem",
       "dynamodb:PutItem",
     ]
