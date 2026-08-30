@@ -107,6 +107,10 @@ def _load_snapshots_for_trading_date(trading_date: str) -> list[dict[str, Any]]:
     query_kwargs: dict[str, Any] = {
         "IndexName": "captured-date-index",
         "KeyConditionExpression": Key("captured_date").eq(trading_date),
+        "ProjectionExpression": "#symbol, captured_at, microprice, mid_price, last_price, traded_value, traded_volume",
+        "ExpressionAttributeNames": {
+            "#symbol": "symbol",
+        },
     }
     while True:
         response = CURRENT_SNAPSHOTS_TABLE.query(**query_kwargs)
@@ -363,6 +367,16 @@ def _rebuild_latest_trading_date_from_catalog() -> dict[str, Any]:
         }
 
     snapshots = _load_snapshots_for_trading_date(trading_date)
+    print(
+        json.dumps(
+            {
+                "mode": "manual",
+                "step": "snapshots_loaded",
+                "trading_date": trading_date,
+                "snapshots_read": len(snapshots),
+            }
+        )
+    )
     snapshots_by_symbol: dict[str, list[dict[str, Any]]] = {}
     for snapshot in snapshots:
         symbol = str(snapshot.get("symbol") or "").strip().upper()
@@ -372,15 +386,27 @@ def _rebuild_latest_trading_date_from_catalog() -> dict[str, Any]:
 
     written_items = 0
     symbols_processed = 0
-    for symbol in sorted(snapshots_by_symbol):
-        items = _build_session_items_for_symbol(symbol, trading_date, snapshots_by_symbol[symbol])
-        if not items:
-            continue
-        for item in items:
-            SESSION_VECTORS_TABLE.put_item(Item=item)
-            written_items += 1
-        symbols_processed += 1
+    with SESSION_VECTORS_TABLE.batch_writer() as batch:
+        for symbol in sorted(snapshots_by_symbol):
+            items = _build_session_items_for_symbol(symbol, trading_date, snapshots_by_symbol[symbol])
+            if not items:
+                continue
+            for item in items:
+                batch.put_item(Item=item)
+                written_items += 1
+            symbols_processed += 1
 
+    print(
+        json.dumps(
+            {
+                "mode": "manual",
+                "step": "session_vectors_written",
+                "trading_date": trading_date,
+                "symbols_processed": symbols_processed,
+                "written_items": written_items,
+            }
+        )
+    )
     return {
         "mode": "manual",
         "trading_date": trading_date,

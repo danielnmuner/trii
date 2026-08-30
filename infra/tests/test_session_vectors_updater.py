@@ -33,6 +33,7 @@ spec.loader.exec_module(session_vectors_handler)
 class FakeSessionVectorsTable:
     def __init__(self) -> None:
         self.items: dict[tuple[str, str], dict] = {}
+        self.batch_writer_put_count = 0
 
     def get_item(self, *, Key: dict) -> dict:
         item = self.items.get((Key["symbol"], Key["record_type"]))
@@ -41,6 +42,24 @@ class FakeSessionVectorsTable:
     def put_item(self, *, Item: dict) -> dict:
         self.items[(Item["symbol"], Item["record_type"])] = dict(Item)
         return {}
+
+    def batch_writer(self) -> "FakeSessionVectorsBatchWriter":
+        return FakeSessionVectorsBatchWriter(self)
+
+
+class FakeSessionVectorsBatchWriter:
+    def __init__(self, table: FakeSessionVectorsTable) -> None:
+        self.table = table
+
+    def __enter__(self) -> "FakeSessionVectorsBatchWriter":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+    def put_item(self, *, Item: dict) -> dict:
+        self.table.batch_writer_put_count += 1
+        return self.table.put_item(Item=Item)
 
 
 class FakeAnalyticsCatalogTable:
@@ -60,6 +79,8 @@ class FakeCurrentSnapshotsTable:
     def query(self, **kwargs: dict) -> dict:
         self.query_calls += 1
         assert kwargs["IndexName"] == "captured-date-index"
+        assert kwargs["ProjectionExpression"] == "#symbol, captured_at, microprice, mid_price, last_price, traded_value, traded_volume"
+        assert kwargs["ExpressionAttributeNames"] == {"#symbol": "symbol"}
         return {"Items": list(self.items)}
 
 
@@ -167,6 +188,7 @@ def test_handler_manual_run_rebuilds_latest_catalog_day_for_all_symbols() -> Non
         "written_items": 4,
     }
     assert current_snapshots.query_calls == 1
+    assert table.batch_writer_put_count == 4
 
     nuco_manifest = table.items[("NUCO", "session_vector#2026-08-30")]
     nuco_segment = table.items[("NUCO", "session_vector#2026-08-30#segment#000")]

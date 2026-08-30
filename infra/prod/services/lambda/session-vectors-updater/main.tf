@@ -50,8 +50,8 @@ module "function" {
   function_name = "${var.project_name}-${var.environment}-session-vectors-updater"
   description   = "Maintains session vector manifests and segments from current snapshots, with stream-triggered updates and manual latest-day rebuild support."
   source_dir    = "${path.module}/src"
-  timeout       = 60
-  memory_size   = 256
+  timeout       = 180
+  memory_size   = 512
   policy_json   = data.aws_iam_policy_document.inline.json
 
   environment_variables = {
