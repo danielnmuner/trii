@@ -1,0 +1,118 @@
+name: Snapshot TTL Refresh
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply_mode:
+        description: "Modo de ejecucion"
+        required: true
+        default: preview
+        type: choice
+        options:
+          - preview
+          - apply
+      table_scope:
+        description: "Tablas a procesar"
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - snapshot-ingestion-raw
+          - current-snapshots
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: snapshot-ttl-refresh-prod
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Enforce main branch
+        run: |
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "This workflow must run from main because the IAM trust policy is expected to allow the main branch."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::311923415472:role/GitHubTerraformTriiRole
+          role-session-name: github-actions-snapshot-ttl-refresh
+          allowed-account-ids: 311923415472
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Resolve command
+        id: command
+        shell: bash
+        env:
+          APPLY_MODE: ${{ inputs.apply_mode }}
+          TABLE_SCOPE: ${{ inputs.table_scope }}
+        run: |
+          set -euo pipefail
+
+          declare -a args
+          if [[ "${TABLE_SCOPE}" == "both" ]]; then
+            args+=(--table snapshot-ingestion-raw --table current-snapshots)
+          else
+            args+=(--table "${TABLE_SCOPE}")
+          fi
+
+          if [[ "${APPLY_MODE}" == "apply" ]]; then
+            args+=(--apply)
+          fi
+
+          command="uv run infra/scripts/refresh_snapshot_ttls.py"
+          for arg in "${args[@]}"; do
+            command+=" $(printf '%q' "${arg}")"
+          done
+
+          {
+            echo "command=${command}"
+            echo "apply_mode=${APPLY_MODE}"
+            echo "table_scope=${TABLE_SCOPE}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Execute TTL refresh
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ steps.command.outputs.command }} | tee snapshot-ttl-refresh.json
+
+      - name: Publish summary
+        shell: bash
+        env:
+          APPLY_MODE: ${{ steps.command.outputs.apply_mode }}
+          TABLE_SCOPE: ${{ steps.command.outputs.table_scope }}
+        run: |
+          {
+            echo "## Snapshot TTL refresh"
+            echo ""
+            echo "- Apply mode: \`${APPLY_MODE}\`"
+            echo "- Table scope: \`${TABLE_SCOPE}\`"
+            echo "- Raw table target TTL: \`24h\`"
+            echo "- Current snapshots target TTL: \`48h\`"
+            echo ""
+            echo "### Result"
+            echo '```json'
+            cat snapshot-ttl-refresh.json
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-ttl-refresh-${{ github.run_id }}
+          path: snapshot-ttl-refresh.json

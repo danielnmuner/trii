@@ -3,7 +3,7 @@ table_name: trii-prod-snapshot-ingestion-raw
 purpose:
 - persist the original accepted snapshot payload for a short operational debugging window
 - keep a raw trail separate from the longer-lived current-snapshots table
-- expire automatically after 72 hours
+- expire automatically after 24 hours
 
 primary_key:
 - pk: symbol
@@ -44,7 +44,7 @@ record_type:
 - ask_levels: list<map>
 - raw_indicators: map
 - extension_meta: map
-- expires_at: number, unix epoch seconds used by DynamoDB TTL for 72-hour expiry
+- expires_at: number, unix epoch seconds used by DynamoDB TTL for 24-hour expiry
 
 query_patterns:
 - short-lived raw audit by symbol and timestamp
