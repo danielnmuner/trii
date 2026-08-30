@@ -57,6 +57,7 @@ with Diagram(
             zscore_opportunities_sampler = Lambda("zscore_opportunities_sampler\nLambda")
             analytics_catalog_updater = Lambda("analytics_catalog_updater\nLambda")
             analytics_catalog_backfill = Lambda("analytics_catalog_backfill\nLambda")
+            session_vectors_updater = Lambda("session_vectors_updater\nLambda\n(stream + manual)")
             market_ai_recommendation_handler = Lambda("market_ai_recommendation_handler\nLambda")
             daily_closing_schedule = Eventbridge("24h closing\nschedule")
             zscore_sampling_schedule = Eventbridge("10 min z-score\nschedule")
@@ -78,6 +79,7 @@ with Diagram(
                 daily_closing_snapshots_table = Dynamodb("trii-prod-daily-closing-snapshots")
                 analytics_catalog_table = Dynamodb("trii-prod-analytics-catalog")
                 zscore_opportunities_table = Dynamodb("trii-prod-zscore-opportunities")
+                session_vectors_table = Dynamodb("trii-prod-session-vectors")
                 market_ai_recommendations_table = Dynamodb("trii-prod-market-ai-recommendations")
 
     streamlit_operator >> Edge(label="read analytics / upload docs") >> http_api >> api_handler
@@ -91,6 +93,7 @@ with Diagram(
 
     current_snapshots_table >> Edge(label="stream INSERTs", color="darkorange") >> historic_stats_updater
     current_snapshots_table >> Edge(label="stream INSERTs", color="royalblue") >> analytics_catalog_updater
+    current_snapshots_table >> Edge(label="stream INSERTs", color="deepskyblue4") >> session_vectors_updater
     historic_stats_updater >> Edge(label="update stats", color="darkorange") >> historic_stats_table
     historic_stats_updater >> Edge(label="write idempotency", color="darkorange") >> processed_stats_events_table
     historic_stats_updater >> Edge(label="trigger AI rules", color="steelblue") >> market_ai_recommendation_handler
@@ -110,6 +113,17 @@ with Diagram(
     zscore_opportunities_sampler >> Edge(label="read z-score stats", color="darkgoldenrod4", style="dashed") >> historic_stats_table
     zscore_opportunities_sampler >> Edge(label="read approved orders", color="darkgoldenrod4", style="dashed") >> stock_orders_table
     zscore_opportunities_sampler >> Edge(label="upsert sampled records", color="darkgoldenrod4") >> zscore_opportunities_table
+    session_vectors_updater >> Edge(label="maintain manifest + segments", color="deepskyblue4") >> session_vectors_table
+    analytics_catalog_table >> Edge(
+        label="manual rebuild:\nresolve latest trading date",
+        color="deepskyblue4",
+        style="dashed",
+    ) >> session_vectors_updater
+    session_vectors_updater >> Edge(
+        label="manual rebuild:\nquery latest day snapshots",
+        color="deepskyblue4",
+        style="dashed",
+    ) >> current_snapshots_table
 
     analytics_catalog_updater >> Edge(
         label="overwrite latest\nrecord per symbol",
@@ -127,5 +141,10 @@ with Diagram(
     analytics_catalog_table >> Edge(
         label="GetItem catalog\nprojection",
         color="royalblue",
+        style="dashed",
+    ) >> api_handler
+    session_vectors_table >> Edge(
+        label="query session vector\nhead + segments",
+        color="deepskyblue4",
         style="dashed",
     ) >> api_handler

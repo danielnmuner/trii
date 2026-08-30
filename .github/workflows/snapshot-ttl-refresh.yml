@@ -22,6 +22,7 @@ on:
           - current-snapshots
           - snapshot-ingestion-checksums
           - processed-stats-events
+          - session-vectors
 
 permissions:
   contents: read
@@ -72,6 +73,7 @@ jobs:
               --table current-snapshots
               --table snapshot-ingestion-checksums
               --table processed-stats-events
+              --table session-vectors
             )
           else
             args+=(--table "${TABLE_SCOPE}")
@@ -113,6 +115,7 @@ jobs:
             echo "- Current snapshots target TTL: \`48h\`"
             echo "- Snapshot ingestion checksums target TTL: \`24h\`"
             echo "- Processed stats events target TTL: \`24h\`"
+            echo "- Session vectors target TTL: \`24h\`"
             echo ""
             echo "### Result"
             echo '```json'

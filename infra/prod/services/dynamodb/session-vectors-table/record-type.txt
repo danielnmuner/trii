@@ -1,0 +1,52 @@
+table_name: trii-prod-session-vectors
+
+purpose:
+- persist a short-lived intraday charting projection derived from current snapshots
+- expose a single logical session per symbol using one manifest item plus a small set of segment items
+- support cheap polling from the UI without reading current-snapshots directly
+- expire automatically after 24 hours
+
+primary_key:
+- pk: symbol
+- sk: record_type
+
+record_types:
+- session_vector#yyyy-mm-dd
+  purpose: manifest for one symbol and trading day
+- session_vector#yyyy-mm-dd#segment#nnn
+  purpose: one physical segment for the same symbol and trading day
+
+manifest_record_type:
+- symbol: string, uppercase stock symbol
+- record_type: string, formatted as session_vector#yyyy-mm-dd
+- trading_date: string, yyyy-mm-dd in America/Bogota
+- timezone: string, always America/Bogota
+- sampling_seconds: number, currently 30
+- session_start: string, iso-8601 session anchor in America/Bogota
+- session_end: string, iso-8601 session close anchor in America/Bogota
+- latest_sample_index: number
+- latest_captured_at: string, iso-8601 timestamp with timezone
+- segment_count: number
+- samples_per_segment: number
+- expires_at: number, unix epoch seconds used by DynamoDB TTL for 24-hour expiry
+
+segment_record_type:
+- symbol: string, uppercase stock symbol
+- record_type: string, formatted as session_vector#yyyy-mm-dd#segment#nnn
+- trading_date: string, yyyy-mm-dd in America/Bogota
+- timezone: string, always America/Bogota
+- segment_index: number
+- from_sample_index: number
+- to_sample_index: number
+- from_captured_at: string, earliest captured_at seen in the segment
+- to_captured_at: string, latest captured_at seen in the segment
+- microprice_series: list<number|null>
+- mid_price_series: list<number|null>
+- last_price_series: list<number|null>
+- vwap_series: list<number|null>, derived as traded_value / traded_volume when traded_volume > 0
+- expires_at: number, unix epoch seconds used by DynamoDB TTL for 24-hour expiry
+
+query_patterns:
+- load one full session for a symbol and day with one partition query
+- load only the manifest/head for a symbol and day
+- load only segments from a given segment index forward

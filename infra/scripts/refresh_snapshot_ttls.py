@@ -12,6 +12,7 @@ RAW_SNAPSHOT_TABLE_NAME = "trii-prod-snapshot-ingestion-raw"
 CURRENT_SNAPSHOTS_TABLE_NAME = "trii-prod-current-snapshots"
 SNAPSHOT_INGESTION_CHECKSUMS_TABLE_NAME = "trii-prod-snapshot-ingestion-checksums"
 PROCESSED_STATS_EVENTS_TABLE_NAME = "trii-prod-processed-stats-events"
+SESSION_VECTORS_TABLE_NAME = "trii-prod-session-vectors"
 
 TABLE_CONFIGS: dict[str, dict[str, Any]] = {
     "snapshot-ingestion-raw": {
@@ -41,6 +42,13 @@ TABLE_CONFIGS: dict[str, dict[str, Any]] = {
         "timestamp_field": "processed_at",
         "projection_fields": ["snapshot_checksum", "processed_at", "expires_at"],
         "key_fields": ["snapshot_checksum"],
+    },
+    "session-vectors": {
+        "table_name": SESSION_VECTORS_TABLE_NAME,
+        "retention_seconds": 24 * 60 * 60,
+        "timestamp_field": "latest_captured_at",
+        "projection_fields": ["symbol", "record_type", "latest_captured_at", "to_captured_at", "expires_at"],
+        "key_fields": ["symbol", "record_type"],
     },
 }
 
@@ -102,6 +110,8 @@ def _refresh_table_ttls(
         scanned_count += 1
         key = {field_name: str(item.get(field_name) or "").strip() for field_name in key_fields}
         base_timestamp = str(item.get(timestamp_field) or "").strip()
+        if timestamp_field == "latest_captured_at" and "#segment#" in str(item.get("record_type") or ""):
+            base_timestamp = str(item.get("to_captured_at") or "").strip()
         if any(not field_value for field_value in key.values()) or not base_timestamp:
             invalid_count += 1
             if len(invalid_keys) < 20:

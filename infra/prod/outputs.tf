@@ -63,6 +63,11 @@ output "zscore_opportunities_table_name" {
   value       = module.zscore_opportunities_table.name
 }
 
+output "session_vectors_table_name" {
+  description = "Session vectors DynamoDB table name."
+  value       = module.session_vectors_table.name
+}
+
 output "daily_closing_snapshots_table_name" {
   description = "Daily closing snapshots DynamoDB table name."
   value       = module.daily_closing_snapshots_table.name
@@ -106,6 +111,11 @@ output "market_ai_recommendation_handler_function_name" {
 output "analytics_catalog_updater_function_name" {
   description = "Analytics catalog updater Lambda function name."
   value       = module.analytics_catalog_updater.function_name
+}
+
+output "session_vectors_updater_function_name" {
+  description = "Session vectors updater Lambda function name."
+  value       = module.session_vectors_updater.function_name
 }
 
 output "analytics_catalog_backfill_function_name" {

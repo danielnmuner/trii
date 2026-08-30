@@ -26,6 +26,18 @@ module "http_api" {
       authorization_type = "NONE"
     },
     {
+      route_key          = "GET /analytics/session-vector"
+      authorization_type = "NONE"
+    },
+    {
+      route_key          = "GET /analytics/session-vector/head"
+      authorization_type = "NONE"
+    },
+    {
+      route_key          = "GET /analytics/session-vector/segments"
+      authorization_type = "NONE"
+    },
+    {
       route_key          = "GET /analytics/zscore-opportunities"
       authorization_type = "NONE"
     },

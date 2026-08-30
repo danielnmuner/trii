@@ -28,6 +28,7 @@ SNAPSHOT_INGESTION_CHECKSUMS_TABLE = os.environ["SNAPSHOT_INGESTION_CHECKSUMS_TA
 HISTORIC_STATS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["HISTORIC_STATS_TABLE"])
 DAILY_CLOSING_SNAPSHOTS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["DAILY_CLOSING_SNAPSHOTS_TABLE"])
 ZSCORE_OPPORTUNITIES_TABLE = DYNAMODB_RESOURCE.Table(os.environ["ZSCORE_OPPORTUNITIES_TABLE"])
+SESSION_VECTORS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["SESSION_VECTORS_TABLE"])
 MARKET_AI_RECOMMENDATIONS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["MARKET_AI_RECOMMENDATIONS_TABLE"])
 ANALYTICS_CATALOG_TABLE = DYNAMODB_RESOURCE.Table(os.environ["ANALYTICS_CATALOG_TABLE"])
 STOCK_ORDERS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["STOCK_ORDERS_TABLE"])
@@ -36,6 +37,8 @@ BOGOTA_TIMEZONE = ZoneInfo("America/Bogota")
 RAW_SNAPSHOT_TTL_SECONDS = 24 * 60 * 60
 CURRENT_SNAPSHOT_TTL_SECONDS = 48 * 60 * 60
 SNAPSHOT_INGESTION_CHECKSUM_TTL_SECONDS = 24 * 60 * 60
+SESSION_VECTOR_SAMPLING_SECONDS = 30
+SESSION_VECTOR_SAMPLES_PER_SEGMENT = 156
 EXPECTED_STOCK_ORDER_COLUMNS = (
     "Fecha y hora",
     "Símbolo de la acción",
@@ -559,6 +562,15 @@ def _parse_positive_limit(raw_value: str | None, *, default: int, maximum: int) 
     return min(parsed, maximum)
 
 
+def _parse_non_negative_int(raw_value: str | None, *, default: int, field_name: str) -> int:
+    if raw_value is None or raw_value == "":
+        return default
+    parsed = int(raw_value)
+    if parsed < 0:
+        raise ValueError(f"El parametro `{field_name}` no puede ser negativo.")
+    return parsed
+
+
 def _parse_iso_date(raw_value: str | None, *, field_name: str) -> str | None:
     if raw_value is None or raw_value == "":
         return None
@@ -784,6 +796,106 @@ def _list_zscore_opportunities(event: dict[str, Any]) -> dict[str, Any]:
         "since_captured_at": since_captured_at or None,
         "record_count": len(records),
         "records": _json_ready(_enrich_zscore_opportunity_records(records)),
+    }
+
+
+def _session_vector_manifest_record_type(trading_date: str) -> str:
+    return f"session_vector#{trading_date}"
+
+
+def _session_vector_segment_record_type(trading_date: str, segment_index: int) -> str:
+    return f"{_session_vector_manifest_record_type(trading_date)}#segment#{segment_index:03d}"
+
+
+def _session_vector_segment_prefix(trading_date: str) -> str:
+    return f"{_session_vector_manifest_record_type(trading_date)}#segment#"
+
+
+def _split_session_vector_items(items: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    manifest = None
+    segments: list[dict[str, Any]] = []
+    for item in items:
+        record_type = str(item.get("record_type") or "").strip()
+        if "#segment#" in record_type:
+            segments.append(item)
+        elif record_type:
+            manifest = item
+    segments.sort(key=lambda item: int(item.get("segment_index", 0) or 0))
+    return manifest, segments
+
+
+def _session_vector_symbol_and_date(event: dict[str, Any]) -> tuple[str, str]:
+    params = _query_params(event)
+    symbol = str(params.get("symbol") or "").strip().upper()
+    trading_date = _parse_iso_date(params.get("trading_date"), field_name="trading_date")
+    if not symbol:
+        raise ValueError("El parametro `symbol` es obligatorio para consultar session vectors.")
+    if not trading_date:
+        raise ValueError("El parametro `trading_date` es obligatorio para consultar session vectors.")
+    return symbol, trading_date
+
+
+def _get_session_vector(event: dict[str, Any]) -> dict[str, Any]:
+    symbol, trading_date = _session_vector_symbol_and_date(event)
+    response = SESSION_VECTORS_TABLE.query(
+        KeyConditionExpression=Key("symbol").eq(symbol)
+        & Key("record_type").begins_with(_session_vector_manifest_record_type(trading_date)),
+    )
+    manifest, segments = _split_session_vector_items(response.get("Items", []))
+
+    return {
+        "symbol": symbol,
+        "trading_date": trading_date,
+        "sampling_seconds": SESSION_VECTOR_SAMPLING_SECONDS,
+        "samples_per_segment": SESSION_VECTOR_SAMPLES_PER_SEGMENT,
+        "segment_count": len(segments),
+        "manifest": None if manifest is None else _json_ready(manifest),
+        "segments": _json_ready(segments),
+    }
+
+
+def _get_session_vector_head(event: dict[str, Any]) -> dict[str, Any]:
+    symbol, trading_date = _session_vector_symbol_and_date(event)
+    response = SESSION_VECTORS_TABLE.get_item(
+        Key={
+            "symbol": symbol,
+            "record_type": _session_vector_manifest_record_type(trading_date),
+        }
+    )
+    manifest = response.get("Item")
+    return {
+        "symbol": symbol,
+        "trading_date": trading_date,
+        "manifest": None if manifest is None else _json_ready(manifest),
+        "found": manifest is not None,
+    }
+
+
+def _get_session_vector_segments(event: dict[str, Any]) -> dict[str, Any]:
+    symbol, trading_date = _session_vector_symbol_and_date(event)
+    params = _query_params(event)
+    from_segment = _parse_non_negative_int(
+        params.get("from_segment"),
+        default=0,
+        field_name="from_segment",
+    )
+
+    response = SESSION_VECTORS_TABLE.query(
+        KeyConditionExpression=Key("symbol").eq(symbol)
+        & Key("record_type").between(
+            _session_vector_segment_record_type(trading_date, from_segment),
+            _session_vector_segment_record_type(trading_date, 999),
+        ),
+    )
+    _manifest, segments = _split_session_vector_items(response.get("Items", []))
+    segments = [item for item in segments if int(item.get("segment_index", 0) or 0) >= from_segment]
+
+    return {
+        "symbol": symbol,
+        "trading_date": trading_date,
+        "from_segment": from_segment,
+        "segment_count": len(segments),
+        "segments": _json_ready(segments),
     }
 
 
@@ -1674,6 +1786,36 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
                     "status": "ok",
                     "route": route_key,
                     "result": _get_analytics_snapshot(event),
+                },
+            )
+
+        if route_key == "GET /analytics/session-vector":
+            return _response(
+                200,
+                {
+                    "status": "ok",
+                    "route": route_key,
+                    "result": _get_session_vector(event),
+                },
+            )
+
+        if route_key == "GET /analytics/session-vector/head":
+            return _response(
+                200,
+                {
+                    "status": "ok",
+                    "route": route_key,
+                    "result": _get_session_vector_head(event),
+                },
+            )
+
+        if route_key == "GET /analytics/session-vector/segments":
+            return _response(
+                200,
+                {
+                    "status": "ok",
+                    "route": route_key,
+                    "result": _get_session_vector_segments(event),
                 },
             )
 

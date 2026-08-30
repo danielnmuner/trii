@@ -143,6 +143,21 @@ variable "zscore_opportunities_index_arns" {
   type        = list(string)
 }
 
+variable "session_vectors_table_name" {
+  description = "Session vectors table name."
+  type        = string
+}
+
+variable "session_vectors_table_arn" {
+  description = "Session vectors table ARN."
+  type        = string
+}
+
+variable "session_vectors_index_arns" {
+  description = "Session vectors table index ARNs."
+  type        = list(string)
+}
+
 variable "market_ai_recommendations_table_name" {
   description = "Market AI recommendations table name."
   type        = string

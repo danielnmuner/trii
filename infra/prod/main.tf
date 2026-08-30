@@ -24,6 +24,14 @@ module "zscore_opportunities_table" {
   tags         = local.common_tags
 }
 
+module "session_vectors_table" {
+  source = "./services/dynamodb/session-vectors-table"
+
+  environment  = local.environment
+  project_name = local.project_name
+  tags         = local.common_tags
+}
+
 module "daily_closing_snapshots_table" {
   source = "./services/dynamodb/daily-closing-snapshots-table"
 
@@ -195,6 +203,22 @@ module "analytics_catalog_updater" {
   analytics_catalog_table_arn  = module.analytics_catalog_table.arn
 }
 
+module "session_vectors_updater" {
+  source = "./services/lambda/session-vectors-updater"
+
+  environment                  = local.environment
+  project_name                 = local.project_name
+  tags                         = local.common_tags
+  current_snapshots_stream_arn = module.current_snapshots_table.stream_arn
+  current_snapshots_table_name = module.current_snapshots_table.name
+  current_snapshots_table_arn  = module.current_snapshots_table.arn
+  current_snapshots_index_arns = module.current_snapshots_table.index_arns
+  analytics_catalog_table_name = module.analytics_catalog_table.name
+  analytics_catalog_table_arn  = module.analytics_catalog_table.arn
+  session_vectors_table_name   = module.session_vectors_table.name
+  session_vectors_table_arn    = module.session_vectors_table.arn
+}
+
 module "analytics_catalog_backfill" {
   source = "./services/lambda/analytics-catalog-backfill"
 
@@ -243,6 +267,9 @@ module "api_handler" {
   zscore_opportunities_table_name         = module.zscore_opportunities_table.name
   zscore_opportunities_table_arn          = module.zscore_opportunities_table.arn
   zscore_opportunities_index_arns         = module.zscore_opportunities_table.index_arns
+  session_vectors_table_name              = module.session_vectors_table.name
+  session_vectors_table_arn               = module.session_vectors_table.arn
+  session_vectors_index_arns              = module.session_vectors_table.index_arns
   market_ai_recommendations_table_name    = module.market_ai_recommendations_table.name
   market_ai_recommendations_table_arn     = module.market_ai_recommendations_table.arn
   market_ai_recommendations_index_arns    = module.market_ai_recommendations_table.index_arns

@@ -188,3 +188,53 @@ def test_refresh_table_ttls_apply_supports_checksum_key_tables() -> None:
             "ExpressionAttributeValues": {":expires_at": 1788192600},
         },
     ]
+
+
+def test_refresh_table_ttls_apply_supports_session_vectors_manifest_and_segments() -> None:
+    fake_table = FakeTable(
+        [
+            {
+                "Items": [
+                    {
+                        "symbol": "ECOPETROL",
+                        "record_type": "session_vector#2026-08-30",
+                        "latest_captured_at": "2026-08-30T11:56:00-05:00",
+                        "expires_at": 1,
+                    },
+                    {
+                        "symbol": "ECOPETROL",
+                        "record_type": "session_vector#2026-08-30#segment#000",
+                        "to_captured_at": "2026-08-30T09:47:30-05:00",
+                        "expires_at": 2,
+                    },
+                ]
+            }
+        ]
+    )
+    refresh_snapshot_ttls.DYNAMODB_RESOURCE = FakeDynamoResource(
+        {"trii-prod-session-vectors": fake_table}
+    )
+
+    result = refresh_snapshot_ttls._refresh_table_ttls(
+        table_name="trii-prod-session-vectors",
+        retention_seconds=24 * 60 * 60,
+        timestamp_field="latest_captured_at",
+        projection_fields=["symbol", "record_type", "latest_captured_at", "to_captured_at", "expires_at"],
+        key_fields=["symbol", "record_type"],
+        apply=True,
+    )
+
+    assert result["scanned_count"] == 2
+    assert result["updated_count"] == 2
+    assert fake_table.update_calls == [
+        {
+            "Key": {"symbol": "ECOPETROL", "record_type": "session_vector#2026-08-30"},
+            "UpdateExpression": "SET expires_at = :expires_at",
+            "ExpressionAttributeValues": {":expires_at": 1788195360},
+        },
+        {
+            "Key": {"symbol": "ECOPETROL", "record_type": "session_vector#2026-08-30#segment#000"},
+            "UpdateExpression": "SET expires_at = :expires_at",
+            "ExpressionAttributeValues": {":expires_at": 1788187650},
+        },
+    ]
