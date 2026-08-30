@@ -31,6 +31,7 @@ HISTORIC_STATS_TABLE = os.environ["HISTORIC_STATS_TABLE"]
 PROCESSED_STATS_EVENTS_TABLE = os.environ["PROCESSED_STATS_EVENTS_TABLE"]
 MARKET_AI_RECOMMENDATION_HANDLER_FUNCTION = os.environ["MARKET_AI_RECOMMENDATION_HANDLER_FUNCTION"]
 ENABLED_STATISTICAL_METRICS = parse_metric_keys(os.environ.get("ENABLED_STATISTICAL_METRICS"))
+PROCESSED_STATS_EVENT_TTL_SECONDS = 24 * 60 * 60
 
 
 def _deserialize_item(raw_item: dict[str, Any]) -> dict[str, Any]:
@@ -246,6 +247,7 @@ def _transact_snapshot(snapshot: dict[str, Any], source_event_id: str) -> str:
             processed_units.append(str(data_quality_item["sk"]))
         if not processed_units:
             return "skipped-no-metrics"
+        processed_timestamp = datetime.now(BOGOTA_TIMEZONE)
         transact_items = [
             {
                 "Put": {
@@ -257,7 +259,9 @@ def _transact_snapshot(snapshot: dict[str, Any], source_event_id: str) -> str:
                             "symbol": symbol,
                             "captured_at": captured_at,
                             "symbol_captured_at": f"{symbol}#{captured_at}",
-                            "processed_at": datetime.now(BOGOTA_TIMEZONE).isoformat(),
+                            "processed_at": processed_timestamp.isoformat(),
+                            "expires_at": int(processed_timestamp.timestamp())
+                            + PROCESSED_STATS_EVENT_TTL_SECONDS,
                             "source_event_id": source_event_id,
                             "metrics_processed": processed_units,
                         }

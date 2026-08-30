@@ -3,6 +3,7 @@ table_name: trii-prod-processed-stats-events
 purpose:
 - keep incremental stats updates idempotent when DynamoDB Streams retries the same snapshot event
 - provide an auditable registry of raw snapshots already folded into historic stats
+- expire automatically after 24 hours
 
 primary_key:
 - pk: snapshot_checksum
@@ -22,6 +23,7 @@ record_type:
 - processed_at: string, iso-8601 timestamp with timezone
 - source_event_id: string, DynamoDB Streams event identifier when available
 - metrics_processed: list<string>
+- expires_at: number, unix epoch seconds used by DynamoDB TTL for 24-hour expiry
 
 query_patterns:
 - exact idempotency lookup by snapshot checksum

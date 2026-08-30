@@ -35,6 +35,7 @@ API_SHARED_TOKEN = os.environ["API_SHARED_TOKEN"]
 BOGOTA_TIMEZONE = ZoneInfo("America/Bogota")
 RAW_SNAPSHOT_TTL_SECONDS = 24 * 60 * 60
 CURRENT_SNAPSHOT_TTL_SECONDS = 48 * 60 * 60
+SNAPSHOT_INGESTION_CHECKSUM_TTL_SECONDS = 24 * 60 * 60
 EXPECTED_STOCK_ORDER_COLUMNS = (
     "Fecha y hora",
     "Símbolo de la acción",
@@ -507,6 +508,7 @@ def _persist_snapshot(body: dict[str, Any]) -> dict[str, Any]:
         "symbol_captured_at": item["symbol_captured_at"],
         "accepted_at": accepted_at,
         "source": str(snapshot.get("source") or "unknown"),
+        "expires_at": accepted_epoch + SNAPSHOT_INGESTION_CHECKSUM_TTL_SECONDS,
     }
 
     DYNAMODB_CLIENT.transact_write_items(

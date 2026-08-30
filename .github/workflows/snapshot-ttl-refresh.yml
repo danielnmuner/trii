@@ -14,12 +14,14 @@ on:
       table_scope:
         description: "Tablas a procesar"
         required: true
-        default: both
+        default: all
         type: choice
         options:
-          - both
+          - all
           - snapshot-ingestion-raw
           - current-snapshots
+          - snapshot-ingestion-checksums
+          - processed-stats-events
 
 permissions:
   contents: read
@@ -64,8 +66,13 @@ jobs:
           set -euo pipefail
 
           declare -a args
-          if [[ "${TABLE_SCOPE}" == "both" ]]; then
-            args+=(--table snapshot-ingestion-raw --table current-snapshots)
+          if [[ "${TABLE_SCOPE}" == "all" ]]; then
+            args+=(
+              --table snapshot-ingestion-raw
+              --table current-snapshots
+              --table snapshot-ingestion-checksums
+              --table processed-stats-events
+            )
           else
             args+=(--table "${TABLE_SCOPE}")
           fi
@@ -104,6 +111,8 @@ jobs:
             echo "- Table scope: \`${TABLE_SCOPE}\`"
             echo "- Raw table target TTL: \`24h\`"
             echo "- Current snapshots target TTL: \`48h\`"
+            echo "- Snapshot ingestion checksums target TTL: \`24h\`"
+            echo "- Processed stats events target TTL: \`24h\`"
             echo ""
             echo "### Result"
             echo '```json'

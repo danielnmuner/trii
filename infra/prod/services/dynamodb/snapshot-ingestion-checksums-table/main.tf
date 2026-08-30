@@ -18,5 +18,8 @@ module "table" {
     },
   ]
 
+  ttl_enabled        = true
+  ttl_attribute_name = "expires_at"
+
   tags = var.tags
 }

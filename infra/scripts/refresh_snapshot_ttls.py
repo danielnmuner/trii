@@ -10,15 +10,37 @@ import boto3
 
 RAW_SNAPSHOT_TABLE_NAME = "trii-prod-snapshot-ingestion-raw"
 CURRENT_SNAPSHOTS_TABLE_NAME = "trii-prod-current-snapshots"
+SNAPSHOT_INGESTION_CHECKSUMS_TABLE_NAME = "trii-prod-snapshot-ingestion-checksums"
+PROCESSED_STATS_EVENTS_TABLE_NAME = "trii-prod-processed-stats-events"
 
 TABLE_CONFIGS: dict[str, dict[str, Any]] = {
     "snapshot-ingestion-raw": {
         "table_name": RAW_SNAPSHOT_TABLE_NAME,
         "retention_seconds": 24 * 60 * 60,
+        "timestamp_field": "captured_at",
+        "projection_fields": ["symbol", "captured_at", "expires_at"],
+        "key_fields": ["symbol", "captured_at"],
     },
     "current-snapshots": {
         "table_name": CURRENT_SNAPSHOTS_TABLE_NAME,
         "retention_seconds": 48 * 60 * 60,
+        "timestamp_field": "captured_at",
+        "projection_fields": ["symbol", "captured_at", "expires_at"],
+        "key_fields": ["symbol", "captured_at"],
+    },
+    "snapshot-ingestion-checksums": {
+        "table_name": SNAPSHOT_INGESTION_CHECKSUMS_TABLE_NAME,
+        "retention_seconds": 24 * 60 * 60,
+        "timestamp_field": "accepted_at",
+        "projection_fields": ["snapshot_checksum", "accepted_at", "expires_at"],
+        "key_fields": ["snapshot_checksum"],
+    },
+    "processed-stats-events": {
+        "table_name": PROCESSED_STATS_EVENTS_TABLE_NAME,
+        "retention_seconds": 24 * 60 * 60,
+        "timestamp_field": "processed_at",
+        "projection_fields": ["snapshot_checksum", "processed_at", "expires_at"],
+        "key_fields": ["snapshot_checksum"],
     },
 }
 
@@ -30,16 +52,17 @@ def _parse_timestamp(raw_value: str) -> datetime:
     return datetime.fromisoformat(normalized)
 
 
-def _compute_expires_at(captured_at: str, retention_seconds: int) -> int:
-    captured_timestamp = _parse_timestamp(captured_at)
-    return int(captured_timestamp.timestamp()) + retention_seconds
+def _compute_expires_at(base_timestamp: str, retention_seconds: int) -> int:
+    timestamp = _parse_timestamp(base_timestamp)
+    return int(timestamp.timestamp()) + retention_seconds
 
 
-def _scan_projection(table) -> list[dict[str, Any]]:
+def _scan_projection(table, projection_fields: list[str]) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
+    expression_attribute_names = {f"#field{index}": field for index, field in enumerate(projection_fields)}
     scan_kwargs = {
-        "ProjectionExpression": "#symbol, captured_at, expires_at",
-        "ExpressionAttributeNames": {"#symbol": "symbol"},
+        "ProjectionExpression": ", ".join(expression_attribute_names.keys()),
+        "ExpressionAttributeNames": expression_attribute_names,
     }
     response = table.scan(**scan_kwargs)
     items.extend(response.get("Items", []))
@@ -56,9 +79,17 @@ def _get_dynamodb_resource():
     return DYNAMODB_RESOURCE
 
 
-def _refresh_table_ttls(*, table_name: str, retention_seconds: int, apply: bool) -> dict[str, Any]:
+def _refresh_table_ttls(
+    *,
+    table_name: str,
+    retention_seconds: int,
+    timestamp_field: str,
+    projection_fields: list[str],
+    key_fields: list[str],
+    apply: bool,
+) -> dict[str, Any]:
     table = _get_dynamodb_resource().Table(table_name)
-    items = _scan_projection(table)
+    items = _scan_projection(table, projection_fields)
 
     scanned_count = 0
     invalid_count = 0
@@ -69,20 +100,15 @@ def _refresh_table_ttls(*, table_name: str, retention_seconds: int, apply: bool)
 
     for item in items:
         scanned_count += 1
-        symbol = str(item.get("symbol") or "").strip()
-        captured_at = str(item.get("captured_at") or "").strip()
-        if not symbol or not captured_at:
+        key = {field_name: str(item.get(field_name) or "").strip() for field_name in key_fields}
+        base_timestamp = str(item.get(timestamp_field) or "").strip()
+        if any(not field_value for field_value in key.values()) or not base_timestamp:
             invalid_count += 1
             if len(invalid_keys) < 20:
-                invalid_keys.append(
-                    {
-                        "symbol": symbol,
-                        "captured_at": captured_at,
-                    }
-                )
+                invalid_keys.append({**key, timestamp_field: base_timestamp})
             continue
 
-        desired_expires_at = _compute_expires_at(captured_at, retention_seconds)
+        desired_expires_at = _compute_expires_at(base_timestamp, retention_seconds)
         current_expires_at = item.get("expires_at")
         try:
             current_expires_at_int = int(current_expires_at) if current_expires_at is not None else None
@@ -98,10 +124,7 @@ def _refresh_table_ttls(*, table_name: str, retention_seconds: int, apply: bool)
             continue
 
         table.update_item(
-            Key={
-                "symbol": symbol,
-                "captured_at": captured_at,
-            },
+            Key=key,
             UpdateExpression="SET expires_at = :expires_at",
             ExpressionAttributeValues={
                 ":expires_at": desired_expires_at,
@@ -150,6 +173,9 @@ def main() -> int:
         _refresh_table_ttls(
             table_name=str(TABLE_CONFIGS[table_name]["table_name"]),
             retention_seconds=int(TABLE_CONFIGS[table_name]["retention_seconds"]),
+            timestamp_field=str(TABLE_CONFIGS[table_name]["timestamp_field"]),
+            projection_fields=list(TABLE_CONFIGS[table_name]["projection_fields"]),
+            key_fields=list(TABLE_CONFIGS[table_name]["key_fields"]),
             apply=bool(args.apply),
         )
         for table_name in table_names
