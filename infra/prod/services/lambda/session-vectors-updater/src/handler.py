@@ -17,7 +17,8 @@ SAMPLING_SECONDS = 30
 SAMPLES_PER_SEGMENT = 156
 SESSION_START_TIME = time(hour=8, minute=30)
 SESSION_SAMPLE_COUNT = 780
-TTL_SECONDS = 24 * 60 * 60
+STREAM_TTL_SECONDS = 24 * 60 * 60
+MANUAL_TTL_SECONDS = 72 * 60 * 60
 
 DYNAMODB_RESOURCE = boto3.resource("dynamodb")
 DESERIALIZER = TypeDeserializer()
@@ -134,6 +135,7 @@ def _build_segment_item(
     mid_price: Decimal | None,
     last_price: Decimal | None,
     vwap: Decimal | None,
+    ttl_seconds: int,
 ) -> dict[str, Any]:
     record_type = _segment_record_type(trading_date, segment_index)
     segment_start_index = segment_index * SAMPLES_PER_SEGMENT
@@ -172,7 +174,7 @@ def _build_segment_item(
         "mid_price_series": mid_price_series,
         "last_price_series": last_price_series,
         "vwap_series": vwap_series,
-        "expires_at": int(captured_timestamp.timestamp()) + TTL_SECONDS,
+        "expires_at": int(captured_timestamp.timestamp()) + ttl_seconds,
     }
 
 
@@ -184,6 +186,7 @@ def _build_manifest_item(
     sample_index: int,
     captured_at: str,
     segment_index: int,
+    ttl_seconds: int,
 ) -> dict[str, Any]:
     existing_latest_sample_index = existing_item.get("latest_sample_index") if existing_item else None
     existing_latest_captured_at = str(existing_item.get("latest_captured_at") or "") if existing_item else ""
@@ -209,7 +212,7 @@ def _build_manifest_item(
         else existing_latest_captured_at,
         "segment_count": max(existing_segment_count, segment_index + 1),
         "samples_per_segment": SAMPLES_PER_SEGMENT,
-        "expires_at": int(captured_timestamp.timestamp()) + TTL_SECONDS,
+        "expires_at": int(captured_timestamp.timestamp()) + ttl_seconds,
     }
 
 
@@ -243,6 +246,7 @@ def _apply_snapshot(snapshot: dict[str, Any]) -> bool:
         mid_price=_to_decimal(snapshot.get("mid_price")),
         last_price=_to_decimal(snapshot.get("last_price")),
         vwap=_safe_divide(traded_value, traded_volume),
+        ttl_seconds=STREAM_TTL_SECONDS,
     )
     manifest_item = _build_manifest_item(
         _load_item(symbol, manifest_record_type),
@@ -251,6 +255,7 @@ def _apply_snapshot(snapshot: dict[str, Any]) -> bool:
         sample_index=sample_index,
         captured_at=captured_at.isoformat(),
         segment_index=segment_index,
+        ttl_seconds=STREAM_TTL_SECONDS,
     )
 
     SESSION_VECTORS_TABLE.put_item(Item=segment_item)
@@ -258,7 +263,13 @@ def _apply_snapshot(snapshot: dict[str, Any]) -> bool:
     return True
 
 
-def _build_session_items_for_symbol(symbol: str, trading_date: str, snapshots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _build_session_items_for_symbol(
+    symbol: str,
+    trading_date: str,
+    snapshots: list[dict[str, Any]],
+    *,
+    ttl_seconds: int,
+) -> list[dict[str, Any]]:
     session_snapshots: list[dict[str, Any]] = []
     for snapshot in snapshots:
         captured_at_raw = str(snapshot.get("captured_at") or "").strip()
@@ -327,7 +338,7 @@ def _build_session_items_for_symbol(symbol: str, trading_date: str, snapshots: l
                 "mid_price_series": mid_price_series,
                 "last_price_series": last_price_series,
                 "vwap_series": vwap_series,
-                "expires_at": int(segment_timestamp.timestamp()) + TTL_SECONDS,
+                "expires_at": int(segment_timestamp.timestamp()) + ttl_seconds,
             }
         )
 
@@ -347,7 +358,7 @@ def _build_session_items_for_symbol(symbol: str, trading_date: str, snapshots: l
             "latest_captured_at": str(latest_snapshot["captured_at"]),
             "segment_count": len(segment_snapshots),
             "samples_per_segment": SAMPLES_PER_SEGMENT,
-            "expires_at": int(latest_timestamp.timestamp()) + TTL_SECONDS,
+            "expires_at": int(latest_timestamp.timestamp()) + ttl_seconds,
         }
     )
     return items
@@ -374,6 +385,7 @@ def _rebuild_latest_trading_date_from_catalog() -> dict[str, Any]:
                 "step": "snapshots_loaded",
                 "trading_date": trading_date,
                 "snapshots_read": len(snapshots),
+                "ttl_hours": MANUAL_TTL_SECONDS // 3600,
             }
         )
     )
@@ -388,7 +400,12 @@ def _rebuild_latest_trading_date_from_catalog() -> dict[str, Any]:
     symbols_processed = 0
     with SESSION_VECTORS_TABLE.batch_writer() as batch:
         for symbol in sorted(snapshots_by_symbol):
-            items = _build_session_items_for_symbol(symbol, trading_date, snapshots_by_symbol[symbol])
+            items = _build_session_items_for_symbol(
+                symbol,
+                trading_date,
+                snapshots_by_symbol[symbol],
+                ttl_seconds=MANUAL_TTL_SECONDS,
+            )
             if not items:
                 continue
             for item in items:
@@ -404,6 +421,7 @@ def _rebuild_latest_trading_date_from_catalog() -> dict[str, Any]:
                 "trading_date": trading_date,
                 "symbols_processed": symbols_processed,
                 "written_items": written_items,
+                "ttl_hours": MANUAL_TTL_SECONDS // 3600,
             }
         )
     )
@@ -414,6 +432,7 @@ def _rebuild_latest_trading_date_from_catalog() -> dict[str, Any]:
         "snapshots_read": len(snapshots),
         "symbols_processed": symbols_processed,
         "written_items": written_items,
+        "ttl_hours": MANUAL_TTL_SECONDS // 3600,
     }
 
 

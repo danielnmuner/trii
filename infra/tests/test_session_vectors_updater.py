@@ -5,6 +5,8 @@ import json
 import os
 from decimal import Decimal
 from pathlib import Path
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -132,6 +134,9 @@ def test_handler_projects_snapshot_into_manifest_and_segment_items() -> None:
     assert segment["mid_price_series"] == [None, None, Decimal("2646")]
     assert segment["last_price_series"] == [None, None, Decimal("2645")]
     assert segment["vwap_series"] == [None, None, Decimal("2644")]
+    expected_expiry = int(datetime.fromisoformat("2026-08-30T08:31:00-05:00").astimezone(ZoneInfo("America/Bogota")).timestamp()) + (24 * 60 * 60)
+    assert manifest["expires_at"] == expected_expiry
+    assert segment["expires_at"] == expected_expiry
 
 
 def test_handler_manual_run_rebuilds_latest_catalog_day_for_all_symbols() -> None:
@@ -186,6 +191,7 @@ def test_handler_manual_run_rebuilds_latest_catalog_day_for_all_symbols() -> Non
         "snapshots_read": 3,
         "symbols_processed": 2,
         "written_items": 4,
+        "ttl_hours": 72,
     }
     assert current_snapshots.query_calls == 1
     assert table.batch_writer_put_count == 4
@@ -201,12 +207,16 @@ def test_handler_manual_run_rebuilds_latest_catalog_day_for_all_symbols() -> Non
     assert nuco_segment["mid_price_series"] == [Decimal("101"), Decimal("103")]
     assert nuco_segment["last_price_series"] == [Decimal("99"), Decimal("101")]
     assert nuco_segment["vwap_series"] == [Decimal("101"), Decimal("103")]
+    nuco_expected_expiry = int(datetime.fromisoformat("2026-08-30T08:30:30-05:00").astimezone(ZoneInfo("America/Bogota")).timestamp()) + (72 * 60 * 60)
+    assert nuco_manifest["expires_at"] == nuco_expected_expiry
+    assert nuco_segment["expires_at"] == nuco_expected_expiry
 
     assert ecopetrol_manifest["latest_sample_index"] == 1
     assert ecopetrol_segment["microprice_series"] == [None, Decimal("2640")]
     assert ecopetrol_segment["mid_price_series"] == [None, Decimal("2641")]
     assert ecopetrol_segment["last_price_series"] == [None, Decimal("2639")]
     assert ecopetrol_segment["vwap_series"] == [None, Decimal("2641")]
+    assert ecopetrol_manifest["expires_at"] == nuco_expected_expiry
 
 
 def test_handler_manual_run_returns_empty_summary_when_catalog_has_no_trading_day() -> None:

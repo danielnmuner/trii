@@ -180,25 +180,24 @@ class FakeDailyClosingSnapshotsTable:
 
 class FakeSessionVectorsTable:
     def get_item(self, *, Key: dict) -> dict:
-        assert Key == {
-            "symbol": "NUCO",
-            "record_type": "session_vector#2026-08-21",
-        }
-        return {
-            "Item": {
-                "symbol": "NUCO",
-                "record_type": "session_vector#2026-08-21",
-                "trading_date": "2026-08-21",
-                "timezone": "America/Bogota",
-                "sampling_seconds": 30,
-                "session_start": "2026-08-21T08:30:00-05:00",
-                "session_end": "2026-08-21T15:00:00-05:00",
-                "latest_sample_index": 62,
-                "latest_captured_at": "2026-08-21T09:01:00-05:00",
-                "segment_count": 1,
-                "samples_per_segment": 156,
+        assert Key["symbol"] == "NUCO"
+        if Key["record_type"] == "session_vector#2026-08-21":
+            return {
+                "Item": {
+                    "symbol": "NUCO",
+                    "record_type": "session_vector#2026-08-21",
+                    "trading_date": "2026-08-21",
+                    "timezone": "America/Bogota",
+                    "sampling_seconds": 30,
+                    "session_start": "2026-08-21T08:30:00-05:00",
+                    "session_end": "2026-08-21T15:00:00-05:00",
+                    "latest_sample_index": 62,
+                    "latest_captured_at": "2026-08-21T09:01:00-05:00",
+                    "segment_count": 1,
+                    "samples_per_segment": 156,
+                }
             }
-        }
+        return {}
 
     def query(self, **kwargs) -> dict:
         condition_values = getattr(kwargs["KeyConditionExpression"], "_values", ())
@@ -586,6 +585,26 @@ def test_handler_returns_session_vector_segments_from_segment_index() -> None:
     assert payload["result"]["from_segment"] == 1
     assert payload["result"]["segment_count"] == 1
     assert payload["result"]["segments"][0]["segment_index"] == 1
+
+
+def test_handler_falls_back_to_latest_available_session_vector_on_or_before_requested_date() -> None:
+    handler.SESSION_VECTORS_TABLE = FakeSessionVectorsTable()
+
+    response = handler.handler(
+        {
+            "routeKey": "GET /analytics/session-vector/head",
+            "headers": {"X-Api-Token": "test-token"},
+            "queryStringParameters": {"symbol": "nuco", "trading_date": "2026-08-22"},
+        },
+        None,
+    )
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 200
+    assert payload["status"] == "ok"
+    assert payload["result"]["found"] is True
+    assert payload["result"]["trading_date"] == "2026-08-21"
+    assert payload["result"]["manifest"]["record_type"] == "session_vector#2026-08-21"
 
 
 def test_handler_returns_zscore_opportunities_for_symbol_date_range() -> None:

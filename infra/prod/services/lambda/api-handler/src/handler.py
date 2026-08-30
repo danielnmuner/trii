@@ -811,6 +811,15 @@ def _session_vector_segment_prefix(trading_date: str) -> str:
     return f"{_session_vector_manifest_record_type(trading_date)}#segment#"
 
 
+def _session_vector_record_type_to_trading_date(record_type: str) -> str | None:
+    normalized = str(record_type or "").strip()
+    if not normalized.startswith("session_vector#") or "#segment#" in normalized:
+        return None
+
+    trading_date = normalized.removeprefix("session_vector#")
+    return trading_date if re.fullmatch(r"\d{4}-\d{2}-\d{2}", trading_date) else None
+
+
 def _split_session_vector_items(items: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
     manifest = None
     segments: list[dict[str, Any]] = []
@@ -835,8 +844,36 @@ def _session_vector_symbol_and_date(event: dict[str, Any]) -> tuple[str, str]:
     return symbol, trading_date
 
 
+def _resolve_available_session_vector_trading_date(symbol: str, requested_trading_date: str) -> str | None:
+    exact_manifest = SESSION_VECTORS_TABLE.get_item(
+        Key={
+            "symbol": symbol,
+            "record_type": _session_vector_manifest_record_type(requested_trading_date),
+        }
+    ).get("Item")
+    if exact_manifest is not None:
+        return requested_trading_date
+
+    response = SESSION_VECTORS_TABLE.query(
+        KeyConditionExpression=Key("symbol").eq(symbol)
+        & Key("record_type").begins_with("session_vector#"),
+    )
+    candidate_dates = sorted(
+        {
+            trading_date
+            for item in response.get("Items", [])
+            if (trading_date := _session_vector_record_type_to_trading_date(str(item.get("record_type") or "")))
+            and trading_date <= requested_trading_date
+        },
+        reverse=True,
+    )
+
+    return candidate_dates[0] if candidate_dates else None
+
+
 def _get_session_vector(event: dict[str, Any]) -> dict[str, Any]:
-    symbol, trading_date = _session_vector_symbol_and_date(event)
+    symbol, requested_trading_date = _session_vector_symbol_and_date(event)
+    trading_date = _resolve_available_session_vector_trading_date(symbol, requested_trading_date) or requested_trading_date
     response = SESSION_VECTORS_TABLE.query(
         KeyConditionExpression=Key("symbol").eq(symbol)
         & Key("record_type").begins_with(_session_vector_manifest_record_type(trading_date)),
@@ -855,7 +892,8 @@ def _get_session_vector(event: dict[str, Any]) -> dict[str, Any]:
 
 
 def _get_session_vector_head(event: dict[str, Any]) -> dict[str, Any]:
-    symbol, trading_date = _session_vector_symbol_and_date(event)
+    symbol, requested_trading_date = _session_vector_symbol_and_date(event)
+    trading_date = _resolve_available_session_vector_trading_date(symbol, requested_trading_date) or requested_trading_date
     response = SESSION_VECTORS_TABLE.get_item(
         Key={
             "symbol": symbol,
@@ -872,7 +910,8 @@ def _get_session_vector_head(event: dict[str, Any]) -> dict[str, Any]:
 
 
 def _get_session_vector_segments(event: dict[str, Any]) -> dict[str, Any]:
-    symbol, trading_date = _session_vector_symbol_and_date(event)
+    symbol, requested_trading_date = _session_vector_symbol_and_date(event)
+    trading_date = _resolve_available_session_vector_trading_date(symbol, requested_trading_date) or requested_trading_date
     params = _query_params(event)
     from_segment = _parse_non_negative_int(
         params.get("from_segment"),
