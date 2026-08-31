@@ -161,6 +161,8 @@ jobs:
           set -euo pipefail
           aws lambda invoke \
             --function-name trii-prod-historic-stats-backfill \
+            --cli-read-timeout 0 \
+            --cli-connect-timeout 60 \
             --cli-binary-format raw-in-base64-out \
             --payload fileb://payload.json \
             response.json \
