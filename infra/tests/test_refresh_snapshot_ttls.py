@@ -94,7 +94,7 @@ def test_refresh_table_ttls_preview_reports_changes_without_writing() -> None:
     assert len(fake_table.scan_calls) == 2
 
 
-def test_refresh_table_ttls_apply_overwrites_every_valid_item() -> None:
+def test_refresh_table_ttls_apply_updates_only_changed_items() -> None:
     fake_table = FakeTable(
         [
             {
@@ -102,7 +102,7 @@ def test_refresh_table_ttls_apply_overwrites_every_valid_item() -> None:
                     {
                         "symbol": "ISA",
                         "captured_at": "2026-08-30T10:00:00-05:00",
-                        "expires_at": 1,
+                        "expires_at": 1788188400,
                     },
                     {
                         "symbol": "CIB",
@@ -127,13 +127,10 @@ def test_refresh_table_ttls_apply_overwrites_every_valid_item() -> None:
     )
 
     assert result["scanned_count"] == 2
-    assert result["updated_count"] == 2
+    assert result["unchanged_count"] == 1
+    assert result["would_change_count"] == 1
+    assert result["updated_count"] == 1
     assert fake_table.update_calls == [
-        {
-            "Key": {"symbol": "ISA", "captured_at": "2026-08-30T10:00:00-05:00"},
-            "UpdateExpression": "SET expires_at = :expires_at",
-            "ExpressionAttributeValues": {":expires_at": 1788188400},
-        },
         {
             "Key": {"symbol": "CIB", "captured_at": "2026-08-30T10:10:00-05:00"},
             "UpdateExpression": "SET expires_at = :expires_at",

@@ -33,29 +33,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  refresh:
+  resolve:
     runs-on: ubuntu-latest
+    outputs:
+      apply_mode: ${{ steps.command.outputs.apply_mode }}
+      table_scope: ${{ steps.command.outputs.table_scope }}
+      tables_json: ${{ steps.command.outputs.tables_json }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
       - name: Enforce main branch
         run: |
           if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
             echo "This workflow must run from main because the IAM trust policy is expected to allow the main branch."
             exit 1
           fi
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6.1.0
-        with:
-          aws-region: us-east-1
-          role-to-assume: arn:aws:iam::311923415472:role/GitHubTerraformTriiRole
-          role-session-name: github-actions-snapshot-ttl-refresh
-          allowed-account-ids: 311923415472
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v6
 
       - name: Resolve command
         id: command
@@ -66,65 +56,99 @@ jobs:
         run: |
           set -euo pipefail
 
-          declare -a args
+          declare -a tables
           if [[ "${TABLE_SCOPE}" == "all" ]]; then
-            args+=(
-              --table snapshot-ingestion-raw
-              --table current-snapshots
-              --table snapshot-ingestion-checksums
-              --table processed-stats-events
-              --table session-vectors
+            tables+=(
+              snapshot-ingestion-raw
+              current-snapshots
+              snapshot-ingestion-checksums
+              processed-stats-events
+              session-vectors
             )
           else
-            args+=(--table "${TABLE_SCOPE}")
+            tables+=("${TABLE_SCOPE}")
           fi
+
+          tables_json="$(printf '%s\n' "${tables[@]}" | jq -R . | jq -sc .)"
+
+          {
+            echo "apply_mode=${APPLY_MODE}"
+            echo "table_scope=${TABLE_SCOPE}"
+            echo "tables_json=${tables_json}"
+          } >> "${GITHUB_OUTPUT}"
+
+  refresh:
+    needs: resolve
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        table: ${{ fromJson(needs.resolve.outputs.tables_json) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::311923415472:role/GitHubTerraformTriiRole
+          role-session-name: github-actions-snapshot-ttl-refresh-${{ matrix.table }}
+          allowed-account-ids: 311923415472
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Execute TTL refresh
+        shell: bash
+        env:
+          APPLY_MODE: ${{ needs.resolve.outputs.apply_mode }}
+          TABLE_NAME: ${{ matrix.table }}
+        run: |
+          set -euo pipefail
+
+          declare -a args
+          args+=(--table "${TABLE_NAME}")
 
           if [[ "${APPLY_MODE}" == "apply" ]]; then
             args+=(--apply)
           fi
 
-          command="uv run infra/scripts/refresh_snapshot_ttls.py"
-          for arg in "${args[@]}"; do
-            command+=" $(printf '%q' "${arg}")"
-          done
-
-          {
-            echo "command=${command}"
-            echo "apply_mode=${APPLY_MODE}"
-            echo "table_scope=${TABLE_SCOPE}"
-          } >> "${GITHUB_OUTPUT}"
-
-      - name: Execute TTL refresh
-        shell: bash
-        run: |
-          set -euo pipefail
-          ${{ steps.command.outputs.command }} | tee snapshot-ttl-refresh.json
+          uv run infra/scripts/refresh_snapshot_ttls.py "${args[@]}" | tee "snapshot-ttl-refresh-${TABLE_NAME}.json"
 
       - name: Publish summary
         shell: bash
         env:
-          APPLY_MODE: ${{ steps.command.outputs.apply_mode }}
-          TABLE_SCOPE: ${{ steps.command.outputs.table_scope }}
+          APPLY_MODE: ${{ needs.resolve.outputs.apply_mode }}
+          TABLE_SCOPE: ${{ needs.resolve.outputs.table_scope }}
+          TABLE_NAME: ${{ matrix.table }}
         run: |
+          case "${TABLE_NAME}" in
+            snapshot-ingestion-raw) ttl_target="24h" ;;
+            current-snapshots) ttl_target="48h" ;;
+            snapshot-ingestion-checksums) ttl_target="24h" ;;
+            processed-stats-events) ttl_target="24h" ;;
+            session-vectors) ttl_target="24h" ;;
+            *) ttl_target="unknown" ;;
+          esac
+
           {
             echo "## Snapshot TTL refresh"
             echo ""
             echo "- Apply mode: \`${APPLY_MODE}\`"
             echo "- Table scope: \`${TABLE_SCOPE}\`"
-            echo "- Raw table target TTL: \`24h\`"
-            echo "- Current snapshots target TTL: \`48h\`"
-            echo "- Snapshot ingestion checksums target TTL: \`24h\`"
-            echo "- Processed stats events target TTL: \`24h\`"
-            echo "- Session vectors target TTL: \`24h\`"
+            echo "- Table: \`${TABLE_NAME}\`"
+            echo "- Target TTL: \`${ttl_target}\`"
             echo ""
             echo "### Result"
             echo '```json'
-            cat snapshot-ttl-refresh.json
+            cat "snapshot-ttl-refresh-${TABLE_NAME}.json"
             echo '```'
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: snapshot-ttl-refresh-${{ github.run_id }}
-          path: snapshot-ttl-refresh.json
+          name: snapshot-ttl-refresh-${{ github.run_id }}-${{ matrix.table }}
+          path: snapshot-ttl-refresh-${{ matrix.table }}.json

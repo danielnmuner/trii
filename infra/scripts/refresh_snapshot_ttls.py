@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import datetime
 from typing import Any
 
@@ -97,7 +98,29 @@ def _refresh_table_ttls(
     apply: bool,
 ) -> dict[str, Any]:
     table = _get_dynamodb_resource().Table(table_name)
+    print(
+        json.dumps(
+            {
+                "table_name": table_name,
+                "step": "scan_started",
+                "apply": apply,
+                "retention_hours": retention_seconds // 3600,
+            }
+        ),
+        file=sys.stderr,
+    )
     items = _scan_projection(table, projection_fields)
+    print(
+        json.dumps(
+            {
+                "table_name": table_name,
+                "step": "scan_completed",
+                "apply": apply,
+                "scanned_count": len(items),
+            }
+        ),
+        file=sys.stderr,
+    )
 
     scanned_count = 0
     invalid_count = 0
@@ -127,6 +150,7 @@ def _refresh_table_ttls(
 
         if current_expires_at_int == desired_expires_at:
             unchanged_count += 1
+            continue
         else:
             would_change_count += 1
 
@@ -142,7 +166,19 @@ def _refresh_table_ttls(
         )
         updated_count += 1
 
-    return {
+        if updated_count % 10000 == 0:
+            print(
+                json.dumps(
+                    {
+                        "table_name": table_name,
+                        "step": "apply_progress",
+                        "updated_count": updated_count,
+                    }
+                ),
+                file=sys.stderr,
+            )
+
+    result = {
         "table_name": table_name,
         "retention_hours": retention_seconds // 3600,
         "apply": apply,
@@ -153,6 +189,21 @@ def _refresh_table_ttls(
         "updated_count": updated_count,
         "invalid_keys": invalid_keys,
     }
+    print(
+        json.dumps(
+            {
+                "table_name": table_name,
+                "step": "table_completed",
+                "apply": apply,
+                "scanned_count": scanned_count,
+                "would_change_count": would_change_count,
+                "updated_count": updated_count,
+                "invalid_count": invalid_count,
+            }
+        ),
+        file=sys.stderr,
+    )
+    return result
 
 
 def _build_parser() -> argparse.ArgumentParser:
