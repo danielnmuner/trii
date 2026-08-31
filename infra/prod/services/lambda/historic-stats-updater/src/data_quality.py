@@ -10,6 +10,7 @@ EXPECTED_INTERVAL_SECONDS = 60
 WARNING_GAP_SECONDS = 10 * 60
 CRITICAL_GAP_SECONDS = 30 * 60
 DATA_QUALITY_SCOPE = "intraday_data_quality"
+DATA_QUALITY_RECORD_TYPE = "data_quality"
 
 
 def parse_captured_at(raw_value: str) -> datetime:
@@ -19,8 +20,8 @@ def parse_captured_at(raw_value: str) -> datetime:
     return timestamp.astimezone(BOGOTA_TIMEZONE)
 
 
-def build_data_quality_sk(trading_date: date) -> str:
-    return f"data_quality#{trading_date.isoformat()}"
+def build_data_quality_sk() -> str:
+    return DATA_QUALITY_RECORD_TYPE
 
 
 def market_session_bounds(trading_date: date) -> tuple[datetime, datetime]:
@@ -80,15 +81,19 @@ def build_data_quality_item(
     if not is_market_session_timestamp(current_timestamp):
         return None
 
+    current_trading_date = current_timestamp.date().isoformat()
+    previous_trading_date = str(previous_item.get("trading_date") or "").strip() if previous_item else ""
+    reset_for_new_day = previous_trading_date != current_trading_date
+
     session_start, session_end = market_session_bounds(current_timestamp.date())
-    gap_warnings = list(previous_item.get("gap_warnings", [])) if previous_item else []
-    gap_count = int(previous_item.get("gap_count", 0) or 0) if previous_item else 0
-    largest_gap_seconds = int(previous_item.get("largest_gap_seconds", 0) or 0) if previous_item else 0
-    largest_gap_started_at = previous_item.get("largest_gap_started_at") if previous_item else None
-    largest_gap_ended_at = previous_item.get("largest_gap_ended_at") if previous_item else None
+    gap_warnings = [] if reset_for_new_day else list(previous_item.get("gap_warnings", [])) if previous_item else []
+    gap_count = 0 if reset_for_new_day else int(previous_item.get("gap_count", 0) or 0) if previous_item else 0
+    largest_gap_seconds = 0 if reset_for_new_day else int(previous_item.get("largest_gap_seconds", 0) or 0) if previous_item else 0
+    largest_gap_started_at = None if reset_for_new_day else previous_item.get("largest_gap_started_at") if previous_item else None
+    largest_gap_ended_at = None if reset_for_new_day else previous_item.get("largest_gap_ended_at") if previous_item else None
 
     gap_warning = None
-    if previous_timestamp is not None:
+    if previous_timestamp is not None and not reset_for_new_day:
         gap_warning = _gap_warning(previous_timestamp, current_timestamp)
 
     if gap_warning is not None:
@@ -106,13 +111,11 @@ def build_data_quality_item(
         quality_status = "warning"
 
     stats_version = int(previous_item["stats_version"]) + 1 if previous_item else 1
-    trading_date = current_timestamp.date()
-
     return {
         "pk": symbol,
-        "sk": build_data_quality_sk(trading_date),
+        "sk": build_data_quality_sk(),
         "symbol": symbol,
-        "trading_date": trading_date.isoformat(),
+        "trading_date": current_trading_date,
         "sample_name": DATA_QUALITY_SCOPE,
         "expected_interval_seconds": EXPECTED_INTERVAL_SECONDS,
         "warning_gap_seconds": WARNING_GAP_SECONDS,

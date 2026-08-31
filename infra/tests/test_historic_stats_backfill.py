@@ -110,6 +110,41 @@ def test_rebuild_stat_items_from_snapshots_recomputes_selected_metrics_only() ->
     assert spread_bps_item["stddev"] > 0
 
 
+def test_rebuild_stat_items_from_snapshots_can_build_vwap_only() -> None:
+    snapshots = [
+        {
+            "symbol": "NUCO",
+            "captured_at": "2026-08-20T10:00:00-05:00",
+            "snapshot_checksum": "checksum-1",
+            "traded_volume": 100,
+            "traded_value": 1400,
+        },
+        {
+            "symbol": "NUCO",
+            "captured_at": "2026-08-20T10:01:00-05:00",
+            "snapshot_checksum": "checksum-2",
+            "traded_volume": 160,
+            "traded_value": 2560,
+        },
+    ]
+
+    rebuilt_items = rebuild_stat_items_from_snapshots(
+        snapshots,
+        ("vwap",),
+        datetime.fromisoformat("2026-08-20T11:00:00-05:00"),
+    )
+
+    assert set(rebuilt_items) == {("NUCO", "vwap")}
+
+    vwap_item = rebuilt_items[("NUCO", "vwap")]
+    assert vwap_item["sample_count"] == 2
+    assert vwap_item["min_value"] == Decimal("14")
+    assert vwap_item["max_value"] == Decimal("16")
+    assert vwap_item["latest_value"] == Decimal("16")
+    assert vwap_item["mean"] == Decimal("15")
+    assert vwap_item["last_source_checksum"] == "checksum-2"
+
+
 def test_rebuild_stat_items_from_snapshots_can_build_seasonality_profile() -> None:
     snapshots = [
         {

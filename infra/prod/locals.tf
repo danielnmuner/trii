@@ -14,6 +14,7 @@ locals {
     "depth_weighted_microprice_deviation",
     "traded_volume",
     "traded_value",
+    "vwap",
     "volume_rate",
     "value_rate",
   ]

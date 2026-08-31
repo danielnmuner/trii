@@ -46,7 +46,8 @@ def test_build_data_quality_item_starts_healthy_and_tracks_last_snapshot() -> No
 
     assert item is not None
     assert item["pk"] == "NUCO"
-    assert item["sk"] == "data_quality#2026-08-20"
+    assert item["sk"] == "data_quality"
+    assert item["trading_date"] == "2026-08-20"
     assert item["quality_status"] == "healthy"
     assert item["gap_count"] == 0
     assert item["gap_warnings"] == []
@@ -100,3 +101,44 @@ def test_build_data_quality_item_accumulates_multiple_gaps_during_the_day() -> N
     assert third["largest_gap_started_at"] == "2026-08-20T14:10:00-05:00"
     assert third["largest_gap_ended_at"] == "2026-08-20T14:45:00-05:00"
     assert len(third["gap_warnings"]) == 2
+
+
+def test_build_data_quality_item_reuses_single_record_and_resets_on_new_day() -> None:
+    previous_day = build_data_quality_item(
+        None,
+        symbol="NUCO",
+        current_timestamp=datetime.fromisoformat("2026-08-20T10:15:00-05:00"),
+        previous_timestamp=None,
+        updated_at=datetime.fromisoformat("2026-08-20T10:15:10-05:00"),
+    )
+    assert previous_day is not None
+
+    previous_day = build_data_quality_item(
+        previous_day,
+        symbol="NUCO",
+        current_timestamp=datetime.fromisoformat("2026-08-20T10:29:00-05:00"),
+        previous_timestamp=datetime.fromisoformat("2026-08-20T10:15:00-05:00"),
+        updated_at=datetime.fromisoformat("2026-08-20T10:29:10-05:00"),
+    )
+    assert previous_day is not None
+    assert previous_day["gap_count"] == 1
+    assert previous_day["stats_version"] == 2
+
+    current_day = build_data_quality_item(
+        previous_day,
+        symbol="NUCO",
+        current_timestamp=datetime.fromisoformat("2026-08-21T10:00:00-05:00"),
+        previous_timestamp=datetime.fromisoformat("2026-08-20T14:59:00-05:00"),
+        updated_at=datetime.fromisoformat("2026-08-21T10:00:10-05:00"),
+    )
+
+    assert current_day is not None
+    assert current_day["sk"] == "data_quality"
+    assert current_day["trading_date"] == "2026-08-21"
+    assert current_day["gap_count"] == 0
+    assert current_day["gap_warnings"] == []
+    assert current_day["largest_gap_seconds"] == 0
+    assert current_day["largest_gap_started_at"] is None
+    assert current_day["largest_gap_ended_at"] is None
+    assert current_day["quality_status"] == "healthy"
+    assert current_day["stats_version"] == 3

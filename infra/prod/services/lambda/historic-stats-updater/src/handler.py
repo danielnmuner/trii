@@ -10,7 +10,7 @@ import boto3
 from boto3.dynamodb.conditions import Key
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 from botocore.exceptions import ClientError
-from data_quality import build_data_quality_item, parse_captured_at
+from data_quality import build_data_quality_item, build_data_quality_sk, parse_captured_at
 from seasonality_profile import (
     SEASONALITY_PROFILE_KEY,
     build_seasonality_profile_item,
@@ -184,10 +184,10 @@ def _load_previous_snapshot(symbol: str, captured_at: str) -> dict[str, Any] | N
     return items[1]
 
 
-def _load_existing_data_quality_item(symbol: str, trading_date: str) -> dict[str, Any] | None:
+def _load_existing_data_quality_item(symbol: str) -> dict[str, Any] | None:
     response = DYNAMODB_CLIENT.get_item(
         TableName=HISTORIC_STATS_TABLE,
-        Key=_serialize_item({"pk": symbol, "sk": f"data_quality#{trading_date}"}),
+        Key=_serialize_item({"pk": symbol, "sk": build_data_quality_sk()}),
     )
     item = response.get("Item")
     return None if item is None else _deserialize_item(item)
@@ -225,7 +225,7 @@ def _transact_snapshot(snapshot: dict[str, Any], source_event_id: str) -> str:
 
     for _attempt in range(3):
         previous_items = _load_existing_stat_items(symbol, metric_names)
-        previous_data_quality_item = _load_existing_data_quality_item(symbol, captured_at[:10])
+        previous_data_quality_item = _load_existing_data_quality_item(symbol)
         previous_seasonality_item = _load_existing_seasonality_item(symbol)
         data_quality_item = build_data_quality_item(
             previous_data_quality_item,

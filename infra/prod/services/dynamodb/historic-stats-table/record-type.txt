@@ -9,7 +9,7 @@ purpose:
 
 primary_key:
 - pk: symbol
-- sk: metric or data_quality#yyyy-mm-dd
+- sk: metric, seasonality_profile, or data_quality
 
 global_secondary_indexes:
 - gsi1
@@ -90,7 +90,7 @@ seasonality_profile_record_type:
 
 data_quality_record_type:
 - pk: string, uppercase stock symbol
-- sk: string, formatted as data_quality#yyyy-mm-dd
+- sk: string, fixed value data_quality
 - symbol: string, uppercase stock symbol
 - trading_date: string, yyyy-mm-dd in America/Bogota
 - sample_name: string, currently intraday_data_quality
@@ -117,6 +117,7 @@ official_statistical_metrics_from_raw_snapshot:
 - depth_weighted_microprice_deviation = microprice - mid_price
 - traded_volume = cumulative traded volume reported in the snapshot
 - traded_value = cumulative traded value reported in the snapshot
+- vwap = traded_value / traded_volume when traded_volume > 0
 - volume_rate = (traded_volume_t - traded_volume_t-1) / delta_seconds for contiguous snapshots in the same trading day
 - value_rate = (traded_value_t - traded_value_t-1) / delta_seconds for contiguous snapshots in the same trading day
 
@@ -139,7 +140,7 @@ excluded_operational_snapshot_fields:
 
 query_patterns:
 - fetch the full incremental market sample for one symbol
-- fetch the current trading-day data quality record for one symbol
+- fetch the current reusable data quality record for one symbol
 - fetch one metric timeline for one symbol through gsi1
 
 backfill_policy:

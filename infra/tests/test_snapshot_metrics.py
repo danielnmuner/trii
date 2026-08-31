@@ -60,6 +60,7 @@ def test_extract_metric_values_keeps_only_official_statistical_metrics() -> None
         "depth_weighted_microprice_deviation",
         "traded_volume",
         "traded_value",
+        "vwap",
     }
     assert "spread" not in metrics
     assert "bid_depth_total_5" not in metrics
@@ -79,6 +80,7 @@ def test_extract_metric_values_computes_expected_microstructure_values() -> None
     assert metrics["obi_top_5"] == Decimal("0.2857142857142857142857142857")
     assert metrics["traded_volume"] == Decimal("50256")
     assert metrics["traded_value"] == Decimal("2213492380")
+    assert metrics["vwap"] == Decimal("2213492380") / Decimal("50256")
 
 
 def test_extract_metric_values_can_compute_global_rate_metrics() -> None:
@@ -103,6 +105,17 @@ def test_extract_metric_values_can_compute_global_rate_metrics() -> None:
 
     assert metrics["volume_rate"] == Decimal("4")
     assert metrics["value_rate"] == Decimal("220000")
+
+
+def test_extract_metric_values_can_compute_vwap_directly() -> None:
+    metrics = extract_metric_values(
+        _sample_snapshot(),
+        ("vwap",),
+    )
+
+    assert metrics == {
+        "vwap": Decimal("2213492380") / Decimal("50256"),
+    }
 
 
 def test_build_stat_item_uses_welford_incrementally_for_market_sample() -> None:
@@ -158,6 +171,7 @@ def test_parse_metric_keys_defaults_to_all_supported_metrics() -> None:
         "depth_weighted_microprice_deviation",
         "traded_volume",
         "traded_value",
+        "vwap",
         "volume_rate",
         "value_rate",
     )

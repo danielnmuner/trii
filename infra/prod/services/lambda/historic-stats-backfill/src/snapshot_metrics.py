@@ -11,6 +11,7 @@ SUPPORTED_STATISTICAL_METRIC_KEYS = (
     "depth_weighted_microprice_deviation",
     "traded_volume",
     "traded_value",
+    "vwap",
     "volume_rate",
     "value_rate",
     "seasonality_profile",
@@ -173,6 +174,11 @@ def derive_metric_values(
     traded_value = to_decimal(snapshot.get("traded_value"))
     if traded_value is not None:
         metrics["traded_value"] = traded_value
+
+    if traded_volume is not None and traded_value is not None and traded_volume > 0:
+        vwap = safe_divide(traded_value, traded_volume)
+        if vwap is not None:
+            metrics["vwap"] = vwap
 
     if previous_snapshot is not None:
         current_trading_date = _get_trading_date(snapshot)
