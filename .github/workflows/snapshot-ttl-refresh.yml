@@ -95,6 +95,7 @@ jobs:
           aws-region: us-east-1
           role-to-assume: arn:aws:iam::311923415472:role/GitHubTerraformTriiRole
           role-session-name: github-actions-snapshot-ttl-refresh-${{ matrix.table }}
+          role-duration-seconds: 14400
           allowed-account-ids: 311923415472
 
       - name: Setup uv
