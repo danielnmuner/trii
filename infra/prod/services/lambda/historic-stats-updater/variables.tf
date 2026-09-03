@@ -53,16 +53,6 @@ variable "processed_stats_events_index_arns" {
   type        = list(string)
 }
 
-variable "market_ai_recommendation_handler_function_name" {
-  description = "Market AI recommendation handler Lambda function name."
-  type        = string
-}
-
-variable "market_ai_recommendation_handler_function_arn" {
-  description = "Market AI recommendation handler Lambda function ARN."
-  type        = string
-}
-
 variable "enabled_statistical_metrics" {
   description = "Statistical metrics that the live updater is allowed to persist."
   type        = list(string)

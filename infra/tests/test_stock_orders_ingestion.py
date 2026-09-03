@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import base64
+import csv
 import importlib
 import os
 import sys
 from pathlib import Path
+from io import StringIO
 
 from botocore.exceptions import ClientError
 
@@ -15,13 +17,10 @@ if str(LAMBDA_SRC) not in sys.path:
     sys.path.insert(0, str(LAMBDA_SRC))
 
 os.environ.setdefault("CURRENT_SNAPSHOTS_TABLE", "test-current-snapshots")
-os.environ.setdefault("SNAPSHOT_INGESTION_RAW_TABLE", "test-snapshot-raw")
 os.environ.setdefault("SNAPSHOT_INGESTION_CHECKSUMS_TABLE", "test-snapshot-checksums")
 os.environ.setdefault("HISTORIC_STATS_TABLE", "test-historic-stats")
 os.environ.setdefault("DAILY_CLOSING_SNAPSHOTS_TABLE", "test-daily-closing")
-os.environ.setdefault("ZSCORE_OPPORTUNITIES_TABLE", "test-zscore-opportunities")
 os.environ.setdefault("SESSION_VECTORS_TABLE", "test-session-vectors")
-os.environ.setdefault("MARKET_AI_RECOMMENDATIONS_TABLE", "test-market-ai")
 os.environ.setdefault("ANALYTICS_CATALOG_TABLE", "test-analytics-catalog")
 os.environ.setdefault("STOCK_ORDERS_TABLE", "test-stock-orders")
 os.environ.setdefault("PARSED_INVOICES_TABLE", "test-parsed-invoices")
@@ -49,7 +48,50 @@ class FakeStockOrdersTable:
 
 
 def _build_orders_payload() -> dict[str, str]:
-    raw_bytes = (ROOT_DIR / "orders-trii.csv").read_bytes()
+    buffer = StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=handler.EXPECTED_STOCK_ORDER_COLUMNS)
+    writer.writeheader()
+    writer.writerow(
+        dict(
+            zip(
+                handler.EXPECTED_STOCK_ORDER_COLUMNS,
+                [
+                    "13 ago 2026, 1:59 p. m.",
+                    "NUCO",
+                    "Venta",
+                    "Cancelado",
+                    "0",
+                    "0",
+                    "43700",
+                    "8303000",
+                    "0",
+                    "8303000",
+                ],
+                strict=True,
+            )
+        )
+    )
+    writer.writerow(
+        dict(
+            zip(
+                handler.EXPECTED_STOCK_ORDER_COLUMNS,
+                [
+                    "13 ago 2026, 2:15 p. m.",
+                    "CIB",
+                    "Compra",
+                    "Aprobado",
+                    "10/10",
+                    "0",
+                    "1250",
+                    "12500",
+                    "0",
+                    "12500",
+                ],
+                strict=True,
+            )
+        )
+    )
+    raw_bytes = buffer.getvalue().encode("utf-8")
     return {
         "file_name": "orders-trii.csv",
         "file_content_base64": base64.b64encode(raw_bytes).decode("utf-8"),
@@ -57,7 +99,7 @@ def _build_orders_payload() -> dict[str, str]:
 
 
 def _build_normalized_orders_payload() -> dict[str, object]:
-    raw_bytes = (ROOT_DIR / "orders-trii.csv").read_bytes()
+    raw_bytes = base64.b64decode(_build_orders_payload()["file_content_base64"])
     records = handler._normalize_order_records(raw_bytes)
     return {
         "file_name": "orders-trii.csv",

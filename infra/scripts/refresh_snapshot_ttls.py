@@ -9,20 +9,12 @@ from typing import Any
 import boto3
 
 
-RAW_SNAPSHOT_TABLE_NAME = "trii-prod-snapshot-ingestion-raw"
 CURRENT_SNAPSHOTS_TABLE_NAME = "trii-prod-current-snapshots"
 SNAPSHOT_INGESTION_CHECKSUMS_TABLE_NAME = "trii-prod-snapshot-ingestion-checksums"
 PROCESSED_STATS_EVENTS_TABLE_NAME = "trii-prod-processed-stats-events"
 SESSION_VECTORS_TABLE_NAME = "trii-prod-session-vectors"
 
 TABLE_CONFIGS: dict[str, dict[str, Any]] = {
-    "snapshot-ingestion-raw": {
-        "table_name": RAW_SNAPSHOT_TABLE_NAME,
-        "retention_seconds": 24 * 60 * 60,
-        "timestamp_field": "captured_at",
-        "projection_fields": ["symbol", "captured_at", "expires_at"],
-        "key_fields": ["symbol", "captured_at"],
-    },
     "current-snapshots": {
         "table_name": CURRENT_SNAPSHOTS_TABLE_NAME,
         "retention_seconds": 48 * 60 * 60,
@@ -215,7 +207,7 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="tables",
         action="append",
         choices=sorted(TABLE_CONFIGS.keys()),
-        help="Tabla logica a procesar. Si se omite, procesa ambas.",
+        help="Tabla logica a procesar. Si se omite, procesa todas.",
     )
     parser.add_argument(
         "--apply",

@@ -23,18 +23,14 @@ SERIALIZER = TypeSerializer()
 DESERIALIZER = TypeDeserializer()
 
 CURRENT_SNAPSHOTS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["CURRENT_SNAPSHOTS_TABLE"])
-SNAPSHOT_INGESTION_RAW_TABLE = os.environ["SNAPSHOT_INGESTION_RAW_TABLE"]
 SNAPSHOT_INGESTION_CHECKSUMS_TABLE = os.environ["SNAPSHOT_INGESTION_CHECKSUMS_TABLE"]
 HISTORIC_STATS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["HISTORIC_STATS_TABLE"])
 DAILY_CLOSING_SNAPSHOTS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["DAILY_CLOSING_SNAPSHOTS_TABLE"])
-ZSCORE_OPPORTUNITIES_TABLE = DYNAMODB_RESOURCE.Table(os.environ["ZSCORE_OPPORTUNITIES_TABLE"])
 SESSION_VECTORS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["SESSION_VECTORS_TABLE"])
-MARKET_AI_RECOMMENDATIONS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["MARKET_AI_RECOMMENDATIONS_TABLE"])
 ANALYTICS_CATALOG_TABLE = DYNAMODB_RESOURCE.Table(os.environ["ANALYTICS_CATALOG_TABLE"])
 STOCK_ORDERS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["STOCK_ORDERS_TABLE"])
 API_SHARED_TOKEN = os.environ["API_SHARED_TOKEN"]
 BOGOTA_TIMEZONE = ZoneInfo("America/Bogota")
-RAW_SNAPSHOT_TTL_SECONDS = 24 * 60 * 60
 CURRENT_SNAPSHOT_TTL_SECONDS = 48 * 60 * 60
 SNAPSHOT_INGESTION_CHECKSUM_TTL_SECONDS = 24 * 60 * 60
 SESSION_VECTOR_SAMPLING_SECONDS = 30
@@ -260,158 +256,6 @@ def _to_decimal(value: Any) -> Decimal | None:
         return None
 
 
-def _safe_divide(numerator: Decimal, denominator: Decimal) -> Decimal | None:
-    if denominator == 0:
-        return None
-    return numerator / denominator
-
-
-def _sum_level_quantities(levels: Any, *, depth: int = 5) -> Decimal | None:
-    if not isinstance(levels, list):
-        return None
-
-    total = Decimal("0")
-    found = False
-    for level in levels[:depth]:
-        if not isinstance(level, dict):
-            continue
-        quantity = _to_decimal(level.get("quantity"))
-        if quantity is None:
-            continue
-        total += quantity
-        found = True
-    return total if found else None
-
-
-def _chunk_items(items: list[Any], size: int) -> list[list[Any]]:
-    return [items[index:index + size] for index in range(0, len(items), size)]
-
-
-def _derive_snapshot_metric_samples(snapshot: dict[str, Any]) -> dict[str, Decimal]:
-    metrics: dict[str, Decimal] = {}
-
-    best_bid_price = _to_decimal(snapshot.get("best_bid_price"))
-    best_ask_price = _to_decimal(snapshot.get("best_ask_price"))
-    best_bid_quantity = _to_decimal(snapshot.get("best_bid_quantity"))
-    best_ask_quantity = _to_decimal(snapshot.get("best_ask_quantity"))
-    bid_depth_total_5 = _sum_level_quantities(snapshot.get("bid_levels"))
-    ask_depth_total_5 = _sum_level_quantities(snapshot.get("ask_levels"))
-
-    if best_bid_price is not None and best_ask_price is not None:
-        spread = best_ask_price - best_bid_price
-        mid_price = (best_bid_price + best_ask_price) / Decimal("2")
-        spread_bps = _safe_divide(spread * Decimal("10000"), mid_price)
-        if spread_bps is not None:
-            metrics["spread_bps"] = spread_bps
-
-    if (
-        best_bid_price is not None
-        and best_ask_price is not None
-        and best_bid_quantity is not None
-        and best_ask_quantity is not None
-    ):
-        total_l1_quantity = best_bid_quantity + best_ask_quantity
-        obi_l1 = _safe_divide(best_bid_quantity - best_ask_quantity, total_l1_quantity)
-        if obi_l1 is not None:
-            metrics["obi_l1"] = obi_l1
-
-    if bid_depth_total_5 is not None and ask_depth_total_5 is not None:
-        total_depth = bid_depth_total_5 + ask_depth_total_5
-        obi_top_5 = _safe_divide(bid_depth_total_5 - ask_depth_total_5, total_depth)
-        if obi_top_5 is not None:
-            metrics["obi_top_5"] = obi_top_5
-
-    traded_value = _to_decimal(snapshot.get("traded_value"))
-    traded_volume = _to_decimal(snapshot.get("traded_volume"))
-    if traded_value is not None:
-        metrics["traded_value"] = traded_value
-    if traded_volume is not None:
-        metrics["traded_volume"] = traded_volume
-
-    return metrics
-
-
-def _load_snapshots_by_symbol_captured_at(records: list[dict[str, Any]]) -> dict[tuple[str, str], dict[str, Any]]:
-    snapshot_map: dict[tuple[str, str], dict[str, Any]] = {}
-    keys: list[dict[str, Any]] = []
-    seen_keys: set[tuple[str, str]] = set()
-
-    for record in records:
-        symbol = str(record.get("symbol") or "").strip().upper()
-        captured_at = str(record.get("captured_at") or "").strip()
-        if not symbol or not captured_at:
-            continue
-        key = (symbol, captured_at)
-        if key in seen_keys:
-            continue
-        seen_keys.add(key)
-        keys.append({"symbol": symbol, "captured_at": captured_at})
-
-    if not keys:
-        return snapshot_map
-
-    for chunk in _chunk_items(keys, 100):
-        response = DYNAMODB_CLIENT.batch_get_item(
-            RequestItems={
-                os.environ["CURRENT_SNAPSHOTS_TABLE"]: {
-                    "Keys": [_serialize_item(key) for key in chunk],
-                }
-            }
-        )
-        items = response.get("Responses", {}).get(os.environ["CURRENT_SNAPSHOTS_TABLE"], [])
-        for raw_item in items:
-            snapshot = _deserialize_item(raw_item)
-            symbol = str(snapshot.get("symbol") or "").strip().upper()
-            captured_at = str(snapshot.get("captured_at") or "").strip()
-            if symbol and captured_at:
-                snapshot_map[(symbol, captured_at)] = snapshot
-
-    return snapshot_map
-
-
-def _enrich_zscore_opportunity_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    if not records:
-        return records
-
-    snapshots_by_key = _load_snapshots_by_symbol_captured_at(records)
-    enriched_records: list[dict[str, Any]] = []
-
-    for record in records:
-        symbol = str(record.get("symbol") or "").strip().upper()
-        captured_at = str(record.get("captured_at") or "").strip()
-        snapshot = snapshots_by_key.get((symbol, captured_at))
-        if snapshot is None:
-            enriched_records.append(record)
-            continue
-
-        enriched = dict(record)
-        triggered = dict(enriched.get("triggered_z_scores") or {})
-        derived_samples = _derive_snapshot_metric_samples(snapshot)
-
-        for field_name in (
-            "best_bid_price",
-            "best_bid_quantity",
-            "best_ask_price",
-            "best_ask_quantity",
-            "traded_value",
-            "traded_volume",
-            "bid_levels",
-            "ask_levels",
-        ):
-            if snapshot.get(field_name) is not None:
-                enriched[field_name] = snapshot.get(field_name)
-
-        for metric_key, sample_value in derived_samples.items():
-            metric_payload = dict(triggered.get(metric_key) or {})
-            metric_payload["sample_value"] = sample_value
-            triggered[metric_key] = metric_payload
-
-        enriched["triggered_z_scores"] = triggered
-        enriched_records.append(enriched)
-
-    return enriched_records
-
-
 def _validate_snapshot_levels(levels: Any, *, field_name: str) -> None:
     if not isinstance(levels, list):
         raise ValueError(f"El campo `{field_name}` debe ser una lista.")
@@ -499,8 +343,6 @@ def _persist_snapshot(body: dict[str, Any]) -> dict[str, Any]:
     accepted_timestamp = datetime.now(BOGOTA_TIMEZONE)
     accepted_at = accepted_timestamp.isoformat()
     accepted_epoch = int(accepted_timestamp.timestamp())
-    raw_item = dict(item)
-    raw_item["expires_at"] = accepted_epoch + RAW_SNAPSHOT_TTL_SECONDS
     item["expires_at"] = accepted_epoch + CURRENT_SNAPSHOT_TTL_SECONDS
 
     checksum_item = {
@@ -521,13 +363,6 @@ def _persist_snapshot(body: dict[str, Any]) -> dict[str, Any]:
                     "TableName": SNAPSHOT_INGESTION_CHECKSUMS_TABLE,
                     "Item": _serialize_item(_decimalize(checksum_item)),
                     "ConditionExpression": "attribute_not_exists(snapshot_checksum)",
-                }
-            },
-            {
-                "Put": {
-                    "TableName": SNAPSHOT_INGESTION_RAW_TABLE,
-                    "Item": _serialize_item(_decimalize(raw_item)),
-                    "ConditionExpression": "attribute_not_exists(symbol) AND attribute_not_exists(captured_at)",
                 }
             },
             {
@@ -673,129 +508,6 @@ def _list_analytics_catalog(event: dict[str, Any]) -> dict[str, Any]:
         "to_timestamp": item.get("to_timestamp"),
         "record_count": int(item.get("record_count", 0) or 0),
         "records": _json_ready(item.get("records", [])),
-    }
-
-
-def _find_latest_snapshot_captured_date(*, lookback_days: int = 14) -> str | None:
-    for offset in range(lookback_days + 1):
-        candidate = (datetime.now(BOGOTA_TIMEZONE).date() - timedelta(days=offset)).isoformat()
-        response = CURRENT_SNAPSHOTS_TABLE.query(
-            IndexName="captured-date-index",
-            KeyConditionExpression=Key("captured_date").eq(candidate),
-            Limit=1,
-        )
-        if response.get("Items"):
-            return candidate
-    return None
-
-
-def _start_of_trading_date(trading_date: str) -> str:
-    return f"{trading_date}T00:00:00-05:00"
-
-
-def _end_of_trading_date(trading_date: str) -> str:
-    return f"{trading_date}T23:59:59.999999-05:00"
-
-
-def _list_zscore_opportunities(event: dict[str, Any]) -> dict[str, Any]:
-    params = _query_params(event)
-    snapshot_checksum = str(params.get("snapshot_checksum") or "").strip()
-    symbol = str(params.get("symbol") or "").strip().upper()
-    trading_date = _parse_iso_date(params.get("trading_date"), field_name="trading_date")
-    from_trading_date = _parse_iso_date(params.get("from_trading_date"), field_name="from_trading_date")
-    to_trading_date = _parse_iso_date(params.get("to_trading_date"), field_name="to_trading_date")
-    since_captured_at = str(params.get("since_captured_at") or "").strip()
-    limit = _parse_positive_limit(params.get("limit"), default=100, maximum=500)
-
-    if from_trading_date and to_trading_date and from_trading_date > to_trading_date:
-        raise ValueError("`from_trading_date` no puede ser mayor que `to_trading_date`.")
-
-    if since_captured_at:
-        _parse_snapshot_timestamp(since_captured_at)
-
-    if from_trading_date or to_trading_date or since_captured_at:
-        if not symbol:
-            raise ValueError(
-                "Los parametros `from_trading_date`, `to_trading_date` y `since_captured_at` requieren `symbol`."
-            )
-        if trading_date:
-            raise ValueError(
-                "`trading_date` no se puede combinar con `from_trading_date`/`to_trading_date` o `since_captured_at`."
-            )
-        if since_captured_at and (from_trading_date or to_trading_date):
-            raise ValueError(
-                "`since_captured_at` no se puede combinar con `from_trading_date` o `to_trading_date`."
-            )
-
-    if snapshot_checksum:
-        response = ZSCORE_OPPORTUNITIES_TABLE.get_item(Key={"snapshot_checksum": snapshot_checksum})
-        item = response.get("Item")
-        records = [] if item is None else _json_ready(_enrich_zscore_opportunity_records([item]))
-        return {
-            "snapshot_checksum": snapshot_checksum,
-            "record_count": len(records),
-            "records": records,
-        }
-
-    records: list[dict[str, Any]] = []
-    query_kwargs: dict[str, Any]
-
-    if symbol:
-        key_condition = Key("symbol").eq(symbol)
-        if since_captured_at:
-            key_condition &= Key("captured_at").gt(since_captured_at)
-        elif from_trading_date and to_trading_date:
-            key_condition &= Key("captured_at").between(
-                _start_of_trading_date(from_trading_date),
-                _end_of_trading_date(to_trading_date),
-            )
-        elif from_trading_date:
-            key_condition &= Key("captured_at").gte(_start_of_trading_date(from_trading_date))
-        elif to_trading_date:
-            key_condition &= Key("captured_at").lte(_end_of_trading_date(to_trading_date))
-        elif trading_date:
-            key_condition &= Key("captured_at").begins_with(trading_date)
-        query_kwargs = {
-            "IndexName": "symbol-created-at-index",
-            "KeyConditionExpression": key_condition,
-            "ScanIndexForward": False,
-            "Limit": limit,
-        }
-        response = ZSCORE_OPPORTUNITIES_TABLE.query(**query_kwargs)
-        records = response.get("Items", [])
-        normalized_trading_date = trading_date
-    else:
-        normalized_trading_date = trading_date or datetime.now(BOGOTA_TIMEZONE).date().isoformat()
-        query_kwargs = {
-            "IndexName": "trading-date-index",
-            "KeyConditionExpression": Key("trading_date").eq(normalized_trading_date),
-            "ScanIndexForward": False,
-        }
-        while len(records) < limit:
-            response = ZSCORE_OPPORTUNITIES_TABLE.query(**query_kwargs)
-            records.extend(response.get("Items", []))
-            last_evaluated_key = response.get("LastEvaluatedKey")
-            if not last_evaluated_key:
-                break
-            query_kwargs["ExclusiveStartKey"] = last_evaluated_key
-
-        records = sorted(
-            records,
-            key=lambda item: (
-                str(item.get("captured_at") or ""),
-                str(item.get("symbol") or ""),
-            ),
-            reverse=True,
-        )[:limit]
-
-    return {
-        "symbol": symbol or None,
-        "trading_date": normalized_trading_date,
-        "from_trading_date": from_trading_date,
-        "to_trading_date": to_trading_date,
-        "since_captured_at": since_captured_at or None,
-        "record_count": len(records),
-        "records": _json_ready(_enrich_zscore_opportunity_records(records)),
     }
 
 
@@ -1875,16 +1587,6 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
                     "status": "ok",
                     "route": route_key,
                     "result": _list_analytics_catalog(event),
-                },
-            )
-
-        if route_key == "GET /analytics/zscore-opportunities":
-            return _response(
-                200,
-                {
-                    "status": "ok",
-                    "route": route_key,
-                    "result": _list_zscore_opportunities(event),
                 },
             )
 

@@ -18,7 +18,6 @@ on:
         type: choice
         options:
           - all
-          - snapshot-ingestion-raw
           - current-snapshots
           - snapshot-ingestion-checksums
           - processed-stats-events
@@ -59,7 +58,6 @@ jobs:
           declare -a tables
           if [[ "${TABLE_SCOPE}" == "all" ]]; then
             tables+=(
-              snapshot-ingestion-raw
               current-snapshots
               snapshot-ingestion-checksums
               processed-stats-events
@@ -126,7 +124,6 @@ jobs:
           TABLE_NAME: ${{ matrix.table }}
         run: |
           case "${TABLE_NAME}" in
-            snapshot-ingestion-raw) ttl_target="24h" ;;
             current-snapshots) ttl_target="48h" ;;
             snapshot-ingestion-checksums) ttl_target="24h" ;;
             processed-stats-events) ttl_target="24h" ;;

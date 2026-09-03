@@ -1,2 +1,0 @@
-"""Trii ingestion package."""
-

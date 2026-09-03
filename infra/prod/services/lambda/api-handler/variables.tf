@@ -23,21 +23,6 @@ variable "current_snapshots_index_arns" {
   type        = list(string)
 }
 
-variable "snapshot_ingestion_raw_table_name" {
-  description = "Snapshot ingestion raw table name."
-  type        = string
-}
-
-variable "snapshot_ingestion_raw_table_arn" {
-  description = "Snapshot ingestion raw table ARN."
-  type        = string
-}
-
-variable "snapshot_ingestion_raw_index_arns" {
-  description = "Snapshot ingestion raw table index ARNs."
-  type        = list(string)
-}
-
 variable "snapshot_ingestion_checksums_table_name" {
   description = "Snapshot ingestion checksums table name."
   type        = string
@@ -128,21 +113,6 @@ variable "daily_closing_snapshots_index_arns" {
   type        = list(string)
 }
 
-variable "zscore_opportunities_table_name" {
-  description = "Z-score opportunities table name."
-  type        = string
-}
-
-variable "zscore_opportunities_table_arn" {
-  description = "Z-score opportunities table ARN."
-  type        = string
-}
-
-variable "zscore_opportunities_index_arns" {
-  description = "Z-score opportunities table index ARNs."
-  type        = list(string)
-}
-
 variable "session_vectors_table_name" {
   description = "Session vectors table name."
   type        = string
@@ -155,21 +125,6 @@ variable "session_vectors_table_arn" {
 
 variable "session_vectors_index_arns" {
   description = "Session vectors table index ARNs."
-  type        = list(string)
-}
-
-variable "market_ai_recommendations_table_name" {
-  description = "Market AI recommendations table name."
-  type        = string
-}
-
-variable "market_ai_recommendations_table_arn" {
-  description = "Market AI recommendations table ARN."
-  type        = string
-}
-
-variable "market_ai_recommendations_index_arns" {
-  description = "Market AI recommendations table index ARNs."
   type        = list(string)
 }
 

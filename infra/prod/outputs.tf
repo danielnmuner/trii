@@ -23,19 +23,9 @@ output "current_snapshots_table_name" {
   value       = module.current_snapshots_table.name
 }
 
-output "snapshot_ingestion_raw_table_name" {
-  description = "Snapshot ingestion raw DynamoDB table name."
-  value       = module.snapshot_ingestion_raw.name
-}
-
 output "historic_stats_table_name" {
   description = "Historic stats DynamoDB table name."
   value       = module.historic_stats_table.name
-}
-
-output "market_ai_recommendations_table_name" {
-  description = "Market AI recommendations DynamoDB table name."
-  value       = module.market_ai_recommendations_table.name
 }
 
 output "snapshot_ingestion_checksums_table_name" {
@@ -56,11 +46,6 @@ output "analytics_catalog_table_name" {
 output "stock_orders_table_name" {
   description = "Stock orders DynamoDB table name."
   value       = module.stock_orders_table.name
-}
-
-output "zscore_opportunities_table_name" {
-  description = "Z-score opportunities DynamoDB table name."
-  value       = module.zscore_opportunities_table.name
 }
 
 output "session_vectors_table_name" {
@@ -96,16 +81,6 @@ output "historic_stats_backfill_function_name" {
 output "daily_closing_snapshots_updater_function_name" {
   description = "Daily closing snapshots updater Lambda function name."
   value       = module.daily_closing_snapshots_updater.function_name
-}
-
-output "zscore_opportunities_sampler_function_name" {
-  description = "Z-score opportunities sampler Lambda function name."
-  value       = module.zscore_opportunities_sampler.function_name
-}
-
-output "market_ai_recommendation_handler_function_name" {
-  description = "Market AI recommendation handler Lambda function name."
-  value       = module.market_ai_recommendation_handler.function_name
 }
 
 output "analytics_catalog_updater_function_name" {

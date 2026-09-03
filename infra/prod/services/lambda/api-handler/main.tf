@@ -28,20 +28,6 @@ data "aws_iam_policy_document" "inline" {
   }
 
   statement {
-    sid    = "ReadSnapshotIngestionRaw"
-    effect = "Allow"
-    actions = [
-      "dynamodb:GetItem",
-      "dynamodb:BatchGetItem",
-      "dynamodb:Query",
-    ]
-    resources = concat(
-      [var.snapshot_ingestion_raw_table_arn],
-      var.snapshot_ingestion_raw_index_arns,
-    )
-  }
-
-  statement {
     sid    = "ReadSnapshotIngestionChecksums"
     effect = "Allow"
     actions = [
@@ -126,20 +112,6 @@ data "aws_iam_policy_document" "inline" {
   }
 
   statement {
-    sid    = "ReadZscoreOpportunities"
-    effect = "Allow"
-    actions = [
-      "dynamodb:GetItem",
-      "dynamodb:BatchGetItem",
-      "dynamodb:Query",
-    ]
-    resources = concat(
-      [var.zscore_opportunities_table_arn],
-      var.zscore_opportunities_index_arns,
-    )
-  }
-
-  statement {
     sid    = "ReadSessionVectors"
     effect = "Allow"
     actions = [
@@ -154,20 +126,6 @@ data "aws_iam_policy_document" "inline" {
   }
 
   statement {
-    sid    = "ReadMarketAiRecommendations"
-    effect = "Allow"
-    actions = [
-      "dynamodb:GetItem",
-      "dynamodb:BatchGetItem",
-      "dynamodb:Query",
-    ]
-    resources = concat(
-      [var.market_ai_recommendations_table_arn],
-      var.market_ai_recommendations_index_arns,
-    )
-  }
-
-  statement {
     sid    = "WriteCurrentSnapshots"
     effect = "Allow"
     actions = [
@@ -177,7 +135,6 @@ data "aws_iam_policy_document" "inline" {
       "dynamodb:TransactWriteItems",
     ]
     resources = [
-      var.snapshot_ingestion_raw_table_arn,
       var.current_snapshots_table_arn,
       var.snapshot_ingestion_checksums_table_arn,
     ]
@@ -237,14 +194,11 @@ module "function" {
 
   environment_variables = {
     CURRENT_SNAPSHOTS_TABLE            = var.current_snapshots_table_name
-    SNAPSHOT_INGESTION_RAW_TABLE       = var.snapshot_ingestion_raw_table_name
     SNAPSHOT_INGESTION_CHECKSUMS_TABLE = var.snapshot_ingestion_checksums_table_name
     HISTORIC_STATS_TABLE               = var.historic_stats_table_name
     PROCESSED_STATS_EVENTS_TABLE       = var.processed_stats_events_table_name
     DAILY_CLOSING_SNAPSHOTS_TABLE      = var.daily_closing_snapshots_table_name
-    ZSCORE_OPPORTUNITIES_TABLE         = var.zscore_opportunities_table_name
-    SESSION_VECTORS_TABLE             = var.session_vectors_table_name
-    MARKET_AI_RECOMMENDATIONS_TABLE    = var.market_ai_recommendations_table_name
+    SESSION_VECTORS_TABLE              = var.session_vectors_table_name
     ANALYTICS_CATALOG_TABLE            = var.analytics_catalog_table_name
     STOCK_ORDERS_TABLE                 = var.stock_orders_table_name
     PARSED_INVOICES_TABLE              = var.parsed_invoices_table_name

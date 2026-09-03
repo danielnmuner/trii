@@ -3,7 +3,6 @@ import os
 import time
 from datetime import datetime
 from decimal import Decimal
-import hashlib
 from typing import Any
 
 import boto3
@@ -22,14 +21,12 @@ from zoneinfo import ZoneInfo
 
 DYNAMODB_CLIENT = boto3.client("dynamodb")
 DYNAMODB_RESOURCE = boto3.resource("dynamodb")
-LAMBDA_CLIENT = boto3.client("lambda")
 DESERIALIZER = TypeDeserializer()
 SERIALIZER = TypeSerializer()
 BOGOTA_TIMEZONE = ZoneInfo("America/Bogota")
 CURRENT_SNAPSHOTS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["CURRENT_SNAPSHOTS_TABLE"])
 HISTORIC_STATS_TABLE = os.environ["HISTORIC_STATS_TABLE"]
 PROCESSED_STATS_EVENTS_TABLE = os.environ["PROCESSED_STATS_EVENTS_TABLE"]
-MARKET_AI_RECOMMENDATION_HANDLER_FUNCTION = os.environ["MARKET_AI_RECOMMENDATION_HANDLER_FUNCTION"]
 ENABLED_STATISTICAL_METRICS = parse_metric_keys(os.environ.get("ENABLED_STATISTICAL_METRICS"))
 PROCESSED_STATS_EVENT_TTL_SECONDS = 24 * 60 * 60
 
@@ -55,90 +52,6 @@ def _extract_metric_values(snapshot: dict[str, Any]) -> dict[str, Decimal]:
         snapshot,
         ENABLED_STATISTICAL_METRICS,
         previous_snapshot=previous_snapshot,
-    )
-
-
-def _compute_z_score(stat_item: dict[str, Any]) -> Decimal | None:
-    latest_value = to_decimal(stat_item.get("latest_value"))
-    mean = to_decimal(stat_item.get("mean"))
-    stddev = to_decimal(stat_item.get("stddev"))
-    sample_count = int(stat_item.get("sample_count", 0) or 0)
-    if latest_value is None or mean is None or stddev is None:
-        return None
-    if sample_count < 2 or stddev == 0:
-        return None
-    return (latest_value - mean) / stddev
-
-
-def _build_trigger_signature(symbol: str, captured_at: str, triggered_rules: list[str]) -> str:
-    payload = "|".join([symbol, captured_at, *sorted(triggered_rules)])
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-def _build_ai_trigger_payload(
-    snapshot: dict[str, Any],
-    stat_items: dict[str, dict[str, Any]],
-) -> dict[str, Any] | None:
-    triggered_rules: list[str] = []
-    zscore_context: dict[str, Any] = {}
-
-    spread_bps_item = stat_items.get("spread_bps")
-    if spread_bps_item is not None:
-        spread_bps_latest = to_decimal(spread_bps_item.get("latest_value"))
-        if spread_bps_latest is not None and spread_bps_latest >= Decimal("100"):
-            triggered_rules.append("placeholder_wide_spread")
-        zscore_context["spread_bps"] = {
-            "latest_value": spread_bps_latest,
-            "mean": to_decimal(spread_bps_item.get("mean")),
-            "stddev": to_decimal(spread_bps_item.get("stddev")),
-            "sample_count": int(spread_bps_item.get("sample_count", 0) or 0),
-            "z_score": _compute_z_score(spread_bps_item),
-        }
-
-    for metric_key, rule_name in (
-        ("obi_l1", "placeholder_obi_l1_extreme"),
-        ("obi_top_5", "placeholder_obi_top_5_extreme"),
-    ):
-        stat_item = stat_items.get(metric_key)
-        if stat_item is None:
-            continue
-        z_score = _compute_z_score(stat_item)
-        if z_score is not None and abs(z_score) >= Decimal("2.0"):
-            triggered_rules.append(rule_name)
-        zscore_context[metric_key] = {
-            "latest_value": to_decimal(stat_item.get("latest_value")),
-            "mean": to_decimal(stat_item.get("mean")),
-            "stddev": to_decimal(stat_item.get("stddev")),
-            "sample_count": int(stat_item.get("sample_count", 0) or 0),
-            "z_score": z_score,
-        }
-
-    if not triggered_rules:
-        return None
-
-    symbol = str(snapshot["symbol"]).strip().upper()
-    captured_at = str(snapshot["captured_at"]).strip()
-    return {
-        "symbol": symbol,
-        "captured_at": captured_at,
-        "snapshot_checksum": str(snapshot.get("snapshot_checksum") or "").strip(),
-        "triggered_rules": sorted(triggered_rules),
-        "trigger_signature": _build_trigger_signature(symbol, captured_at, triggered_rules),
-        "zscore_context": {
-            key: {
-                inner_key: (str(inner_value) if isinstance(inner_value, Decimal) else inner_value)
-                for inner_key, inner_value in value.items()
-            }
-            for key, value in zscore_context.items()
-        },
-    }
-
-
-def _invoke_market_ai_recommendation_handler(payload: dict[str, Any]) -> None:
-    LAMBDA_CLIENT.invoke(
-        FunctionName=MARKET_AI_RECOMMENDATION_HANDLER_FUNCTION,
-        InvocationType="Event",
-        Payload=json.dumps(payload).encode("utf-8"),
     )
 
 
@@ -326,18 +239,11 @@ def _transact_snapshot(snapshot: dict[str, Any], source_event_id: str) -> str:
 
         try:
             DYNAMODB_CLIENT.transact_write_items(TransactItems=transact_items)
-            trigger_payload = _build_ai_trigger_payload(snapshot, updated_items)
-            if trigger_payload is not None:
-                _invoke_market_ai_recommendation_handler(trigger_payload)
             return "processed"
         except ClientError as exc:
             if exc.response.get("Error", {}).get("Code") != "TransactionCanceledException":
                 raise
             if _processed_event_exists(snapshot_checksum):
-                current_items = _load_existing_stat_items(symbol, metric_names)
-                trigger_payload = _build_ai_trigger_payload(snapshot, current_items)
-                if trigger_payload is not None:
-                    _invoke_market_ai_recommendation_handler(trigger_payload)
                 return "duplicate"
             time.sleep(0.15)
 

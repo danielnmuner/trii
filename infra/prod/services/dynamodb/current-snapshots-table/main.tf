@@ -22,6 +22,7 @@ module "table" {
 
   stream_enabled     = true
   stream_view_type   = "NEW_IMAGE"
+  point_in_time_recovery_enabled = false
   ttl_enabled        = true
   ttl_attribute_name = "expires_at"
 

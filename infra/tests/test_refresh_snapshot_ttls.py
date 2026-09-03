@@ -102,7 +102,7 @@ def test_refresh_table_ttls_apply_updates_only_changed_items() -> None:
                     {
                         "symbol": "ISA",
                         "captured_at": "2026-08-30T10:00:00-05:00",
-                        "expires_at": 1788188400,
+                        "expires_at": 1788274800,
                     },
                     {
                         "symbol": "CIB",
@@ -114,12 +114,12 @@ def test_refresh_table_ttls_apply_updates_only_changed_items() -> None:
         ]
     )
     refresh_snapshot_ttls.DYNAMODB_RESOURCE = FakeDynamoResource(
-        {"trii-prod-snapshot-ingestion-raw": fake_table}
+        {"trii-prod-current-snapshots": fake_table}
     )
 
     result = refresh_snapshot_ttls._refresh_table_ttls(
-        table_name="trii-prod-snapshot-ingestion-raw",
-        retention_seconds=24 * 60 * 60,
+        table_name="trii-prod-current-snapshots",
+        retention_seconds=48 * 60 * 60,
         timestamp_field="captured_at",
         projection_fields=["symbol", "captured_at", "expires_at"],
         key_fields=["symbol", "captured_at"],
@@ -134,7 +134,7 @@ def test_refresh_table_ttls_apply_updates_only_changed_items() -> None:
         {
             "Key": {"symbol": "CIB", "captured_at": "2026-08-30T10:10:00-05:00"},
             "UpdateExpression": "SET expires_at = :expires_at",
-            "ExpressionAttributeValues": {":expires_at": 1788189000},
+            "ExpressionAttributeValues": {":expires_at": 1788275400},
         },
     ]
 

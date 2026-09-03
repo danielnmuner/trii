@@ -16,14 +16,6 @@ module "stock_orders_table" {
   tags         = local.common_tags
 }
 
-module "zscore_opportunities_table" {
-  source = "./services/dynamodb/zscore-opportunities-table"
-
-  environment  = local.environment
-  project_name = local.project_name
-  tags         = local.common_tags
-}
-
 module "session_vectors_table" {
   source = "./services/dynamodb/session-vectors-table"
 
@@ -50,22 +42,6 @@ module "parsed_invoices_table" {
 
 module "historic_stats_table" {
   source = "./services/dynamodb/historic-stats-table"
-
-  environment  = local.environment
-  project_name = local.project_name
-  tags         = local.common_tags
-}
-
-module "market_ai_recommendations_table" {
-  source = "./services/dynamodb/market-ai-recommendations-table"
-
-  environment  = local.environment
-  project_name = local.project_name
-  tags         = local.common_tags
-}
-
-module "snapshot_ingestion_raw" {
-  source = "./services/dynamodb/snapshot-ingestion-raw"
 
   environment  = local.environment
   project_name = local.project_name
@@ -104,10 +80,6 @@ module "source_documents_bucket" {
   tags         = local.common_tags
 }
 
-module "bedrock_nova_pro" {
-  source = "./services/bedrock/nova-pro"
-}
-
 module "historic_stats_updater" {
   source = "./services/lambda/historic-stats-updater"
 
@@ -123,28 +95,7 @@ module "historic_stats_updater" {
   processed_stats_events_table_name              = module.processed_stats_events_table.name
   processed_stats_events_table_arn               = module.processed_stats_events_table.arn
   processed_stats_events_index_arns              = module.processed_stats_events_table.index_arns
-  market_ai_recommendation_handler_function_name = module.market_ai_recommendation_handler.function_name
-  market_ai_recommendation_handler_function_arn  = module.market_ai_recommendation_handler.function_arn
   enabled_statistical_metrics                    = local.enabled_statistical_metrics
-}
-
-module "zscore_opportunities_sampler" {
-  source = "./services/lambda/zscore-opportunities-sampler"
-
-  environment                     = local.environment
-  project_name                    = local.project_name
-  tags                            = local.common_tags
-  current_snapshots_table_name    = module.current_snapshots_table.name
-  current_snapshots_table_arn     = module.current_snapshots_table.arn
-  current_snapshots_index_arns    = module.current_snapshots_table.index_arns
-  historic_stats_table_name       = module.historic_stats_table.name
-  historic_stats_table_arn        = module.historic_stats_table.arn
-  stock_orders_table_name         = module.stock_orders_table.name
-  stock_orders_table_arn          = module.stock_orders_table.arn
-  stock_orders_index_arns         = module.stock_orders_table.index_arns
-  zscore_opportunities_table_name = module.zscore_opportunities_table.name
-  zscore_opportunities_table_arn  = module.zscore_opportunities_table.arn
-  schedule_expression             = "rate(10 minutes)"
 }
 
 module "historic_stats_backfill" {
@@ -173,23 +124,6 @@ module "daily_closing_snapshots_updater" {
   daily_closing_snapshots_table_arn  = module.daily_closing_snapshots_table.arn
   daily_closing_snapshots_index_arns = module.daily_closing_snapshots_table.index_arns
   schedule_expression                = "cron(20 20 * * ? *)"
-}
-
-module "market_ai_recommendation_handler" {
-  source = "./services/lambda/market-ai-recommendation-handler"
-
-  environment                          = local.environment
-  project_name                         = local.project_name
-  tags                                 = local.common_tags
-  current_snapshots_table_name         = module.current_snapshots_table.name
-  current_snapshots_table_arn          = module.current_snapshots_table.arn
-  current_snapshots_index_arns         = module.current_snapshots_table.index_arns
-  historic_stats_table_name            = module.historic_stats_table.name
-  historic_stats_table_arn             = module.historic_stats_table.arn
-  historic_stats_index_arns            = module.historic_stats_table.index_arns
-  market_ai_recommendations_table_name = module.market_ai_recommendations_table.name
-  market_ai_recommendations_table_arn  = module.market_ai_recommendations_table.arn
-  bedrock_model_id                     = module.bedrock_nova_pro.model_id
 }
 
 module "analytics_catalog_updater" {
@@ -240,9 +174,6 @@ module "api_handler" {
   tags                                    = local.common_tags
   current_snapshots_table_arn             = module.current_snapshots_table.arn
   current_snapshots_index_arns            = module.current_snapshots_table.index_arns
-  snapshot_ingestion_raw_table_name       = module.snapshot_ingestion_raw.name
-  snapshot_ingestion_raw_table_arn        = module.snapshot_ingestion_raw.arn
-  snapshot_ingestion_raw_index_arns       = module.snapshot_ingestion_raw.index_arns
   snapshot_ingestion_checksums_table_name = module.snapshot_ingestion_checksums_table.name
   snapshot_ingestion_checksums_table_arn  = module.snapshot_ingestion_checksums_table.arn
   snapshot_ingestion_checksums_index_arns = module.snapshot_ingestion_checksums_table.index_arns
@@ -264,15 +195,9 @@ module "api_handler" {
   daily_closing_snapshots_table_name      = module.daily_closing_snapshots_table.name
   daily_closing_snapshots_table_arn       = module.daily_closing_snapshots_table.arn
   daily_closing_snapshots_index_arns      = module.daily_closing_snapshots_table.index_arns
-  zscore_opportunities_table_name         = module.zscore_opportunities_table.name
-  zscore_opportunities_table_arn          = module.zscore_opportunities_table.arn
-  zscore_opportunities_index_arns         = module.zscore_opportunities_table.index_arns
   session_vectors_table_name              = module.session_vectors_table.name
   session_vectors_table_arn               = module.session_vectors_table.arn
   session_vectors_index_arns              = module.session_vectors_table.index_arns
-  market_ai_recommendations_table_name    = module.market_ai_recommendations_table.name
-  market_ai_recommendations_table_arn     = module.market_ai_recommendations_table.arn
-  market_ai_recommendations_index_arns    = module.market_ai_recommendations_table.index_arns
   analytics_catalog_table_name            = module.analytics_catalog_table.name
   analytics_catalog_table_arn             = module.analytics_catalog_table.arn
   analytics_catalog_table_index_arns      = module.analytics_catalog_table.index_arns

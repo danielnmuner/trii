@@ -10,6 +10,7 @@ module "table" {
     { name = "record_type", type = "S" },
   ]
 
+  point_in_time_recovery_enabled = false
   ttl_enabled        = true
   ttl_attribute_name = "expires_at"
 

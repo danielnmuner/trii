@@ -13,13 +13,10 @@ if str(LAMBDA_SRC) not in sys.path:
     sys.path.insert(0, str(LAMBDA_SRC))
 
 os.environ.setdefault("CURRENT_SNAPSHOTS_TABLE", "test-current-snapshots")
-os.environ.setdefault("SNAPSHOT_INGESTION_RAW_TABLE", "test-snapshot-raw")
 os.environ.setdefault("SNAPSHOT_INGESTION_CHECKSUMS_TABLE", "test-snapshot-checksums")
 os.environ.setdefault("HISTORIC_STATS_TABLE", "test-historic-stats")
 os.environ.setdefault("DAILY_CLOSING_SNAPSHOTS_TABLE", "test-daily-closing")
-os.environ.setdefault("ZSCORE_OPPORTUNITIES_TABLE", "test-zscore-opportunities")
 os.environ.setdefault("SESSION_VECTORS_TABLE", "test-session-vectors")
-os.environ.setdefault("MARKET_AI_RECOMMENDATIONS_TABLE", "test-market-ai")
 os.environ.setdefault("ANALYTICS_CATALOG_TABLE", "test-analytics-catalog")
 os.environ.setdefault("STOCK_ORDERS_TABLE", "test-stock-orders")
 os.environ.setdefault("PARSED_INVOICES_TABLE", "test-parsed-invoices")
@@ -28,137 +25,6 @@ os.environ.setdefault("API_SHARED_TOKEN", "test-token")
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 
 handler = importlib.import_module("handler")
-
-
-class FakeDynamoDbClient:
-    def batch_get_item(self, *, RequestItems: dict) -> dict:
-        table_name = next(iter(RequestItems))
-        keys = RequestItems[table_name]["Keys"]
-        items = []
-        for key in keys:
-            symbol = key["symbol"]["S"]
-            captured_at = key["captured_at"]["S"]
-            if symbol == "NUCO" and captured_at == "2026-08-21T10:56:08-05:00":
-                items.append(
-                    {
-                        "symbol": {"S": "NUCO"},
-                        "captured_at": {"S": "2026-08-21T10:56:08-05:00"},
-                        "best_bid_price": {"N": "43990"},
-                        "best_bid_quantity": {"N": "200"},
-                        "best_ask_price": {"N": "44010"},
-                        "best_ask_quantity": {"N": "180"},
-                        "traded_value": {"N": "2213492380"},
-                        "traded_volume": {"N": "50256"},
-                        "bid_levels": {"L": [{"M": {"price": {"N": "43990"}, "quantity": {"N": "200"}, "level": {"N": "1"}}}]},
-                        "ask_levels": {"L": [{"M": {"price": {"N": "44010"}, "quantity": {"N": "180"}, "level": {"N": "1"}}}]},
-                    }
-                )
-            if symbol == "NUCO" and captured_at == "2026-08-20T15:00:00-05:00":
-                items.append(
-                    {
-                        "symbol": {"S": "NUCO"},
-                        "captured_at": {"S": "2026-08-20T15:00:00-05:00"},
-                        "best_bid_price": {"N": "43890"},
-                        "best_bid_quantity": {"N": "120"},
-                        "best_ask_price": {"N": "43910"},
-                        "best_ask_quantity": {"N": "110"},
-                        "traded_value": {"N": "2200292380"},
-                        "traded_volume": {"N": "50016"},
-                        "bid_levels": {"L": [{"M": {"price": {"N": "43890"}, "quantity": {"N": "120"}, "level": {"N": "1"}}}]},
-                        "ask_levels": {"L": [{"M": {"price": {"N": "43910"}, "quantity": {"N": "110"}, "level": {"N": "1"}}}]},
-                    }
-                )
-            if symbol == "NUCO" and captured_at == "2026-08-22T09:10:00-05:00":
-                items.append(
-                    {
-                        "symbol": {"S": "NUCO"},
-                        "captured_at": {"S": "2026-08-22T09:10:00-05:00"},
-                        "best_bid_price": {"N": "44020"},
-                        "best_bid_quantity": {"N": "210"},
-                        "best_ask_price": {"N": "44040"},
-                        "best_ask_quantity": {"N": "190"},
-                        "traded_value": {"N": "2215492380"},
-                        "traded_volume": {"N": "50300"},
-                        "bid_levels": {"L": [{"M": {"price": {"N": "44020"}, "quantity": {"N": "210"}, "level": {"N": "1"}}}]},
-                        "ask_levels": {"L": [{"M": {"price": {"N": "44040"}, "quantity": {"N": "190"}, "level": {"N": "1"}}}]},
-                    }
-                )
-        return {
-            "Responses": {
-                table_name: items,
-            }
-        }
-
-
-class FakeZscoreOpportunitiesTable:
-    def get_item(self, *, Key: dict) -> dict:
-        if Key["snapshot_checksum"] != "checksum-1":
-            return {}
-        return {
-            "Item": {
-                "snapshot_checksum": "checksum-1",
-                "symbol": "NUCO",
-                "captured_at": "2026-08-21T10:56:08-05:00",
-                "trading_date": "2026-08-21",
-                "triggered_z_scores": {
-                    "spread_bps": {"sample_value": 4.3, "z_score": -1.79},
-                    "obi_l1": {"sample_value": 0.11, "z_score": 0.22},
-                },
-            }
-        }
-
-    def query(self, **kwargs) -> dict:
-        if kwargs.get("IndexName") == "trading-date-index":
-            return {
-                "Items": [
-                    {
-                        "snapshot_checksum": "checksum-2",
-                        "symbol": "ISA",
-                        "captured_at": "2026-08-21T11:10:00-05:00",
-                        "trading_date": "2026-08-21",
-                    },
-                    {
-                        "snapshot_checksum": "checksum-1",
-                        "symbol": "NUCO",
-                        "captured_at": "2026-08-21T10:56:08-05:00",
-                        "trading_date": "2026-08-21",
-                    },
-                ]
-            }
-        if kwargs.get("IndexName") == "symbol-created-at-index":
-            return {
-                "Items": [
-                    {
-                        "snapshot_checksum": "checksum-3",
-                        "symbol": "NUCO",
-                        "captured_at": "2026-08-22T09:10:00-05:00",
-                        "trading_date": "2026-08-22",
-                        "triggered_z_scores": {
-                            "traded_value": {"sample_value": 2215492380, "z_score": 1.1},
-                        },
-                    },
-                    {
-                        "snapshot_checksum": "checksum-1",
-                        "symbol": "NUCO",
-                        "captured_at": "2026-08-21T10:56:08-05:00",
-                        "trading_date": "2026-08-21",
-                        "triggered_z_scores": {
-                            "spread_bps": {"sample_value": 4.3, "z_score": -1.79},
-                            "obi_l1": {"sample_value": 0.11, "z_score": 0.22},
-                        },
-                    },
-                    {
-                        "snapshot_checksum": "checksum-0",
-                        "symbol": "NUCO",
-                        "captured_at": "2026-08-20T15:00:00-05:00",
-                        "trading_date": "2026-08-20",
-                        "triggered_z_scores": {
-                            "traded_value": {"sample_value": 2200292380, "z_score": 0.9},
-                        },
-                    },
-                ]
-            }
-        return {"Items": []}
 
 
 class FakeDailyClosingSnapshotsTable:
@@ -453,11 +319,6 @@ class FailingHistoricStatsTable:
         raise AssertionError("historic_stats should not be queried by analytics/snapshot")
 
 
-class FailingMarketAiRecommendationsTable:
-    def query(self, **kwargs) -> dict:
-        raise AssertionError("market_ai_recommendations should not be queried by analytics/snapshot")
-
-
 class FailingCurrentSnapshotsTable:
     def get_item(self, *, Key: dict) -> dict:
         raise AssertionError("current_snapshots should not be queried by analytics/historic-stats")
@@ -498,27 +359,6 @@ class FakeAnalyticsCatalogTable:
                 ],
             }
         }
-
-
-def test_handler_returns_zscore_opportunities_for_trading_date() -> None:
-    handler.ZSCORE_OPPORTUNITIES_TABLE = FakeZscoreOpportunitiesTable()
-    handler.DYNAMODB_CLIENT = FakeDynamoDbClient()
-
-    response = handler.handler(
-        {
-            "routeKey": "GET /analytics/zscore-opportunities",
-            "headers": {"X-Api-Token": "test-token"},
-            "queryStringParameters": {"trading_date": "2026-08-21", "limit": "2"},
-        },
-        None,
-    )
-
-    payload = json.loads(response["body"])
-    assert response["statusCode"] == 200
-    assert payload["status"] == "ok"
-    assert payload["result"]["trading_date"] == "2026-08-21"
-    assert payload["result"]["record_count"] == 2
-    assert payload["result"]["records"][0]["symbol"] == "ISA"
 
 
 def test_handler_returns_session_vector_manifest_and_segments() -> None:
@@ -605,80 +445,6 @@ def test_handler_falls_back_to_latest_available_session_vector_on_or_before_requ
     assert payload["result"]["found"] is True
     assert payload["result"]["trading_date"] == "2026-08-21"
     assert payload["result"]["manifest"]["record_type"] == "session_vector#2026-08-21"
-
-
-def test_handler_returns_zscore_opportunities_for_symbol_date_range() -> None:
-    handler.ZSCORE_OPPORTUNITIES_TABLE = FakeZscoreOpportunitiesTable()
-    handler.DYNAMODB_CLIENT = FakeDynamoDbClient()
-
-    response = handler.handler(
-        {
-            "routeKey": "GET /analytics/zscore-opportunities",
-            "headers": {"X-Api-Token": "test-token"},
-            "queryStringParameters": {
-                "symbol": "nuco",
-                "from_trading_date": "2026-08-20",
-                "to_trading_date": "2026-08-22",
-                "limit": "200",
-            },
-        },
-        None,
-    )
-
-    payload = json.loads(response["body"])
-    assert response["statusCode"] == 200
-    assert payload["status"] == "ok"
-    assert payload["result"]["symbol"] == "NUCO"
-    assert payload["result"]["from_trading_date"] == "2026-08-20"
-    assert payload["result"]["to_trading_date"] == "2026-08-22"
-    assert payload["result"]["since_captured_at"] is None
-    assert payload["result"]["record_count"] == 3
-    assert payload["result"]["records"][0]["captured_at"] == "2026-08-22T09:10:00-05:00"
-
-
-def test_handler_returns_incremental_zscore_opportunities_since_captured_at() -> None:
-    handler.ZSCORE_OPPORTUNITIES_TABLE = FakeZscoreOpportunitiesTable()
-    handler.DYNAMODB_CLIENT = FakeDynamoDbClient()
-
-    response = handler.handler(
-        {
-            "routeKey": "GET /analytics/zscore-opportunities",
-            "headers": {"X-Api-Token": "test-token"},
-            "queryStringParameters": {
-                "symbol": "nuco",
-                "since_captured_at": "2026-08-21T00:00:00-05:00",
-                "limit": "200",
-            },
-        },
-        None,
-    )
-
-    payload = json.loads(response["body"])
-    assert response["statusCode"] == 200
-    assert payload["status"] == "ok"
-    assert payload["result"]["symbol"] == "NUCO"
-    assert payload["result"]["since_captured_at"] == "2026-08-21T00:00:00-05:00"
-    assert payload["result"]["record_count"] == 3
-    assert payload["result"]["records"][0]["captured_at"] == "2026-08-22T09:10:00-05:00"
-
-
-def test_handler_rejects_incremental_params_without_symbol() -> None:
-    response = handler.handler(
-        {
-            "routeKey": "GET /analytics/zscore-opportunities",
-            "headers": {"X-Api-Token": "test-token"},
-            "queryStringParameters": {
-                "from_trading_date": "2026-08-20",
-                "to_trading_date": "2026-08-22",
-            },
-        },
-        None,
-    )
-
-    payload = json.loads(response["body"])
-    assert response["statusCode"] == 400
-    assert payload["status"] == "error"
-    assert "requieren `symbol`" in payload["message"]
 
 
 def test_handler_returns_daily_closing_record_for_exact_symbol_and_date() -> None:
@@ -784,7 +550,6 @@ def test_handler_orders_can_lookup_by_record_checksum() -> None:
 def test_handler_snapshot_uses_only_current_snapshots_and_historic_stats() -> None:
     handler.CURRENT_SNAPSHOTS_TABLE = FakeCurrentSnapshotsTable()
     handler.HISTORIC_STATS_TABLE = FailingHistoricStatsTable()
-    handler.MARKET_AI_RECOMMENDATIONS_TABLE = FailingMarketAiRecommendationsTable()
 
     response = handler.handler(
         {
