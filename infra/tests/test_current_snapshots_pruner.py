@@ -27,29 +27,6 @@ pruner_handler = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pruner_handler)
 
 
-class FakeBatchWriter:
-    def __init__(self, table: "FakeCurrentSnapshotsTable") -> None:
-        self.table = table
-
-    def __enter__(self) -> "FakeBatchWriter":
-        return self
-
-    def __exit__(self, exc_type, exc, tb) -> bool:
-        return False
-
-    def delete_item(self, *, Key: dict[str, str]) -> dict:
-        self.table.deleted_keys.append(dict(Key))
-        self.table.items = [
-            item
-            for item in self.table.items
-            if not (
-                item["symbol"] == Key["symbol"]
-                and item["captured_at"] == Key["captured_at"]
-            )
-        ]
-        return {}
-
-
 class FakeCurrentSnapshotsTable:
     def __init__(self, items: list[dict[str, str]], page_size: int = 100) -> None:
         self.items = list(items)
@@ -88,8 +65,17 @@ class FakeCurrentSnapshotsTable:
             }
         return response
 
-    def batch_writer(self) -> FakeBatchWriter:
-        return FakeBatchWriter(self)
+    def delete_item(self, *, Key: dict[str, str]) -> dict:
+        self.deleted_keys.append(dict(Key))
+        self.items = [
+            item
+            for item in self.items
+            if not (
+                item["symbol"] == Key["symbol"]
+                and item["captured_at"] == Key["captured_at"]
+            )
+        ]
+        return {}
 
     def scan(self, **kwargs: dict) -> dict:
         self.scan_calls.append(dict(kwargs))
