@@ -38,21 +38,6 @@ variable "historic_stats_index_arns" {
   type        = list(string)
 }
 
-variable "processed_stats_events_table_name" {
-  description = "Processed stats events table name."
-  type        = string
-}
-
-variable "processed_stats_events_table_arn" {
-  description = "Processed stats events table ARN."
-  type        = string
-}
-
-variable "processed_stats_events_index_arns" {
-  description = "Processed stats events table index ARNs."
-  type        = list(string)
-}
-
 variable "enabled_statistical_metrics" {
   description = "Statistical metrics that the live updater is allowed to persist."
   type        = list(string)

@@ -17,7 +17,6 @@ if str(LAMBDA_SRC) not in sys.path:
     sys.path.insert(0, str(LAMBDA_SRC))
 
 os.environ.setdefault("CURRENT_SNAPSHOTS_TABLE", "test-current-snapshots")
-os.environ.setdefault("SNAPSHOT_INGESTION_CHECKSUMS_TABLE", "test-snapshot-checksums")
 os.environ.setdefault("HISTORIC_STATS_TABLE", "test-historic-stats")
 os.environ.setdefault("DAILY_CLOSING_SNAPSHOTS_TABLE", "test-daily-closing")
 os.environ.setdefault("SESSION_VECTORS_TABLE", "test-session-vectors")

@@ -48,22 +48,6 @@ module "historic_stats_table" {
   tags         = local.common_tags
 }
 
-module "snapshot_ingestion_checksums_table" {
-  source = "./services/dynamodb/snapshot-ingestion-checksums-table"
-
-  environment  = local.environment
-  project_name = local.project_name
-  tags         = local.common_tags
-}
-
-module "processed_stats_events_table" {
-  source = "./services/dynamodb/processed-stats-events-table"
-
-  environment  = local.environment
-  project_name = local.project_name
-  tags         = local.common_tags
-}
-
 module "analytics_catalog_table" {
   source = "./services/dynamodb/analytics-catalog-table"
 
@@ -92,9 +76,6 @@ module "historic_stats_updater" {
   historic_stats_table_name                      = module.historic_stats_table.name
   historic_stats_table_arn                       = module.historic_stats_table.arn
   historic_stats_index_arns                      = module.historic_stats_table.index_arns
-  processed_stats_events_table_name              = module.processed_stats_events_table.name
-  processed_stats_events_table_arn               = module.processed_stats_events_table.arn
-  processed_stats_events_index_arns              = module.processed_stats_events_table.index_arns
   enabled_statistical_metrics                    = local.enabled_statistical_metrics
 }
 
@@ -154,9 +135,6 @@ module "api_handler" {
   tags                                    = local.common_tags
   current_snapshots_table_arn             = module.current_snapshots_table.arn
   current_snapshots_index_arns            = module.current_snapshots_table.index_arns
-  snapshot_ingestion_checksums_table_name = module.snapshot_ingestion_checksums_table.name
-  snapshot_ingestion_checksums_table_arn  = module.snapshot_ingestion_checksums_table.arn
-  snapshot_ingestion_checksums_index_arns = module.snapshot_ingestion_checksums_table.index_arns
   stock_orders_table_arn                  = module.stock_orders_table.arn
   stock_orders_index_arns                 = module.stock_orders_table.index_arns
   parsed_invoices_table_arn               = module.parsed_invoices_table.arn
@@ -169,9 +147,6 @@ module "api_handler" {
   historic_stats_table_name               = module.historic_stats_table.name
   historic_stats_table_arn                = module.historic_stats_table.arn
   historic_stats_index_arns               = module.historic_stats_table.index_arns
-  processed_stats_events_table_name       = module.processed_stats_events_table.name
-  processed_stats_events_table_arn        = module.processed_stats_events_table.arn
-  processed_stats_events_index_arns       = module.processed_stats_events_table.index_arns
   daily_closing_snapshots_table_name      = module.daily_closing_snapshots_table.name
   daily_closing_snapshots_table_arn       = module.daily_closing_snapshots_table.arn
   daily_closing_snapshots_index_arns      = module.daily_closing_snapshots_table.index_arns

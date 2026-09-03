@@ -26,9 +26,7 @@ SERIALIZER = TypeSerializer()
 BOGOTA_TIMEZONE = ZoneInfo("America/Bogota")
 CURRENT_SNAPSHOTS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["CURRENT_SNAPSHOTS_TABLE"])
 HISTORIC_STATS_TABLE = os.environ["HISTORIC_STATS_TABLE"]
-PROCESSED_STATS_EVENTS_TABLE = os.environ["PROCESSED_STATS_EVENTS_TABLE"]
 ENABLED_STATISTICAL_METRICS = parse_metric_keys(os.environ.get("ENABLED_STATISTICAL_METRICS"))
-PROCESSED_STATS_EVENT_TTL_SECONDS = 24 * 60 * 60
 
 
 def _deserialize_item(raw_item: dict[str, Any]) -> dict[str, Any]:
@@ -76,15 +74,6 @@ def _load_existing_stat_items(pk: str, metrics: list[str]) -> dict[str, dict[str
     }
 
 
-def _processed_event_exists(snapshot_checksum: str) -> bool:
-    response = DYNAMODB_CLIENT.get_item(
-        TableName=PROCESSED_STATS_EVENTS_TABLE,
-        Key=_serialize_item({"snapshot_checksum": snapshot_checksum}),
-        ProjectionExpression="snapshot_checksum",
-    )
-    return "Item" in response
-
-
 def _load_previous_snapshot(symbol: str, captured_at: str) -> dict[str, Any] | None:
     response = CURRENT_SNAPSHOTS_TABLE.query(
         KeyConditionExpression=Key("symbol").eq(symbol) & Key("captured_at").lte(captured_at),
@@ -115,13 +104,13 @@ def _load_existing_seasonality_item(symbol: str) -> dict[str, Any] | None:
     return None if item is None else _deserialize_item(item)
 
 
-def _transact_snapshot(snapshot: dict[str, Any], source_event_id: str) -> str:
+def _transact_snapshot(snapshot: dict[str, Any]) -> str:
     symbol = str(snapshot["symbol"]).strip().upper()
     captured_at = str(snapshot["captured_at"]).strip()
     captured_timestamp = parse_captured_at(captured_at)
     snapshot_checksum = str(snapshot.get("snapshot_checksum") or "").strip()
     if not snapshot_checksum:
-        raise ValueError("Snapshot checksum is required for idempotent historic stats updates.")
+        raise ValueError("Snapshot checksum is required for historic stats updates.")
 
     previous_snapshot = _load_previous_snapshot(symbol, captured_at)
     metrics = extract_metric_values(
@@ -160,29 +149,7 @@ def _transact_snapshot(snapshot: dict[str, Any], source_event_id: str) -> str:
             processed_units.append(str(data_quality_item["sk"]))
         if not processed_units:
             return "skipped-no-metrics"
-        processed_timestamp = datetime.now(BOGOTA_TIMEZONE)
-        transact_items = [
-            {
-                "Put": {
-                    "TableName": PROCESSED_STATS_EVENTS_TABLE,
-                    "Item": _serialize_item(
-                        {
-                            "snapshot_checksum": snapshot_checksum,
-                            "captured_date": captured_at[:10],
-                            "symbol": symbol,
-                            "captured_at": captured_at,
-                            "symbol_captured_at": f"{symbol}#{captured_at}",
-                            "processed_at": processed_timestamp.isoformat(),
-                            "expires_at": int(processed_timestamp.timestamp())
-                            + PROCESSED_STATS_EVENT_TTL_SECONDS,
-                            "source_event_id": source_event_id,
-                            "metrics_processed": processed_units,
-                        }
-                    ),
-                    "ConditionExpression": "attribute_not_exists(snapshot_checksum)",
-                }
-            }
-        ]
+        transact_items = []
 
         for metric_name in metric_names:
             previous_item = previous_items.get(metric_name)
@@ -243,8 +210,6 @@ def _transact_snapshot(snapshot: dict[str, Any], source_event_id: str) -> str:
         except ClientError as exc:
             if exc.response.get("Error", {}).get("Code") != "TransactionCanceledException":
                 raise
-            if _processed_event_exists(snapshot_checksum):
-                return "duplicate"
             time.sleep(0.15)
 
     raise RuntimeError("Historic stats transaction could not be committed after retries.")
@@ -252,7 +217,6 @@ def _transact_snapshot(snapshot: dict[str, Any], source_event_id: str) -> str:
 
 def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
     processed = 0
-    duplicates = 0
     skipped = 0
 
     for record in event.get("Records", []):
@@ -265,14 +229,9 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
             skipped += 1
             continue
 
-        result = _transact_snapshot(
-            _deserialize_item(new_image),
-            str(record.get("eventID", "")),
-        )
+        result = _transact_snapshot(_deserialize_item(new_image))
         if result == "processed":
             processed += 1
-        elif result == "duplicate":
-            duplicates += 1
         else:
             skipped += 1
 
@@ -281,7 +240,6 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
         "body": json.dumps(
             {
                 "processed": processed,
-                "duplicates": duplicates,
                 "skipped": skipped,
             }
         ),

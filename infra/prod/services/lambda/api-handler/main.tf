@@ -28,20 +28,6 @@ data "aws_iam_policy_document" "inline" {
   }
 
   statement {
-    sid    = "ReadSnapshotIngestionChecksums"
-    effect = "Allow"
-    actions = [
-      "dynamodb:GetItem",
-      "dynamodb:BatchGetItem",
-      "dynamodb:Query",
-    ]
-    resources = concat(
-      [var.snapshot_ingestion_checksums_table_arn],
-      var.snapshot_ingestion_checksums_index_arns,
-    )
-  }
-
-  statement {
     sid    = "ReadStockOrders"
     effect = "Allow"
     actions = [
@@ -84,20 +70,6 @@ data "aws_iam_policy_document" "inline" {
   }
 
   statement {
-    sid    = "ReadProcessedStatsEvents"
-    effect = "Allow"
-    actions = [
-      "dynamodb:GetItem",
-      "dynamodb:BatchGetItem",
-      "dynamodb:Query",
-    ]
-    resources = concat(
-      [var.processed_stats_events_table_arn],
-      var.processed_stats_events_index_arns,
-    )
-  }
-
-  statement {
     sid    = "ReadDailyClosingSnapshots"
     effect = "Allow"
     actions = [
@@ -132,12 +104,8 @@ data "aws_iam_policy_document" "inline" {
       "dynamodb:PutItem",
       "dynamodb:UpdateItem",
       "dynamodb:BatchWriteItem",
-      "dynamodb:TransactWriteItems",
     ]
-    resources = [
-      var.current_snapshots_table_arn,
-      var.snapshot_ingestion_checksums_table_arn,
-    ]
+    resources = [var.current_snapshots_table_arn]
   }
 
   statement {
@@ -193,17 +161,15 @@ module "function" {
   policy_json   = data.aws_iam_policy_document.inline.json
 
   environment_variables = {
-    CURRENT_SNAPSHOTS_TABLE            = var.current_snapshots_table_name
-    SNAPSHOT_INGESTION_CHECKSUMS_TABLE = var.snapshot_ingestion_checksums_table_name
-    HISTORIC_STATS_TABLE               = var.historic_stats_table_name
-    PROCESSED_STATS_EVENTS_TABLE       = var.processed_stats_events_table_name
-    DAILY_CLOSING_SNAPSHOTS_TABLE      = var.daily_closing_snapshots_table_name
-    SESSION_VECTORS_TABLE              = var.session_vectors_table_name
-    ANALYTICS_CATALOG_TABLE            = var.analytics_catalog_table_name
-    STOCK_ORDERS_TABLE                 = var.stock_orders_table_name
-    PARSED_INVOICES_TABLE              = var.parsed_invoices_table_name
-    SOURCE_DOCUMENTS_BUCKET            = var.source_documents_bucket_name
-    API_SHARED_TOKEN                   = var.api_gateway_shared_token
+    CURRENT_SNAPSHOTS_TABLE       = var.current_snapshots_table_name
+    HISTORIC_STATS_TABLE          = var.historic_stats_table_name
+    DAILY_CLOSING_SNAPSHOTS_TABLE = var.daily_closing_snapshots_table_name
+    SESSION_VECTORS_TABLE         = var.session_vectors_table_name
+    ANALYTICS_CATALOG_TABLE       = var.analytics_catalog_table_name
+    STOCK_ORDERS_TABLE            = var.stock_orders_table_name
+    PARSED_INVOICES_TABLE         = var.parsed_invoices_table_name
+    SOURCE_DOCUMENTS_BUCKET       = var.source_documents_bucket_name
+    API_SHARED_TOKEN              = var.api_gateway_shared_token
   }
 
   tags = var.tags

@@ -31,9 +31,8 @@ data "aws_iam_policy_document" "inline" {
       "dynamodb:TransactWriteItems",
     ]
     resources = concat(
-      [var.historic_stats_table_arn, var.processed_stats_events_table_arn],
+      [var.historic_stats_table_arn],
       var.historic_stats_index_arns,
-      var.processed_stats_events_index_arns,
     )
   }
 
@@ -50,10 +49,9 @@ module "function" {
   policy_json   = data.aws_iam_policy_document.inline.json
 
   environment_variables = {
-    CURRENT_SNAPSHOTS_TABLE      = var.current_snapshots_table_name
-    HISTORIC_STATS_TABLE         = var.historic_stats_table_name
-    PROCESSED_STATS_EVENTS_TABLE = var.processed_stats_events_table_name
-    ENABLED_STATISTICAL_METRICS  = join(",", var.enabled_statistical_metrics)
+    CURRENT_SNAPSHOTS_TABLE     = var.current_snapshots_table_name
+    HISTORIC_STATS_TABLE        = var.historic_stats_table_name
+    ENABLED_STATISTICAL_METRICS = join(",", var.enabled_statistical_metrics)
   }
 
   tags = var.tags

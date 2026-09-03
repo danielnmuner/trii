@@ -51,19 +51,17 @@ with Diagram(
             daily_closing_snapshots_updater = Lambda("daily_closing_snapshots_updater\nLambda")
             analytics_catalog_updater = Lambda("analytics_catalog_updater\nLambda")
             session_vectors_updater = Lambda("session_vectors_updater\nLambda")
-            current_snapshots_pruner = Lambda("current_snapshots_pruner\nLambda")
+            current_snapshots_pruner = Lambda("current_snapshots_pruner\nLambda\n(stream + manual)")
             daily_closing_schedule = Eventbridge("24h closing\nschedule")
 
         with Cluster("Operational data stores"):
             with Cluster("API persistence"):
-                snapshot_ingestion_checksums = Dynamodb("trii-prod-snapshot-ingestion-checksums")
                 current_snapshots_table = Dynamodb("trii-prod-current-snapshots")
                 stock_orders_table = Dynamodb("trii-prod-stock-orders")
                 source_documents_bucket = S3("trii-prod-source-documents")
 
             with Cluster("Analytics persistence"):
                 historic_stats_table = Dynamodb("trii-prod-historic-stats")
-                processed_stats_events_table = Dynamodb("trii-prod-processed-stats-events")
                 daily_closing_snapshots_table = Dynamodb("trii-prod-daily-closing-snapshots")
                 analytics_catalog_table = Dynamodb("trii-prod-analytics-catalog")
                 session_vectors_table = Dynamodb("trii-prod-session-vectors")
@@ -71,7 +69,6 @@ with Diagram(
     streamlit_operator >> Edge(label="read analytics / upload docs") >> http_api >> api_handler
     chrome_extension >> Edge(label="send snapshots / orders") >> http_api
 
-    api_handler >> Edge(label="write checksum", color="firebrick") >> snapshot_ingestion_checksums
     api_handler >> Edge(label="write snapshot", color="firebrick") >> current_snapshots_table
     api_handler >> Edge(label="write orders", color="firebrick") >> stock_orders_table
     api_handler >> Edge(label="store files", color="firebrick") >> source_documents_bucket
@@ -81,8 +78,6 @@ with Diagram(
     current_snapshots_table >> Edge(label="stream INSERTs", color="deepskyblue4") >> session_vectors_updater
     current_snapshots_table >> Edge(label="stream INSERTs", color="firebrick4") >> current_snapshots_pruner
     historic_stats_updater >> Edge(label="update stats", color="darkorange") >> historic_stats_table
-    historic_stats_updater >> Edge(label="write idempotency", color="darkorange") >> processed_stats_events_table
-
     daily_closing_schedule >> Edge(label="run every 24h", color="mediumpurple") >> daily_closing_snapshots_updater
     daily_closing_snapshots_updater >> Edge(label="read daily snapshots", color="mediumpurple", style="dashed") >> current_snapshots_table
     daily_closing_snapshots_updater >> Edge(label="store daily closing", color="mediumpurple") >> daily_closing_snapshots_table

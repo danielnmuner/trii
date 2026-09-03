@@ -19,8 +19,6 @@ on:
         options:
           - all
           - current-snapshots
-          - snapshot-ingestion-checksums
-          - processed-stats-events
           - session-vectors
 
 permissions:
@@ -59,8 +57,6 @@ jobs:
           if [[ "${TABLE_SCOPE}" == "all" ]]; then
             tables+=(
               current-snapshots
-              snapshot-ingestion-checksums
-              processed-stats-events
               session-vectors
             )
           else
@@ -125,8 +121,6 @@ jobs:
         run: |
           case "${TABLE_NAME}" in
             current-snapshots) ttl_target="48h" ;;
-            snapshot-ingestion-checksums) ttl_target="24h" ;;
-            processed-stats-events) ttl_target="24h" ;;
             session-vectors) ttl_target="24h" ;;
             *) ttl_target="unknown" ;;
           esac

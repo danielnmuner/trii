@@ -23,21 +23,6 @@ variable "current_snapshots_index_arns" {
   type        = list(string)
 }
 
-variable "snapshot_ingestion_checksums_table_name" {
-  description = "Snapshot ingestion checksums table name."
-  type        = string
-}
-
-variable "snapshot_ingestion_checksums_table_arn" {
-  description = "Snapshot ingestion checksums table ARN."
-  type        = string
-}
-
-variable "snapshot_ingestion_checksums_index_arns" {
-  description = "Snapshot ingestion checksums table index ARNs."
-  type        = list(string)
-}
-
 variable "stock_orders_table_name" {
   description = "Stock orders table name."
   type        = string
@@ -80,21 +65,6 @@ variable "historic_stats_table_arn" {
 
 variable "historic_stats_index_arns" {
   description = "Historic stats table index ARNs."
-  type        = list(string)
-}
-
-variable "processed_stats_events_table_name" {
-  description = "Processed stats events table name."
-  type        = string
-}
-
-variable "processed_stats_events_table_arn" {
-  description = "Processed stats events table ARN."
-  type        = string
-}
-
-variable "processed_stats_events_index_arns" {
-  description = "Processed stats events table index ARNs."
   type        = list(string)
 }
 

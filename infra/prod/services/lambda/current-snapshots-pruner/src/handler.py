@@ -13,6 +13,7 @@ DYNAMODB_RESOURCE = boto3.resource("dynamodb")
 CURRENT_SNAPSHOTS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["CURRENT_SNAPSHOTS_TABLE"])
 DESERIALIZER = TypeDeserializer()
 MAX_SNAPSHOTS_PER_SYMBOL = 2
+FULL_SCAN_MODE = "full-scan"
 
 
 def _deserialize_item(raw_item: dict[str, Any]) -> dict[str, Any]:
@@ -61,7 +62,51 @@ def _prune_symbol(symbol: str) -> int:
     return len(stale_keys)
 
 
+def _scan_symbols() -> set[str]:
+    symbols: set[str] = set()
+    scan_kwargs: dict[str, Any] = {
+        "ProjectionExpression": "#symbol",
+        "ExpressionAttributeNames": {
+            "#symbol": "symbol",
+        },
+    }
+
+    while True:
+        response = CURRENT_SNAPSHOTS_TABLE.scan(**scan_kwargs)
+        for item in response.get("Items", []):
+            symbol = str(item.get("symbol") or "").strip().upper()
+            if symbol:
+                symbols.add(symbol)
+
+        last_evaluated_key = response.get("LastEvaluatedKey")
+        if last_evaluated_key is None:
+            break
+        scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+
+    return symbols
+
+
+def _manual_full_scan() -> dict[str, int | str]:
+    symbols = _scan_symbols()
+    deleted_items = 0
+    for symbol in sorted(symbols):
+        deleted_items += _prune_symbol(symbol)
+
+    return {
+        "mode": FULL_SCAN_MODE,
+        "processed_symbols": len(symbols),
+        "deleted_items": deleted_items,
+        "ignored_records": 0,
+    }
+
+
 def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
+    if str(event.get("mode") or "").strip().lower() == FULL_SCAN_MODE:
+        return {
+            "statusCode": 200,
+            "body": json.dumps(_manual_full_scan()),
+        }
+
     symbols: set[str] = set()
     ignored_records = 0
 
@@ -88,6 +133,7 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
         "statusCode": 200,
         "body": json.dumps(
             {
+                "mode": "stream",
                 "processed_symbols": len(symbols),
                 "deleted_items": deleted_items,
                 "ignored_records": ignored_records,

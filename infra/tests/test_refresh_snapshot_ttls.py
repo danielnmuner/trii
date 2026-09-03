@@ -139,54 +139,6 @@ def test_refresh_table_ttls_apply_updates_only_changed_items() -> None:
     ]
 
 
-def test_refresh_table_ttls_apply_supports_checksum_key_tables() -> None:
-    fake_table = FakeTable(
-        [
-            {
-                "Items": [
-                    {
-                        "snapshot_checksum": "checksum-1",
-                        "accepted_at": "2026-08-30T11:00:00-05:00",
-                        "expires_at": 1,
-                    },
-                    {
-                        "snapshot_checksum": "checksum-2",
-                        "accepted_at": "2026-08-30T11:10:00-05:00",
-                        "expires_at": 2,
-                    },
-                ]
-            }
-        ]
-    )
-    refresh_snapshot_ttls.DYNAMODB_RESOURCE = FakeDynamoResource(
-        {"trii-prod-snapshot-ingestion-checksums": fake_table}
-    )
-
-    result = refresh_snapshot_ttls._refresh_table_ttls(
-        table_name="trii-prod-snapshot-ingestion-checksums",
-        retention_seconds=24 * 60 * 60,
-        timestamp_field="accepted_at",
-        projection_fields=["snapshot_checksum", "accepted_at", "expires_at"],
-        key_fields=["snapshot_checksum"],
-        apply=True,
-    )
-
-    assert result["scanned_count"] == 2
-    assert result["updated_count"] == 2
-    assert fake_table.update_calls == [
-        {
-            "Key": {"snapshot_checksum": "checksum-1"},
-            "UpdateExpression": "SET expires_at = :expires_at",
-            "ExpressionAttributeValues": {":expires_at": 1788192000},
-        },
-        {
-            "Key": {"snapshot_checksum": "checksum-2"},
-            "UpdateExpression": "SET expires_at = :expires_at",
-            "ExpressionAttributeValues": {":expires_at": 1788192600},
-        },
-    ]
-
-
 def test_refresh_table_ttls_apply_supports_session_vectors_manifest_and_segments() -> None:
     fake_table = FakeTable(
         [

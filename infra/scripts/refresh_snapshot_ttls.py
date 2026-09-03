@@ -10,8 +10,6 @@ import boto3
 
 
 CURRENT_SNAPSHOTS_TABLE_NAME = "trii-prod-current-snapshots"
-SNAPSHOT_INGESTION_CHECKSUMS_TABLE_NAME = "trii-prod-snapshot-ingestion-checksums"
-PROCESSED_STATS_EVENTS_TABLE_NAME = "trii-prod-processed-stats-events"
 SESSION_VECTORS_TABLE_NAME = "trii-prod-session-vectors"
 
 TABLE_CONFIGS: dict[str, dict[str, Any]] = {
@@ -21,20 +19,6 @@ TABLE_CONFIGS: dict[str, dict[str, Any]] = {
         "timestamp_field": "captured_at",
         "projection_fields": ["symbol", "captured_at", "expires_at"],
         "key_fields": ["symbol", "captured_at"],
-    },
-    "snapshot-ingestion-checksums": {
-        "table_name": SNAPSHOT_INGESTION_CHECKSUMS_TABLE_NAME,
-        "retention_seconds": 24 * 60 * 60,
-        "timestamp_field": "accepted_at",
-        "projection_fields": ["snapshot_checksum", "accepted_at", "expires_at"],
-        "key_fields": ["snapshot_checksum"],
-    },
-    "processed-stats-events": {
-        "table_name": PROCESSED_STATS_EVENTS_TABLE_NAME,
-        "retention_seconds": 24 * 60 * 60,
-        "timestamp_field": "processed_at",
-        "projection_fields": ["snapshot_checksum", "processed_at", "expires_at"],
-        "key_fields": ["snapshot_checksum"],
     },
     "session-vectors": {
         "table_name": SESSION_VECTORS_TABLE_NAME,

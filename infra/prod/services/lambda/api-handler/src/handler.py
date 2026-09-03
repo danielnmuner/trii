@@ -23,7 +23,6 @@ SERIALIZER = TypeSerializer()
 DESERIALIZER = TypeDeserializer()
 
 CURRENT_SNAPSHOTS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["CURRENT_SNAPSHOTS_TABLE"])
-SNAPSHOT_INGESTION_CHECKSUMS_TABLE = os.environ["SNAPSHOT_INGESTION_CHECKSUMS_TABLE"]
 HISTORIC_STATS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["HISTORIC_STATS_TABLE"])
 DAILY_CLOSING_SNAPSHOTS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["DAILY_CLOSING_SNAPSHOTS_TABLE"])
 SESSION_VECTORS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["SESSION_VECTORS_TABLE"])
@@ -32,7 +31,6 @@ STOCK_ORDERS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["STOCK_ORDERS_TABLE"])
 API_SHARED_TOKEN = os.environ["API_SHARED_TOKEN"]
 BOGOTA_TIMEZONE = ZoneInfo("America/Bogota")
 CURRENT_SNAPSHOT_TTL_SECONDS = 48 * 60 * 60
-SNAPSHOT_INGESTION_CHECKSUM_TTL_SECONDS = 24 * 60 * 60
 SESSION_VECTOR_SAMPLING_SECONDS = 30
 SESSION_VECTOR_SAMPLES_PER_SEGMENT = 156
 EXPECTED_STOCK_ORDER_COLUMNS = (
@@ -341,38 +339,11 @@ def _persist_snapshot(body: dict[str, Any]) -> dict[str, Any]:
     item["snapshot_checksum"] = _json_checksum(normalized_snapshot)
     item["symbol_captured_at"] = f"{symbol}#{captured_at}"
     accepted_timestamp = datetime.now(BOGOTA_TIMEZONE)
-    accepted_at = accepted_timestamp.isoformat()
     accepted_epoch = int(accepted_timestamp.timestamp())
     item["expires_at"] = accepted_epoch + CURRENT_SNAPSHOT_TTL_SECONDS
-
-    checksum_item = {
-        "snapshot_checksum": item["snapshot_checksum"],
-        "captured_date": item["captured_date"],
-        "symbol": symbol,
-        "captured_at": captured_at,
-        "symbol_captured_at": item["symbol_captured_at"],
-        "accepted_at": accepted_at,
-        "source": str(snapshot.get("source") or "unknown"),
-        "expires_at": accepted_epoch + SNAPSHOT_INGESTION_CHECKSUM_TTL_SECONDS,
-    }
-
-    DYNAMODB_CLIENT.transact_write_items(
-        TransactItems=[
-            {
-                "Put": {
-                    "TableName": SNAPSHOT_INGESTION_CHECKSUMS_TABLE,
-                    "Item": _serialize_item(_decimalize(checksum_item)),
-                    "ConditionExpression": "attribute_not_exists(snapshot_checksum)",
-                }
-            },
-            {
-                "Put": {
-                    "TableName": os.environ["CURRENT_SNAPSHOTS_TABLE"],
-                    "Item": _serialize_item(_decimalize(item)),
-                    "ConditionExpression": "attribute_not_exists(symbol) AND attribute_not_exists(captured_at)",
-                }
-            },
-        ]
+    CURRENT_SNAPSHOTS_TABLE.put_item(
+        Item=_decimalize(item),
+        ConditionExpression="attribute_not_exists(symbol) AND attribute_not_exists(captured_at)",
     )
 
     return {
@@ -1649,12 +1620,12 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
         )
     except ClientError as exc:
         error_code = exc.response.get("Error", {}).get("Code", "")
-        if error_code == "TransactionCanceledException":
+        if error_code == "ConditionalCheckFailedException":
             return _response(
                 409,
                 {
                     "status": "error",
-                    "message": "El snapshot fue rechazado porque ya existe un checksum o una llave primaria igual.",
+                    "message": "El snapshot fue rechazado porque ya existe una llave primaria igual.",
                 },
             )
         return _response(

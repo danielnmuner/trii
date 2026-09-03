@@ -66,3 +66,4 @@ query_patterns:
 
 retention_rule:
 - a dedicated stream consumer prunes each symbol so only the two newest records remain
+- the same pruner can also be invoked manually with `mode=full-scan` to prune the whole table

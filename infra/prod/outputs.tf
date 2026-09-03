@@ -28,16 +28,6 @@ output "historic_stats_table_name" {
   value       = module.historic_stats_table.name
 }
 
-output "snapshot_ingestion_checksums_table_name" {
-  description = "Snapshot ingestion checksums DynamoDB table name."
-  value       = module.snapshot_ingestion_checksums_table.name
-}
-
-output "processed_stats_events_table_name" {
-  description = "Processed stats events DynamoDB table name."
-  value       = module.processed_stats_events_table.name
-}
-
 output "analytics_catalog_table_name" {
   description = "Analytics catalog DynamoDB table name."
   value       = module.analytics_catalog_table.name

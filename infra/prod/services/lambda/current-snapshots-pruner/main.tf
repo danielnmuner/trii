@@ -17,6 +17,7 @@ data "aws_iam_policy_document" "inline" {
     actions = [
       "dynamodb:DeleteItem",
       "dynamodb:Query",
+      "dynamodb:Scan",
     ]
     resources = [var.current_snapshots_table_arn]
   }
@@ -26,7 +27,7 @@ module "function" {
   source = "../../../../modules/lambda/python-function"
 
   function_name = "${var.project_name}-${var.environment}-current-snapshots-pruner"
-  description   = "Keeps only the two newest current snapshot records per symbol."
+  description   = "Keeps only the two newest current snapshot records per symbol, from stream inserts or manual full scans."
   source_dir    = "${path.module}/src"
   timeout       = 60
   memory_size   = 256

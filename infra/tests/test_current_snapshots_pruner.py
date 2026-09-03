@@ -56,6 +56,7 @@ class FakeCurrentSnapshotsTable:
         self.page_size = page_size
         self.deleted_keys: list[dict[str, str]] = []
         self.query_calls: list[dict] = []
+        self.scan_calls: list[dict] = []
 
     def query(self, **kwargs: dict) -> dict:
         self.query_calls.append(dict(kwargs))
@@ -90,6 +91,36 @@ class FakeCurrentSnapshotsTable:
     def batch_writer(self) -> FakeBatchWriter:
         return FakeBatchWriter(self)
 
+    def scan(self, **kwargs: dict) -> dict:
+        self.scan_calls.append(dict(kwargs))
+        ordered_items = sorted(
+            self.items,
+            key=lambda item: (item["symbol"], item["captured_at"]),
+        )
+        deduped_items: list[dict[str, str]] = []
+        seen_symbols: set[str] = set()
+        for item in ordered_items:
+            if item["symbol"] in seen_symbols:
+                continue
+            seen_symbols.add(item["symbol"])
+            deduped_items.append({"symbol": item["symbol"]})
+
+        start_index = 0
+        exclusive_start_key = kwargs.get("ExclusiveStartKey")
+        if exclusive_start_key is not None:
+            exclusive_symbol = str(exclusive_start_key["symbol"])
+            for index, item in enumerate(deduped_items):
+                if item["symbol"] == exclusive_symbol:
+                    start_index = index + 1
+                    break
+
+        page_items = deduped_items[start_index:start_index + self.page_size]
+        response: dict[str, object] = {"Items": page_items}
+        if start_index + self.page_size < len(deduped_items):
+            last_item = page_items[-1]
+            response["LastEvaluatedKey"] = {"symbol": last_item["symbol"]}
+        return response
+
 
 def test_handler_prunes_all_but_latest_two_snapshots_per_symbol() -> None:
     table = FakeCurrentSnapshotsTable(
@@ -123,6 +154,7 @@ def test_handler_prunes_all_but_latest_two_snapshots_per_symbol() -> None:
     payload = json.loads(response["body"])
     assert response["statusCode"] == 200
     assert payload == {
+        "mode": "stream",
         "processed_symbols": 1,
         "deleted_items": 2,
         "ignored_records": 0,
@@ -181,8 +213,54 @@ def test_handler_ignores_non_insert_records_and_deduplicates_symbols() -> None:
     payload = json.loads(response["body"])
     assert response["statusCode"] == 200
     assert payload == {
+        "mode": "stream",
         "processed_symbols": 1,
         "deleted_items": 0,
         "ignored_records": 1,
     }
     assert len(table.query_calls) == 1
+
+
+def test_handler_manual_full_scan_prunes_all_symbols_globally() -> None:
+    table = FakeCurrentSnapshotsTable(
+        [
+            {"symbol": "ECOPETROL", "captured_at": "2026-08-30T08:31:30-05:00"},
+            {"symbol": "ECOPETROL", "captured_at": "2026-08-30T08:31:00-05:00"},
+            {"symbol": "ECOPETROL", "captured_at": "2026-08-30T08:30:30-05:00"},
+            {"symbol": "ISA", "captured_at": "2026-08-30T08:31:30-05:00"},
+            {"symbol": "ISA", "captured_at": "2026-08-30T08:31:00-05:00"},
+            {"symbol": "ISA", "captured_at": "2026-08-30T08:30:30-05:00"},
+            {"symbol": "ISA", "captured_at": "2026-08-30T08:30:00-05:00"},
+        ],
+        page_size=1,
+    )
+    pruner_handler.CURRENT_SNAPSHOTS_TABLE = table
+
+    response = pruner_handler.handler({"mode": "full-scan"}, None)
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 200
+    assert payload == {
+        "mode": "full-scan",
+        "processed_symbols": 2,
+        "deleted_items": 3,
+        "ignored_records": 0,
+    }
+    assert len(table.scan_calls) == 2
+    remaining_by_symbol = {
+        symbol: sorted(
+            [item["captured_at"] for item in table.items if item["symbol"] == symbol],
+            reverse=True,
+        )
+        for symbol in {"ECOPETROL", "ISA"}
+    }
+    assert remaining_by_symbol == {
+        "ECOPETROL": [
+            "2026-08-30T08:31:30-05:00",
+            "2026-08-30T08:31:00-05:00",
+        ],
+        "ISA": [
+            "2026-08-30T08:31:30-05:00",
+            "2026-08-30T08:31:00-05:00",
+        ],
+    }
