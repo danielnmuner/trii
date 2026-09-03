@@ -41,20 +41,11 @@ class FakeCurrentSnapshotsTable:
         trading_date = trading_date.replace("'", "")
         return {"Items": list(self.snapshots_by_date.get(trading_date, []))}
 
-    def scan(self, **_scan_kwargs):
-        items = []
-        for trading_date in sorted(self.snapshots_by_date):
-            items.extend({"captured_date": trading_date} for _ in self.snapshots_by_date[trading_date])
-        return {"Items": items}
-
 
 class FakeDailyClosingSnapshotsTable:
     def __init__(self, existing_items: list[dict]) -> None:
         self.existing_items = list(existing_items)
         self.written_items: list[dict] = []
-
-    def scan(self, **_scan_kwargs):
-        return {"Items": list(self.existing_items)}
 
     def put_item(self, *, Item, ConditionExpression: str):
         assert ConditionExpression == "attribute_not_exists(symbol) AND attribute_not_exists(trading_date)"
@@ -139,25 +130,6 @@ def test_handler_writes_only_missing_symbol_day_records() -> None:
                 "traded_volume": 20,
             },
         ],
-        "2026-08-11": [
-            {
-                "symbol": "NUCO",
-                "asset_name": "Nu Holdings",
-                "currency": "COP",
-                "captured_at": "2026-08-11T14:50:00-05:00",
-                "snapshot_checksum": "nuco-next-close",
-                "last_price": 120,
-                "daily_change_amount": 10,
-                "daily_change_percent": 4,
-                "previous_close": 110,
-                "best_bid_price": 119,
-                "best_ask_price": 121,
-                "high_price": 122,
-                "low_price": 109,
-                "traded_value": 3000,
-                "traded_volume": 30,
-            }
-        ],
     }
     closing_table = FakeDailyClosingSnapshotsTable(
         [
@@ -176,23 +148,19 @@ def test_handler_writes_only_missing_symbol_day_records() -> None:
     response = daily_handler.handler(
         {
             "apply": True,
-            "trading_date_from": "2026-08-10",
-            "trading_date_to": "2026-08-11",
+            "trading_date": "2026-08-10",
         },
         None,
     )
     body = json.loads(response["body"])
 
-    assert body["dates_considered"] == 2
-    assert body["dates_with_snapshots"] == 2
-    assert body["missing_symbols_found"] == 2
-    assert body["records_written"] == 2
+    assert body["trading_date"] == "2026-08-10"
+    assert body["is_business_day"] is True
+    assert body["symbols_found"] == 2
+    assert body["records_written"] == 1
     assert body["records_skipped_existing"] == 1
-    assert {(item["symbol"], item["trading_date"]) for item in closing_table.written_items} == {
-        ("NUCO", "2026-08-10"),
-        ("NUCO", "2026-08-11"),
-    }
-    assert next(item for item in closing_table.written_items if item["trading_date"] == "2026-08-10")["source_captured_at"] == "2026-08-10T14:45:00-05:00"
+    assert {(item["symbol"], item["trading_date"]) for item in closing_table.written_items} == {("NUCO", "2026-08-10")}
+    assert closing_table.written_items[0]["source_captured_at"] == "2026-08-10T14:45:00-05:00"
 
 
 def test_handler_preview_mode_finds_missing_records_without_writing() -> None:
@@ -226,13 +194,35 @@ def test_handler_preview_mode_finds_missing_records_without_writing() -> None:
     response = daily_handler.handler(
         {
             "apply": False,
-            "trading_date_from": "2026-08-10",
-            "trading_date_to": "2026-08-10",
+            "trading_date": "2026-08-10",
         },
         None,
     )
     body = json.loads(response["body"])
 
-    assert body["missing_symbols_found"] == 1
+    assert body["trading_date"] == "2026-08-10"
+    assert body["symbols_found"] == 1
     assert body["records_written"] == 0
+    assert closing_table.written_items == []
+
+
+def test_handler_skips_non_business_day_without_querying_or_writing() -> None:
+    current_snapshots = FakeCurrentSnapshotsTable({})
+    closing_table = FakeDailyClosingSnapshotsTable([])
+    daily_handler.CURRENT_SNAPSHOTS_TABLE = current_snapshots
+    daily_handler.DAILY_CLOSING_SNAPSHOTS_TABLE = closing_table
+    daily_handler._now_bogota = lambda: datetime.fromisoformat("2026-08-09T16:00:00-05:00")
+
+    response = daily_handler.handler({"apply": True, "trading_date": "2026-08-09"}, None)
+    body = json.loads(response["body"])
+
+    assert body == {
+        "apply": True,
+        "timezone": "America/Bogota",
+        "trading_date": "2026-08-09",
+        "is_business_day": False,
+        "symbols_found": 0,
+        "records_written": 0,
+        "records_skipped_existing": 0,
+    }
     assert closing_table.written_items == []

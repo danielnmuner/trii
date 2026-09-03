@@ -1,10 +1,10 @@
 table_name: trii-prod-current-snapshots
 
 purpose:
-- store the latest parsed market snapshots from the primary indicators contract as a time series per symbol
-- support calculations and historical analysis mainly by time
-- act as the raw source of truth for incremental and rebuilt historic stats
-- retain operational snapshots for 48 hours before DynamoDB TTL removes them
+- store the latest parsed market snapshots from the primary indicators contract as a short-lived per-symbol buffer
+- preserve only the two most recent snapshots per symbol for current/previous comparisons
+- act as the raw source of truth for stream-driven analytics updates
+- retain operational snapshots for up to 48 hours as a safety net if pruning lags behind
 
 primary_key:
 - pk: symbol
@@ -59,6 +59,10 @@ record_type:
 
 query_patterns:
 - latest snapshot by symbol
-- full time series by symbol
-- all snapshots for one capture date
-- raw source for historic stats rebuilds and stream-driven incremental updates
+- previous snapshot by symbol
+- at most two buffered snapshots by symbol
+- same-day snapshots near market close
+- raw source for stream-driven incremental analytics updates
+
+retention_rule:
+- a dedicated stream consumer prunes each symbol so only the two newest records remain

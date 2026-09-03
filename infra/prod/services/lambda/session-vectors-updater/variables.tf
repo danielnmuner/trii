@@ -13,31 +13,6 @@ variable "current_snapshots_stream_arn" {
   type        = string
 }
 
-variable "current_snapshots_table_name" {
-  description = "Current snapshots table name."
-  type        = string
-}
-
-variable "current_snapshots_table_arn" {
-  description = "Current snapshots table ARN."
-  type        = string
-}
-
-variable "current_snapshots_index_arns" {
-  description = "Current snapshots table index ARNs."
-  type        = list(string)
-}
-
-variable "analytics_catalog_table_name" {
-  description = "Analytics catalog table name."
-  type        = string
-}
-
-variable "analytics_catalog_table_arn" {
-  description = "Analytics catalog table ARN."
-  type        = string
-}
-
 variable "session_vectors_table_name" {
   description = "Session vectors table name."
   type        = string

@@ -7,7 +7,6 @@ from diagrams.aws.integration import Eventbridge
 from diagrams.aws.network import APIGateway
 from diagrams.aws.storage import S3
 from diagrams.custom import Custom
-from diagrams.onprem.ci import GithubActions
 
 
 OUTPUT_DIR = Path("generated-diagrams/trii-prod")
@@ -40,8 +39,6 @@ with Diagram(
 ):
     streamlit_operator = Custom("Streamlit\noperator", STREAMLIT_ICON)
     chrome_extension = Custom("Chrome\nextension", CHROME_EXTENSION_ICON)
-    historic_stats_backfill_workflow = GithubActions("historic-stats-backfill\nworkflow")
-    analytics_catalog_backfill_workflow = GithubActions("analytics-catalog-backfill\nworkflow")
 
     with Cluster("AWS prod"):
         http_api = APIGateway("HTTP API")
@@ -51,11 +48,10 @@ with Diagram(
 
         with Cluster("Background analytics"):
             historic_stats_updater = Lambda("historic_stats_updater\nLambda")
-            historic_stats_backfill = Lambda("historic_stats_backfill\nLambda")
             daily_closing_snapshots_updater = Lambda("daily_closing_snapshots_updater\nLambda")
             analytics_catalog_updater = Lambda("analytics_catalog_updater\nLambda")
-            analytics_catalog_backfill = Lambda("analytics_catalog_backfill\nLambda")
-            session_vectors_updater = Lambda("session_vectors_updater\nLambda\n(stream + manual)")
+            session_vectors_updater = Lambda("session_vectors_updater\nLambda")
+            current_snapshots_pruner = Lambda("current_snapshots_pruner\nLambda")
             daily_closing_schedule = Eventbridge("24h closing\nschedule")
 
         with Cluster("Operational data stores"):
@@ -83,30 +79,15 @@ with Diagram(
     current_snapshots_table >> Edge(label="stream INSERTs", color="darkorange") >> historic_stats_updater
     current_snapshots_table >> Edge(label="stream INSERTs", color="royalblue") >> analytics_catalog_updater
     current_snapshots_table >> Edge(label="stream INSERTs", color="deepskyblue4") >> session_vectors_updater
+    current_snapshots_table >> Edge(label="stream INSERTs", color="firebrick4") >> current_snapshots_pruner
     historic_stats_updater >> Edge(label="update stats", color="darkorange") >> historic_stats_table
     historic_stats_updater >> Edge(label="write idempotency", color="darkorange") >> processed_stats_events_table
-
-    historic_stats_backfill_workflow >> Edge(label="manual invoke", color="slateblue") >> historic_stats_backfill
-    historic_stats_backfill >> Edge(label="query snapshots history", color="slateblue", style="dashed") >> current_snapshots_table
-    historic_stats_backfill >> Edge(label="rebuild metrics", color="slateblue") >> historic_stats_table
-    analytics_catalog_backfill_workflow >> Edge(label="manual invoke", color="dodgerblue4") >> analytics_catalog_backfill
-    analytics_catalog_backfill >> Edge(label="query latest trading date", color="dodgerblue4", style="dashed") >> current_snapshots_table
-    analytics_catalog_backfill >> Edge(label="overwrite catalog", color="dodgerblue4") >> analytics_catalog_table
 
     daily_closing_schedule >> Edge(label="run every 24h", color="mediumpurple") >> daily_closing_snapshots_updater
     daily_closing_snapshots_updater >> Edge(label="read daily snapshots", color="mediumpurple", style="dashed") >> current_snapshots_table
     daily_closing_snapshots_updater >> Edge(label="store daily closing", color="mediumpurple") >> daily_closing_snapshots_table
     session_vectors_updater >> Edge(label="maintain manifest + segments", color="deepskyblue4") >> session_vectors_table
-    analytics_catalog_table >> Edge(
-        label="manual rebuild:\nresolve latest trading date",
-        color="deepskyblue4",
-        style="dashed",
-    ) >> session_vectors_updater
-    session_vectors_updater >> Edge(
-        label="manual rebuild:\nquery latest day snapshots",
-        color="deepskyblue4",
-        style="dashed",
-    ) >> current_snapshots_table
+    current_snapshots_pruner >> Edge(label="delete stale\nsnapshots > 2", color="firebrick4") >> current_snapshots_table
 
     analytics_catalog_updater >> Edge(
         label="overwrite latest\nrecord per symbol",

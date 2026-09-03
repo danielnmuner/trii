@@ -114,80 +114,6 @@ def _default_end_date(now_bogota: datetime) -> date:
         return now_bogota.date()
     return now_bogota.date() - timedelta(days=1)
 
-
-def _iter_dates(start_date: date, end_date: date) -> list[date]:
-    total_days = (end_date - start_date).days
-    return [start_date + timedelta(days=offset) for offset in range(total_days + 1)]
-
-
-def _scan_existing_daily_closings() -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
-    scan_kwargs: dict[str, Any] = {
-        "ProjectionExpression": "symbol, trading_date",
-    }
-    while True:
-        response = DAILY_CLOSING_SNAPSHOTS_TABLE.scan(**scan_kwargs)
-        items.extend(response.get("Items", []))
-        last_evaluated_key = response.get("LastEvaluatedKey")
-        if last_evaluated_key is None:
-            break
-        scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
-    return items
-
-
-def _discover_earliest_snapshot_date() -> date | None:
-    earliest: date | None = None
-    scan_kwargs: dict[str, Any] = {
-        "ProjectionExpression": "captured_date",
-    }
-    while True:
-        response = CURRENT_SNAPSHOTS_TABLE.scan(**scan_kwargs)
-        for item in response.get("Items", []):
-            raw_date = str(item.get("captured_date") or "").strip()
-            if not raw_date:
-                continue
-            parsed_date = _parse_iso_date(raw_date)
-            if earliest is None or parsed_date < earliest:
-                earliest = parsed_date
-        last_evaluated_key = response.get("LastEvaluatedKey")
-        if last_evaluated_key is None:
-            break
-        scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
-    return earliest
-
-
-def _resolve_start_date(
-    requested_from: str | None,
-    existing_items: list[dict[str, Any]],
-) -> date | None:
-    if requested_from:
-        return _parse_iso_date(requested_from)
-
-    if existing_items:
-        return min(_parse_iso_date(item["trading_date"]) for item in existing_items)
-
-    return _discover_earliest_snapshot_date()
-
-
-def _group_existing_symbols_by_date(
-    existing_items: list[dict[str, Any]],
-    *,
-    start_date: date,
-    end_date: date,
-) -> dict[str, set[str]]:
-    grouped: dict[str, set[str]] = {}
-    for item in existing_items:
-        trading_date = str(item.get("trading_date") or "").strip()
-        symbol = str(item.get("symbol") or "").strip().upper()
-        if not trading_date or not symbol:
-            continue
-        parsed_date = _parse_iso_date(trading_date)
-        if parsed_date < start_date or parsed_date > end_date:
-            continue
-        grouped.setdefault(trading_date, set()).add(symbol)
-    return grouped
-
-
 def _load_snapshots_for_trading_date(trading_date: str) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     query_kwargs: dict[str, Any] = {
@@ -263,77 +189,44 @@ def _store_daily_closing_item(item: dict[str, Any]) -> bool:
 
 def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
     apply_changes = bool(event.get("apply", True))
-    requested_from = event.get("trading_date_from")
-    requested_to = event.get("trading_date_to")
-
     now_bogota = _now_bogota()
-    end_date = _parse_iso_date(requested_to) if requested_to else _default_end_date(now_bogota)
-    existing_items = _scan_existing_daily_closings()
-    start_date = _resolve_start_date(requested_from, existing_items)
+    requested_trading_date = str(event.get("trading_date") or "").strip()
+    target_date = _parse_iso_date(requested_trading_date) if requested_trading_date else _default_end_date(now_bogota)
+    records_written = 0
+    records_skipped_existing = 0
 
-    if start_date is None or start_date > end_date:
+    if not _is_colombian_business_day(target_date):
         return {
             "statusCode": 200,
             "body": json.dumps(
                 {
                     "apply": apply_changes,
-                    "trading_date_from": None if start_date is None else start_date.isoformat(),
-                    "trading_date_to": end_date.isoformat(),
-                    "dates_considered": 0,
-                    "dates_with_snapshots": 0,
-                    "dates_without_snapshots": 0,
-                    "missing_symbols_found": 0,
+                    "timezone": DEFAULT_TIMEZONE_NAME,
+                    "trading_date": target_date.isoformat(),
+                    "is_business_day": False,
+                    "symbols_found": 0,
                     "records_written": 0,
                     "records_skipped_existing": 0,
                 }
             ),
         }
 
-    existing_symbols_by_date = _group_existing_symbols_by_date(
-        existing_items,
-        start_date=start_date,
-        end_date=end_date,
-    )
+    trading_date = target_date.isoformat()
+    snapshots = _load_snapshots_for_trading_date(trading_date)
+    latest_by_symbol = _select_latest_snapshot_per_symbol(snapshots)
+    stored_at = _now_bogota()
 
-    dates_considered = 0
-    dates_with_snapshots = 0
-    dates_without_snapshots = 0
-    missing_symbols_found = 0
-    records_written = 0
-    records_skipped_existing = 0
-
-    for target_date in _iter_dates(start_date, end_date):
-        dates_considered += 1
-        if not _is_colombian_business_day(target_date):
-            dates_without_snapshots += 1
-            continue
-        trading_date = target_date.isoformat()
-        snapshots = _load_snapshots_for_trading_date(trading_date)
-        if not snapshots:
-            dates_without_snapshots += 1
+    for _symbol, snapshot in sorted(latest_by_symbol.items()):
+        if not apply_changes:
             continue
 
-        dates_with_snapshots += 1
-        latest_by_symbol = _select_latest_snapshot_per_symbol(snapshots)
-        existing_symbols = existing_symbols_by_date.get(trading_date, set())
-        stored_at = _now_bogota()
-
-        for symbol, snapshot in sorted(latest_by_symbol.items()):
-            if symbol in existing_symbols:
-                records_skipped_existing += 1
-                continue
-
-            missing_symbols_found += 1
-            if not apply_changes:
-                continue
-
-            stored = _store_daily_closing_item(
-                _build_daily_closing_item(trading_date, snapshot, stored_at=stored_at)
-            )
-            if stored:
-                records_written += 1
-            else:
-                records_skipped_existing += 1
+        stored = _store_daily_closing_item(
+            _build_daily_closing_item(trading_date, snapshot, stored_at=stored_at)
+        )
+        if stored:
+            records_written += 1
+        else:
+            records_skipped_existing += 1
 
     return {
         "statusCode": 200,
@@ -341,12 +234,9 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
             {
                 "apply": apply_changes,
                 "timezone": DEFAULT_TIMEZONE_NAME,
-                "trading_date_from": start_date.isoformat(),
-                "trading_date_to": end_date.isoformat(),
-                "dates_considered": dates_considered,
-                "dates_with_snapshots": dates_with_snapshots,
-                "dates_without_snapshots": dates_without_snapshots,
-                "missing_symbols_found": missing_symbols_found,
+                "trading_date": trading_date,
+                "is_business_day": True,
+                "symbols_found": len(latest_by_symbol),
                 "records_written": records_written,
                 "records_skipped_existing": records_skipped_existing,
             }

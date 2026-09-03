@@ -3,7 +3,7 @@ table_name: trii-prod-daily-closing-snapshots
 purpose:
 - store one end-of-day market snapshot per symbol and trading date
 - preserve the last available current-snapshot record observed for each symbol on each day
-- let the scheduled Lambda backfill only missing daily closings without rewriting completed days
+- let the scheduled Lambda persist the target trading day's close without historical range rebuilds
 
 primary_key:
 - pk: symbol
@@ -39,7 +39,6 @@ record_type:
 duplicate_rule:
 - only one record is stored per symbol and trading_date
 - if a record already exists for that key, the scheduled job skips it
-- if a day is partially missing symbols, the scheduled job writes only the missing symbols
 
 query_patterns:
 - daily closing history for one symbol

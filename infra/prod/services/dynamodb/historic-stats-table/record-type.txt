@@ -45,11 +45,11 @@ seasonality_profile_record_type:
 - bucket_granularity_minutes: number, currently 30
 - timezone: string, currently America/Bogota
 - total_days_processed: number, trading days successfully folded into the profile
-- total_snapshots_processed: number, valid raw snapshots consumed for the symbol during the rebuild
+- total_snapshots_processed: number, valid raw snapshots consumed for the symbol
 - last_source_captured_at: string, iso-8601 timestamp with timezone
 - last_updated_at: string, iso-8601 timestamp with timezone
 - stats_scope: string, currently weekly_intraday_seasonality
-- stats_version: number, currently 1 for full backfill rewrites
+- stats_version: number, optimistic concurrency counter
 - pending_day: optional map used by the live updater until a trading day can be finalized into weekly_profile
 - pending_day.trading_date: string, yyyy-mm-dd in America/Bogota
 - pending_day.weekday: string, ISO weekday number
@@ -121,8 +121,8 @@ official_statistical_metrics_from_raw_snapshot:
 - volume_rate = (traded_volume_t - traded_volume_t-1) / delta_seconds for contiguous snapshots in the same trading day
 - value_rate = (traded_value_t - traded_value_t-1) / delta_seconds for contiguous snapshots in the same trading day
 
-special_backfill_supported_record_types:
-- seasonality_profile = rebuild intraday seasonality buckets from traded_volume and traded_value deltas between contiguous snapshots
+special_record_types:
+- seasonality_profile = fold intraday seasonality buckets from traded_volume and traded_value deltas between contiguous snapshots
 
 excluded_operational_snapshot_fields:
 - last_price
@@ -143,8 +143,7 @@ query_patterns:
 - fetch the current reusable data quality record for one symbol
 - fetch one metric timeline for one symbol through gsi1
 
-backfill_policy:
-- historical rebuilds for newly introduced metrics are executed manually through historic-stats-backfill
-- current-snapshots remains the deduplicated raw source of truth for any backfill
-- live writes stay controlled by local.enabled_statistical_metrics so a new metric can be backfilled before it is enabled in real time
+write_policy:
+- current-snapshots remains the deduplicated raw source of truth for live incremental updates
+- live writes stay controlled by local.enabled_statistical_metrics
 - seasonality_profile is maintained by a dedicated live-updater branch and is not part of local.enabled_statistical_metrics

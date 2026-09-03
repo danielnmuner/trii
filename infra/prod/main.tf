@@ -98,19 +98,6 @@ module "historic_stats_updater" {
   enabled_statistical_metrics                    = local.enabled_statistical_metrics
 }
 
-module "historic_stats_backfill" {
-  source = "./services/lambda/historic-stats-backfill"
-
-  environment                  = local.environment
-  project_name                 = local.project_name
-  tags                         = local.common_tags
-  current_snapshots_table_name = module.current_snapshots_table.name
-  current_snapshots_table_arn  = module.current_snapshots_table.arn
-  historic_stats_table_name    = module.historic_stats_table.name
-  historic_stats_table_arn     = module.historic_stats_table.arn
-  enabled_statistical_metrics  = local.enabled_statistical_metrics
-}
-
 module "daily_closing_snapshots_updater" {
   source = "./services/lambda/daily-closing-snapshots-updater"
 
@@ -144,26 +131,19 @@ module "session_vectors_updater" {
   project_name                 = local.project_name
   tags                         = local.common_tags
   current_snapshots_stream_arn = module.current_snapshots_table.stream_arn
-  current_snapshots_table_name = module.current_snapshots_table.name
-  current_snapshots_table_arn  = module.current_snapshots_table.arn
-  current_snapshots_index_arns = module.current_snapshots_table.index_arns
-  analytics_catalog_table_name = module.analytics_catalog_table.name
-  analytics_catalog_table_arn  = module.analytics_catalog_table.arn
   session_vectors_table_name   = module.session_vectors_table.name
   session_vectors_table_arn    = module.session_vectors_table.arn
 }
 
-module "analytics_catalog_backfill" {
-  source = "./services/lambda/analytics-catalog-backfill"
+module "current_snapshots_pruner" {
+  source = "./services/lambda/current-snapshots-pruner"
 
   environment                  = local.environment
   project_name                 = local.project_name
   tags                         = local.common_tags
+  current_snapshots_stream_arn = module.current_snapshots_table.stream_arn
   current_snapshots_table_name = module.current_snapshots_table.name
   current_snapshots_table_arn  = module.current_snapshots_table.arn
-  current_snapshots_index_arns = module.current_snapshots_table.index_arns
-  analytics_catalog_table_name = module.analytics_catalog_table.name
-  analytics_catalog_table_arn  = module.analytics_catalog_table.arn
 }
 
 module "api_handler" {

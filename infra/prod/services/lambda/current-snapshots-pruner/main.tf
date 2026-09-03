@@ -12,29 +12,28 @@ data "aws_iam_policy_document" "inline" {
   }
 
   statement {
-    sid    = "ReadWriteSessionVectors"
+    sid    = "ReadWriteCurrentSnapshots"
     effect = "Allow"
     actions = [
-      "dynamodb:BatchWriteItem",
-      "dynamodb:GetItem",
-      "dynamodb:PutItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:Query",
     ]
-    resources = [var.session_vectors_table_arn]
+    resources = [var.current_snapshots_table_arn]
   }
 }
 
 module "function" {
   source = "../../../../modules/lambda/python-function"
 
-  function_name = "${var.project_name}-${var.environment}-session-vectors-updater"
-  description   = "Maintains session vector manifests and segments from current snapshots stream events."
+  function_name = "${var.project_name}-${var.environment}-current-snapshots-pruner"
+  description   = "Keeps only the two newest current snapshot records per symbol."
   source_dir    = "${path.module}/src"
-  timeout       = 180
-  memory_size   = 512
+  timeout       = 60
+  memory_size   = 256
   policy_json   = data.aws_iam_policy_document.inline.json
 
   environment_variables = {
-    SESSION_VECTORS_TABLE = var.session_vectors_table_name
+    CURRENT_SNAPSHOTS_TABLE = var.current_snapshots_table_name
   }
 
   tags = var.tags

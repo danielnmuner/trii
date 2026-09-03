@@ -3,9 +3,7 @@ data "aws_iam_policy_document" "inline" {
     sid    = "ReadCurrentSnapshots"
     effect = "Allow"
     actions = [
-      "dynamodb:GetItem",
       "dynamodb:Query",
-      "dynamodb:Scan",
     ]
     resources = concat(
       [var.current_snapshots_table_arn],
@@ -17,15 +15,9 @@ data "aws_iam_policy_document" "inline" {
     sid    = "ReadWriteDailyClosingSnapshots"
     effect = "Allow"
     actions = [
-      "dynamodb:GetItem",
       "dynamodb:PutItem",
-      "dynamodb:Query",
-      "dynamodb:Scan",
     ]
-    resources = concat(
-      [var.daily_closing_snapshots_table_arn],
-      var.daily_closing_snapshots_index_arns,
-    )
+    resources = [var.daily_closing_snapshots_table_arn]
   }
 }
 
@@ -33,7 +25,7 @@ module "function" {
   source = "../../../../modules/lambda/python-function"
 
   function_name = "${var.project_name}-${var.environment}-daily-closing-snapshots-updater"
-  description   = "Backfills and maintains per-symbol daily closing snapshots from current snapshots."
+  description   = "Stores the per-symbol daily closing snapshot for the target market session."
   source_dir    = "${path.module}/src"
   timeout       = 900
   memory_size   = 1024

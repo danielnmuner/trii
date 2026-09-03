@@ -73,11 +73,6 @@ output "historic_stats_updater_function_name" {
   value       = module.historic_stats_updater.function_name
 }
 
-output "historic_stats_backfill_function_name" {
-  description = "Historic stats backfill Lambda function name."
-  value       = module.historic_stats_backfill.function_name
-}
-
 output "daily_closing_snapshots_updater_function_name" {
   description = "Daily closing snapshots updater Lambda function name."
   value       = module.daily_closing_snapshots_updater.function_name
@@ -93,7 +88,7 @@ output "session_vectors_updater_function_name" {
   value       = module.session_vectors_updater.function_name
 }
 
-output "analytics_catalog_backfill_function_name" {
-  description = "Analytics catalog backfill Lambda function name."
-  value       = module.analytics_catalog_backfill.function_name
+output "current_snapshots_pruner_function_name" {
+  description = "Current snapshots pruner Lambda function name."
+  value       = module.current_snapshots_pruner.function_name
 }
