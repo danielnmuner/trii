@@ -64,7 +64,7 @@ with Diagram(
                 historic_stats_table = Dynamodb("trii-prod-historic-stats")
                 daily_closing_snapshots_table = Dynamodb("trii-prod-daily-closing-snapshots")
                 analytics_catalog_table = Dynamodb("trii-prod-analytics-catalog")
-                session_vectors_table = Dynamodb("trii-prod-session-vectors")
+                session_vectors_table = Dynamodb("trii-prod-session-vectors\n(120h TTL)")
 
     streamlit_operator >> Edge(label="read analytics / upload docs") >> http_api >> api_handler
     chrome_extension >> Edge(label="send snapshots / orders") >> http_api

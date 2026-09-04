@@ -4,7 +4,7 @@ purpose:
 - persist a short-lived intraday charting projection derived from current snapshots
 - expose a single logical session per symbol using one manifest item plus a small set of segment items
 - support cheap polling from the UI without reading current-snapshots directly
-- expire automatically after 24 hours
+- expire automatically after 120 hours, keeping up to five trading days available per symbol
 
 primary_key:
 - pk: symbol
@@ -28,7 +28,7 @@ manifest_record_type:
 - latest_captured_at: string, iso-8601 timestamp with timezone
 - segment_count: number
 - samples_per_segment: number
-- expires_at: number, unix epoch seconds used by DynamoDB TTL for 24-hour expiry
+- expires_at: number, unix epoch seconds used by DynamoDB TTL for 120-hour expiry
 
 segment_record_type:
 - symbol: string, uppercase stock symbol
@@ -44,9 +44,10 @@ segment_record_type:
 - mid_price_series: list<number|null>
 - last_price_series: list<number|null>
 - vwap_series: list<number|null>, derived as traded_value / traded_volume when traded_volume > 0
-- expires_at: number, unix epoch seconds used by DynamoDB TTL for 24-hour expiry
+- expires_at: number, unix epoch seconds used by DynamoDB TTL for 120-hour expiry
 
 query_patterns:
 - load one full session for a symbol and day with one partition query
 - load only the manifest/head for a symbol and day
 - load only segments from a given segment index forward
+- load a bounded multi-day window for one symbol with day-level pagination

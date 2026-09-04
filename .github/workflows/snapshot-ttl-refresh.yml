@@ -118,7 +118,7 @@ jobs:
           TABLE_NAME: ${{ matrix.table }}
         run: |
           case "${TABLE_NAME}" in
-            session-vectors) ttl_target="24h" ;;
+            session-vectors) ttl_target="120h" ;;
             *) ttl_target="unknown" ;;
           esac
 

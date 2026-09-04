@@ -71,7 +71,7 @@ def test_refresh_table_ttls_apply_supports_session_vectors_manifest_and_segments
 
     result = refresh_snapshot_ttls._refresh_table_ttls(
         table_name="trii-prod-session-vectors",
-        retention_seconds=24 * 60 * 60,
+        retention_seconds=120 * 60 * 60,
         timestamp_field="latest_captured_at",
         projection_fields=["symbol", "record_type", "latest_captured_at", "to_captured_at", "expires_at"],
         key_fields=["symbol", "record_type"],
@@ -84,11 +84,11 @@ def test_refresh_table_ttls_apply_supports_session_vectors_manifest_and_segments
         {
             "Key": {"symbol": "ECOPETROL", "record_type": "session_vector#2026-08-30"},
             "UpdateExpression": "SET expires_at = :expires_at",
-            "ExpressionAttributeValues": {":expires_at": 1788195360},
+            "ExpressionAttributeValues": {":expires_at": 1788540960},
         },
         {
             "Key": {"symbol": "ECOPETROL", "record_type": "session_vector#2026-08-30#segment#000"},
             "UpdateExpression": "SET expires_at = :expires_at",
-            "ExpressionAttributeValues": {":expires_at": 1788187650},
+            "ExpressionAttributeValues": {":expires_at": 1788533250},
         },
     ]

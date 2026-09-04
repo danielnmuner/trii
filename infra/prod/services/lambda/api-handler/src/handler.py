@@ -32,6 +32,9 @@ API_SHARED_TOKEN = os.environ["API_SHARED_TOKEN"]
 BOGOTA_TIMEZONE = ZoneInfo("America/Bogota")
 SESSION_VECTOR_SAMPLING_SECONDS = 30
 SESSION_VECTOR_SAMPLES_PER_SEGMENT = 156
+MAX_SESSION_VECTOR_WINDOW_DAYS = 5
+DEFAULT_SESSION_VECTOR_WINDOW_PAGE_SIZE_DAYS = 2
+MAX_SESSION_VECTOR_WINDOW_PAGE_SIZE_DAYS = 2
 EXPECTED_STOCK_ORDER_COLUMNS = (
     "Fecha y hora",
     "Símbolo de la acción",
@@ -523,6 +526,78 @@ def _session_vector_symbol_and_date(event: dict[str, Any]) -> tuple[str, str]:
     return symbol, trading_date
 
 
+def _session_vector_window_request(event: dict[str, Any]) -> tuple[str, str, int, int, int]:
+    params = _query_params(event)
+    next_token = str(params.get("next_token") or "").strip()
+    if next_token:
+        token_payload = _decode_session_vector_window_token(next_token)
+        symbol = str(params.get("symbol") or token_payload["symbol"]).strip().upper()
+        trading_date_to = _parse_iso_date(
+            params.get("trading_date_to") or token_payload["trading_date_to"],
+            field_name="trading_date_to",
+        )
+        days = _parse_positive_limit(
+            params.get("days") or str(token_payload["days"]),
+            default=int(token_payload["days"]),
+            maximum=MAX_SESSION_VECTOR_WINDOW_DAYS,
+        )
+        page_size_days = _parse_positive_limit(
+            params.get("page_size_days") or str(token_payload["page_size_days"]),
+            default=int(token_payload["page_size_days"]),
+            maximum=MAX_SESSION_VECTOR_WINDOW_PAGE_SIZE_DAYS,
+        )
+        if symbol != str(token_payload["symbol"]).upper():
+            raise ValueError("El parametro `symbol` no coincide con el `next_token`.")
+        if trading_date_to != token_payload["trading_date_to"]:
+            raise ValueError("El parametro `trading_date_to` no coincide con el `next_token`.")
+        if days != int(token_payload["days"]):
+            raise ValueError("El parametro `days` no coincide con el `next_token`.")
+        if page_size_days != int(token_payload["page_size_days"]):
+            raise ValueError("El parametro `page_size_days` no coincide con el `next_token`.")
+        return symbol, trading_date_to, days, page_size_days, int(token_payload["next_index"])
+
+    symbol = str(params.get("symbol") or "").strip().upper()
+    trading_date_to = _parse_iso_date(params.get("trading_date_to"), field_name="trading_date_to")
+    if not symbol:
+        raise ValueError("El parametro `symbol` es obligatorio para consultar session vectors.")
+    if not trading_date_to:
+        raise ValueError("El parametro `trading_date_to` es obligatorio para consultar session vectors.")
+    days = _parse_positive_limit(
+        params.get("days"),
+        default=MAX_SESSION_VECTOR_WINDOW_DAYS,
+        maximum=MAX_SESSION_VECTOR_WINDOW_DAYS,
+    )
+    page_size_days = _parse_positive_limit(
+        params.get("page_size_days"),
+        default=DEFAULT_SESSION_VECTOR_WINDOW_PAGE_SIZE_DAYS,
+        maximum=MAX_SESSION_VECTOR_WINDOW_PAGE_SIZE_DAYS,
+    )
+    return symbol, trading_date_to, days, page_size_days, 0
+
+
+def _encode_session_vector_window_token(payload: dict[str, Any]) -> str:
+    encoded = base64.urlsafe_b64encode(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).decode("utf-8")
+    return encoded.rstrip("=")
+
+
+def _decode_session_vector_window_token(raw_token: str) -> dict[str, Any]:
+    normalized = raw_token.strip()
+    if not normalized:
+        raise ValueError("El parametro `next_token` no puede estar vacio.")
+    padding = "=" * (-len(normalized) % 4)
+    try:
+        decoded = base64.urlsafe_b64decode((normalized + padding).encode("utf-8")).decode("utf-8")
+        payload = json.loads(decoded)
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError("El parametro `next_token` no es valido.") from exc
+    required_fields = {"symbol", "trading_date_to", "days", "page_size_days", "next_index"}
+    if not isinstance(payload, dict) or required_fields - payload.keys():
+        raise ValueError("El parametro `next_token` no es valido.")
+    return payload
+
+
 def _resolve_available_session_vector_trading_date(symbol: str, requested_trading_date: str) -> str | None:
     exact_manifest = SESSION_VECTORS_TABLE.get_item(
         Key={
@@ -548,6 +623,49 @@ def _resolve_available_session_vector_trading_date(symbol: str, requested_tradin
     )
 
     return candidate_dates[0] if candidate_dates else None
+
+
+def _query_all_session_vector_items_for_symbol(symbol: str) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    query_kwargs: dict[str, Any] = {
+        "KeyConditionExpression": Key("symbol").eq(symbol)
+        & Key("record_type").begins_with("session_vector#"),
+    }
+    while True:
+        response = SESSION_VECTORS_TABLE.query(**query_kwargs)
+        items.extend(response.get("Items", []))
+        last_evaluated_key = response.get("LastEvaluatedKey")
+        if not last_evaluated_key:
+            break
+        query_kwargs["ExclusiveStartKey"] = last_evaluated_key
+    return items
+
+
+def _available_session_vector_dates(symbol: str, trading_date_to: str, days: int) -> list[str]:
+    candidate_dates = sorted(
+        {
+            trading_date
+            for item in _query_all_session_vector_items_for_symbol(symbol)
+            if (trading_date := _session_vector_record_type_to_trading_date(str(item.get("record_type") or "")))
+            and trading_date <= trading_date_to
+        },
+        reverse=True,
+    )
+    return candidate_dates[:days]
+
+
+def _load_session_vector_day(symbol: str, trading_date: str) -> dict[str, Any]:
+    response = SESSION_VECTORS_TABLE.query(
+        KeyConditionExpression=Key("symbol").eq(symbol)
+        & Key("record_type").begins_with(_session_vector_manifest_record_type(trading_date)),
+    )
+    manifest, segments = _split_session_vector_items(response.get("Items", []))
+    return {
+        "trading_date": trading_date,
+        "segment_count": len(segments),
+        "manifest": None if manifest is None else _json_ready(manifest),
+        "segments": _json_ready(segments),
+    }
 
 
 def _get_session_vector(event: dict[str, Any]) -> dict[str, Any]:
@@ -614,6 +732,39 @@ def _get_session_vector_segments(event: dict[str, Any]) -> dict[str, Any]:
         "from_segment": from_segment,
         "segment_count": len(segments),
         "segments": _json_ready(segments),
+    }
+
+
+def _get_session_vector_window(event: dict[str, Any]) -> dict[str, Any]:
+    symbol, trading_date_to, days, page_size_days, next_index = _session_vector_window_request(event)
+    available_dates = _available_session_vector_dates(symbol, trading_date_to, days)
+    page_dates = available_dates[next_index:next_index + page_size_days]
+    records = [_load_session_vector_day(symbol, trading_date) for trading_date in page_dates]
+    following_index = next_index + len(page_dates)
+    has_more = following_index < len(available_dates)
+
+    next_token = None
+    if has_more:
+        next_token = _encode_session_vector_window_token(
+            {
+                "symbol": symbol,
+                "trading_date_to": trading_date_to,
+                "days": days,
+                "page_size_days": page_size_days,
+                "next_index": following_index,
+            }
+        )
+
+    return {
+        "symbol": symbol,
+        "trading_date_to": trading_date_to,
+        "days_requested": days,
+        "available_day_count": len(available_dates),
+        "page_size_days": page_size_days,
+        "returned_day_count": len(records),
+        "has_more": has_more,
+        "next_token": next_token,
+        "records": records,
     }
 
 
@@ -1534,6 +1685,16 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
                     "status": "ok",
                     "route": route_key,
                     "result": _get_session_vector_segments(event),
+                },
+            )
+
+        if route_key == "GET /analytics/session-vector/window":
+            return _response(
+                200,
+                {
+                    "status": "ok",
+                    "route": route_key,
+                    "result": _get_session_vector_window(event),
                 },
             )
 

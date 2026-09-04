@@ -44,80 +44,139 @@ class FakeDailyClosingSnapshotsTable:
 
 
 class FakeSessionVectorsTable:
+    def __init__(self) -> None:
+        self.items = [
+            {
+                "symbol": "NUCO",
+                "record_type": "session_vector#2026-08-21#segment#000",
+                "trading_date": "2026-08-21",
+                "timezone": "America/Bogota",
+                "segment_index": 0,
+                "from_sample_index": 0,
+                "to_sample_index": 62,
+                "from_captured_at": "2026-08-21T08:30:00-05:00",
+                "to_captured_at": "2026-08-21T09:01:00-05:00",
+                "microprice_series": [2645.4, 2646.0],
+                "mid_price_series": [2645.5, 2646.0],
+                "last_price_series": [2645.0, 2645.8],
+                "vwap_series": [2644.1, 2644.2],
+            },
+            {
+                "symbol": "NUCO",
+                "record_type": "session_vector#2026-08-21#segment#001",
+                "trading_date": "2026-08-21",
+                "timezone": "America/Bogota",
+                "segment_index": 1,
+                "from_sample_index": 156,
+                "to_sample_index": 160,
+                "from_captured_at": "2026-08-21T09:48:00-05:00",
+                "to_captured_at": "2026-08-21T09:50:00-05:00",
+                "microprice_series": [2648.1, 2648.2],
+                "mid_price_series": [2648.0, 2648.1],
+                "last_price_series": [2647.8, 2648.0],
+                "vwap_series": [2646.2, 2646.3],
+            },
+            {
+                "symbol": "NUCO",
+                "record_type": "session_vector#2026-08-21",
+                "trading_date": "2026-08-21",
+                "timezone": "America/Bogota",
+                "sampling_seconds": 30,
+                "session_start": "2026-08-21T08:30:00-05:00",
+                "session_end": "2026-08-21T15:00:00-05:00",
+                "latest_sample_index": 62,
+                "latest_captured_at": "2026-08-21T09:01:00-05:00",
+                "segment_count": 2,
+                "samples_per_segment": 156,
+            },
+            {
+                "symbol": "NUCO",
+                "record_type": "session_vector#2026-08-20#segment#000",
+                "trading_date": "2026-08-20",
+                "timezone": "America/Bogota",
+                "segment_index": 0,
+                "from_sample_index": 0,
+                "to_sample_index": 40,
+                "from_captured_at": "2026-08-20T08:30:00-05:00",
+                "to_captured_at": "2026-08-20T08:50:00-05:00",
+                "microprice_series": [2600.0],
+                "mid_price_series": [2600.1],
+                "last_price_series": [2600.2],
+                "vwap_series": [2599.9],
+            },
+            {
+                "symbol": "NUCO",
+                "record_type": "session_vector#2026-08-20",
+                "trading_date": "2026-08-20",
+                "timezone": "America/Bogota",
+                "sampling_seconds": 30,
+                "session_start": "2026-08-20T08:30:00-05:00",
+                "session_end": "2026-08-20T15:00:00-05:00",
+                "latest_sample_index": 40,
+                "latest_captured_at": "2026-08-20T08:50:00-05:00",
+                "segment_count": 1,
+                "samples_per_segment": 156,
+            },
+            {
+                "symbol": "NUCO",
+                "record_type": "session_vector#2026-08-19#segment#000",
+                "trading_date": "2026-08-19",
+                "timezone": "America/Bogota",
+                "segment_index": 0,
+                "from_sample_index": 0,
+                "to_sample_index": 30,
+                "from_captured_at": "2026-08-19T08:30:00-05:00",
+                "to_captured_at": "2026-08-19T08:45:00-05:00",
+                "microprice_series": [2500.0],
+                "mid_price_series": [2500.1],
+                "last_price_series": [2500.2],
+                "vwap_series": [2499.9],
+            },
+            {
+                "symbol": "NUCO",
+                "record_type": "session_vector#2026-08-19",
+                "trading_date": "2026-08-19",
+                "timezone": "America/Bogota",
+                "sampling_seconds": 30,
+                "session_start": "2026-08-19T08:30:00-05:00",
+                "session_end": "2026-08-19T15:00:00-05:00",
+                "latest_sample_index": 30,
+                "latest_captured_at": "2026-08-19T08:45:00-05:00",
+                "segment_count": 1,
+                "samples_per_segment": 156,
+            },
+        ]
+
     def get_item(self, *, Key: dict) -> dict:
-        assert Key["symbol"] == "NUCO"
-        if Key["record_type"] == "session_vector#2026-08-21":
-            return {
-                "Item": {
-                    "symbol": "NUCO",
-                    "record_type": "session_vector#2026-08-21",
-                    "trading_date": "2026-08-21",
-                    "timezone": "America/Bogota",
-                    "sampling_seconds": 30,
-                    "session_start": "2026-08-21T08:30:00-05:00",
-                    "session_end": "2026-08-21T15:00:00-05:00",
-                    "latest_sample_index": 62,
-                    "latest_captured_at": "2026-08-21T09:01:00-05:00",
-                    "segment_count": 1,
-                    "samples_per_segment": 156,
-                }
-            }
+        for item in self.items:
+            if item["symbol"] == Key["symbol"] and item["record_type"] == Key["record_type"]:
+                return {"Item": dict(item)}
         return {}
 
     def query(self, **kwargs) -> dict:
         condition_values = getattr(kwargs["KeyConditionExpression"], "_values", ())
-        if len(condition_values) > 1 and condition_values[1].__class__.__name__ == "Between":
-            return {
-                "Items": [
-                    {
-                        "symbol": "NUCO",
-                        "record_type": "session_vector#2026-08-21#segment#001",
-                        "trading_date": "2026-08-21",
-                        "timezone": "America/Bogota",
-                        "segment_index": 1,
-                        "from_sample_index": 156,
-                        "to_sample_index": 160,
-                        "from_captured_at": "2026-08-21T09:48:00-05:00",
-                        "to_captured_at": "2026-08-21T09:50:00-05:00",
-                        "microprice_series": [2648.1, 2648.2],
-                        "mid_price_series": [2648.0, 2648.1],
-                        "last_price_series": [2647.8, 2648.0],
-                        "vwap_series": [2646.2, 2646.3],
-                    },
+        symbol = condition_values[0]._values[1]
+        filtered = [item for item in self.items if item["symbol"] == symbol]
+        if len(condition_values) > 1:
+            clause = condition_values[1]
+            clause_name = clause.__class__.__name__
+            if clause_name == "Between":
+                start_key = clause._values[1]
+                end_key = clause._values[2]
+                filtered = [
+                    item
+                    for item in filtered
+                    if start_key <= item["record_type"] <= end_key
                 ]
-            }
-        return {
-            "Items": [
-                {
-                    "symbol": "NUCO",
-                    "record_type": "session_vector#2026-08-21#segment#000",
-                    "trading_date": "2026-08-21",
-                    "timezone": "America/Bogota",
-                    "segment_index": 0,
-                    "from_sample_index": 0,
-                    "to_sample_index": 62,
-                    "from_captured_at": "2026-08-21T08:30:00-05:00",
-                    "to_captured_at": "2026-08-21T09:01:00-05:00",
-                    "microprice_series": [2645.4, 2646.0],
-                    "mid_price_series": [2645.5, 2646.0],
-                    "last_price_series": [2645.0, 2645.8],
-                    "vwap_series": [2644.1, 2644.2],
-                },
-                {
-                    "symbol": "NUCO",
-                    "record_type": "session_vector#2026-08-21",
-                    "trading_date": "2026-08-21",
-                    "timezone": "America/Bogota",
-                    "sampling_seconds": 30,
-                    "session_start": "2026-08-21T08:30:00-05:00",
-                    "session_end": "2026-08-21T15:00:00-05:00",
-                    "latest_sample_index": 62,
-                    "latest_captured_at": "2026-08-21T09:01:00-05:00",
-                    "segment_count": 1,
-                    "samples_per_segment": 156,
-                },
-            ]
-        }
+            elif clause_name == "BeginsWith":
+                prefix = clause._values[1]
+                filtered = [
+                    item
+                    for item in filtered
+                    if item["record_type"].startswith(prefix)
+                ]
+        filtered.sort(key=lambda item: item["record_type"])
+        return {"Items": [dict(item) for item in filtered]}
 
 
 class FakeCurrentSnapshotsTable:
@@ -377,7 +436,7 @@ def test_handler_returns_session_vector_manifest_and_segments() -> None:
     assert payload["status"] == "ok"
     assert payload["result"]["symbol"] == "NUCO"
     assert payload["result"]["trading_date"] == "2026-08-21"
-    assert payload["result"]["segment_count"] == 1
+    assert payload["result"]["segment_count"] == 2
     assert payload["result"]["manifest"]["latest_sample_index"] == 62
     assert payload["result"]["segments"][0]["segment_index"] == 0
 
@@ -661,3 +720,88 @@ def test_handler_catalog_uses_latest_available_snapshot_date() -> None:
     assert payload["result"]["catalog"]["pk"] == "analytics_catalog"
     assert payload["result"]["catalog"]["record_type"] == "analytics_catalog"
     assert payload["result"]["catalog"]["catalog_version"] == 5
+
+
+def test_handler_returns_session_vector_window_with_day_pagination() -> None:
+    handler.SESSION_VECTORS_TABLE = FakeSessionVectorsTable()
+
+    first_response = handler.handler(
+        {
+            "routeKey": "GET /analytics/session-vector/window",
+            "headers": {"X-Api-Token": "test-token"},
+            "queryStringParameters": {
+                "symbol": "nuco",
+                "trading_date_to": "2026-08-21",
+                "days": "3",
+                "page_size_days": "2",
+            },
+        },
+        None,
+    )
+
+    first_payload = json.loads(first_response["body"])
+    assert first_response["statusCode"] == 200
+    assert first_payload["status"] == "ok"
+    assert first_payload["result"]["available_day_count"] == 3
+    assert first_payload["result"]["returned_day_count"] == 2
+    assert first_payload["result"]["has_more"] is True
+    assert [record["trading_date"] for record in first_payload["result"]["records"]] == [
+        "2026-08-21",
+        "2026-08-20",
+    ]
+    assert first_payload["result"]["records"][0]["segment_count"] == 2
+
+    second_response = handler.handler(
+        {
+            "routeKey": "GET /analytics/session-vector/window",
+            "headers": {"X-Api-Token": "test-token"},
+            "queryStringParameters": {
+                "symbol": "nuco",
+                "trading_date_to": "2026-08-21",
+                "days": "3",
+                "page_size_days": "2",
+                "next_token": first_payload["result"]["next_token"],
+            },
+        },
+        None,
+    )
+
+    second_payload = json.loads(second_response["body"])
+    assert second_response["statusCode"] == 200
+    assert second_payload["result"]["returned_day_count"] == 1
+    assert second_payload["result"]["has_more"] is False
+    assert second_payload["result"]["next_token"] is None
+    assert [record["trading_date"] for record in second_payload["result"]["records"]] == ["2026-08-19"]
+
+
+def test_handler_session_vector_window_enforces_token_consistency() -> None:
+    handler.SESSION_VECTORS_TABLE = FakeSessionVectorsTable()
+    token = handler._encode_session_vector_window_token(
+        {
+            "symbol": "NUCO",
+            "trading_date_to": "2026-08-21",
+            "days": 3,
+            "page_size_days": 2,
+            "next_index": 2,
+        }
+    )
+
+    response = handler.handler(
+        {
+            "routeKey": "GET /analytics/session-vector/window",
+            "headers": {"X-Api-Token": "test-token"},
+            "queryStringParameters": {
+                "symbol": "nuco",
+                "trading_date_to": "2026-08-21",
+                "days": "5",
+                "page_size_days": "2",
+                "next_token": token,
+            },
+        },
+        None,
+    )
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 400
+    assert payload["status"] == "error"
+    assert "next_token" in payload["message"]

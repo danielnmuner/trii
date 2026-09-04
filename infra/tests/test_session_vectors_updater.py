@@ -110,6 +110,6 @@ def test_handler_projects_snapshot_into_manifest_and_segment_items() -> None:
     assert segment["mid_price_series"] == [None, None, Decimal("2646")]
     assert segment["last_price_series"] == [None, None, Decimal("2645")]
     assert segment["vwap_series"] == [None, None, Decimal("2644")]
-    expected_expiry = int(datetime.fromisoformat("2026-08-30T08:31:00-05:00").astimezone(ZoneInfo("America/Bogota")).timestamp()) + (24 * 60 * 60)
+    expected_expiry = int(datetime.fromisoformat("2026-08-30T08:31:00-05:00").astimezone(ZoneInfo("America/Bogota")).timestamp()) + (120 * 60 * 60)
     assert manifest["expires_at"] == expected_expiry
     assert segment["expires_at"] == expected_expiry

@@ -38,6 +38,10 @@ module "http_api" {
       authorization_type = "NONE"
     },
     {
+      route_key          = "GET /analytics/session-vector/window"
+      authorization_type = "NONE"
+    },
+    {
       route_key          = "GET /snapshots"
       authorization_type = "NONE"
     },

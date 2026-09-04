@@ -14,7 +14,7 @@ SESSION_VECTORS_TABLE_NAME = "trii-prod-session-vectors"
 TABLE_CONFIGS: dict[str, dict[str, Any]] = {
     "session-vectors": {
         "table_name": SESSION_VECTORS_TABLE_NAME,
-        "retention_seconds": 24 * 60 * 60,
+        "retention_seconds": 120 * 60 * 60,
         "timestamp_field": "latest_captured_at",
         "projection_fields": ["symbol", "record_type", "latest_captured_at", "to_captured_at", "expires_at"],
         "key_fields": ["symbol", "record_type"],
