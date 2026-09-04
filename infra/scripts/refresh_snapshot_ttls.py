@@ -9,17 +9,9 @@ from typing import Any
 import boto3
 
 
-CURRENT_SNAPSHOTS_TABLE_NAME = "trii-prod-current-snapshots"
 SESSION_VECTORS_TABLE_NAME = "trii-prod-session-vectors"
 
 TABLE_CONFIGS: dict[str, dict[str, Any]] = {
-    "current-snapshots": {
-        "table_name": CURRENT_SNAPSHOTS_TABLE_NAME,
-        "retention_seconds": 48 * 60 * 60,
-        "timestamp_field": "captured_at",
-        "projection_fields": ["symbol", "captured_at", "expires_at"],
-        "key_fields": ["symbol", "captured_at"],
-    },
     "session-vectors": {
         "table_name": SESSION_VECTORS_TABLE_NAME,
         "retention_seconds": 24 * 60 * 60,

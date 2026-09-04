@@ -77,6 +77,15 @@ class FakeCurrentSnapshotsTable:
         ]
         return {}
 
+    def batch_writer(self):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return False
+
     def scan(self, **kwargs: dict) -> dict:
         self.scan_calls.append(dict(kwargs))
         ordered_items = sorted(

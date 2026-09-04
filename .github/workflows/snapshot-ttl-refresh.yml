@@ -18,7 +18,6 @@ on:
         type: choice
         options:
           - all
-          - current-snapshots
           - session-vectors
 
 permissions:
@@ -56,7 +55,6 @@ jobs:
           declare -a tables
           if [[ "${TABLE_SCOPE}" == "all" ]]; then
             tables+=(
-              current-snapshots
               session-vectors
             )
           else
@@ -120,7 +118,6 @@ jobs:
           TABLE_NAME: ${{ matrix.table }}
         run: |
           case "${TABLE_NAME}" in
-            current-snapshots) ttl_target="48h" ;;
             session-vectors) ttl_target="24h" ;;
             *) ttl_target="unknown" ;;
           esac

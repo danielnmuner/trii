@@ -4,7 +4,6 @@ purpose:
 - store the latest parsed market snapshots from the primary indicators contract as a short-lived per-symbol buffer
 - preserve only the two most recent snapshots per symbol for current/previous comparisons
 - act as the raw source of truth for stream-driven analytics updates
-- retain operational snapshots for up to 48 hours as a safety net if pruning lags behind
 
 primary_key:
 - pk: symbol
@@ -55,7 +54,6 @@ record_type:
 - ask_levels: list<map>, up to five visible ask depth levels with level, quantity, price
 - raw_indicators: map, raw best bid and best ask header fragments when available
 - extension_meta: map, browser extension metadata such as version and source tab url
-- expires_at: number, unix epoch seconds used by DynamoDB TTL for 48-hour retention
 
 query_patterns:
 - latest snapshot by symbol

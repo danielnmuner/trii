@@ -56,8 +56,9 @@ def _prune_symbol(symbol: str) -> int:
     if not stale_keys:
         return 0
 
-    for key in stale_keys:
-        CURRENT_SNAPSHOTS_TABLE.delete_item(Key=key)
+    with CURRENT_SNAPSHOTS_TABLE.batch_writer() as batch:
+        for key in stale_keys:
+            batch.delete_item(Key=key)
     return len(stale_keys)
 
 

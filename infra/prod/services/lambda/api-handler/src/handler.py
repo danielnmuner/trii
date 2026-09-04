@@ -30,7 +30,6 @@ ANALYTICS_CATALOG_TABLE = DYNAMODB_RESOURCE.Table(os.environ["ANALYTICS_CATALOG_
 STOCK_ORDERS_TABLE = DYNAMODB_RESOURCE.Table(os.environ["STOCK_ORDERS_TABLE"])
 API_SHARED_TOKEN = os.environ["API_SHARED_TOKEN"]
 BOGOTA_TIMEZONE = ZoneInfo("America/Bogota")
-CURRENT_SNAPSHOT_TTL_SECONDS = 48 * 60 * 60
 SESSION_VECTOR_SAMPLING_SECONDS = 30
 SESSION_VECTOR_SAMPLES_PER_SEGMENT = 156
 EXPECTED_STOCK_ORDER_COLUMNS = (
@@ -338,9 +337,6 @@ def _persist_snapshot(body: dict[str, Any]) -> dict[str, Any]:
     item["captured_date"] = captured_at[:10]
     item["snapshot_checksum"] = _json_checksum(normalized_snapshot)
     item["symbol_captured_at"] = f"{symbol}#{captured_at}"
-    accepted_timestamp = datetime.now(BOGOTA_TIMEZONE)
-    accepted_epoch = int(accepted_timestamp.timestamp())
-    item["expires_at"] = accepted_epoch + CURRENT_SNAPSHOT_TTL_SECONDS
     CURRENT_SNAPSHOTS_TABLE.put_item(
         Item=_decimalize(item),
         ConditionExpression="attribute_not_exists(symbol) AND attribute_not_exists(captured_at)",

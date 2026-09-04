@@ -15,6 +15,7 @@ data "aws_iam_policy_document" "inline" {
     sid    = "ReadWriteCurrentSnapshots"
     effect = "Allow"
     actions = [
+      "dynamodb:BatchWriteItem",
       "dynamodb:DeleteItem",
       "dynamodb:Query",
       "dynamodb:Scan",
@@ -29,8 +30,8 @@ module "function" {
   function_name = "${var.project_name}-${var.environment}-current-snapshots-pruner"
   description   = "Keeps only the two newest current snapshot records per symbol, from stream inserts or manual full scans."
   source_dir    = "${path.module}/src"
-  timeout       = 60
-  memory_size   = 256
+  timeout       = 180
+  memory_size   = 512
   policy_json   = data.aws_iam_policy_document.inline.json
 
   environment_variables = {
