@@ -97,7 +97,7 @@ with Diagram(
         style="dashed",
     ) >> api_handler
     session_vectors_table >> Edge(
-        label="query session vector\nhead + segments",
+        label="query session vector\ndays + head + segments",
         color="deepskyblue4",
         style="dashed",
     ) >> api_handler

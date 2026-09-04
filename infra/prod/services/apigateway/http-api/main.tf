@@ -34,6 +34,10 @@ module "http_api" {
       authorization_type = "NONE"
     },
     {
+      route_key          = "GET /analytics/session-vector/days"
+      authorization_type = "NONE"
+    },
+    {
       route_key          = "GET /analytics/session-vector/segments"
       authorization_type = "NONE"
     },

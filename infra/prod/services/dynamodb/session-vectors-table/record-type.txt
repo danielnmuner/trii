@@ -4,6 +4,7 @@ purpose:
 - persist a short-lived intraday charting projection derived from current snapshots
 - expose a single logical session per symbol using one manifest item plus a small set of segment items
 - support cheap polling from the UI without reading current-snapshots directly
+- support lightweight discovery of available intraday days before fetching full segments
 - expire automatically after 120 hours, keeping up to five trading days available per symbol
 
 primary_key:
@@ -50,4 +51,5 @@ query_patterns:
 - load one full session for a symbol and day with one partition query
 - load only the manifest/head for a symbol and day
 - load only segments from a given segment index forward
+- discover up to three available trading days for one symbol with a metadata-only response
 - load a bounded multi-day window for one symbol with day-level pagination

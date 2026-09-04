@@ -32,7 +32,7 @@ API_SHARED_TOKEN = os.environ["API_SHARED_TOKEN"]
 BOGOTA_TIMEZONE = ZoneInfo("America/Bogota")
 SESSION_VECTOR_SAMPLING_SECONDS = 30
 SESSION_VECTOR_SAMPLES_PER_SEGMENT = 156
-MAX_SESSION_VECTOR_WINDOW_DAYS = 5
+MAX_SESSION_VECTOR_WINDOW_DAYS = 3
 DEFAULT_SESSION_VECTOR_WINDOW_PAGE_SIZE_DAYS = 2
 MAX_SESSION_VECTOR_WINDOW_PAGE_SIZE_DAYS = 2
 EXPECTED_STOCK_ORDER_COLUMNS = (
@@ -481,6 +481,15 @@ def _list_analytics_catalog(event: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _analytics_catalog_trading_date() -> str | None:
+    response = ANALYTICS_CATALOG_TABLE.get_item(Key={"pk": "analytics_catalog"})
+    item = response.get("Item") or {}
+    trading_date = item.get("trading_date")
+    if not trading_date:
+        return None
+    return _parse_iso_date(str(trading_date), field_name="trading_date_to")
+
+
 def _session_vector_manifest_record_type(trading_date: str) -> str:
     return f"session_vector#{trading_date}"
 
@@ -524,6 +533,28 @@ def _session_vector_symbol_and_date(event: dict[str, Any]) -> tuple[str, str]:
     if not trading_date:
         raise ValueError("El parametro `trading_date` es obligatorio para consultar session vectors.")
     return symbol, trading_date
+
+
+def _session_vector_days_request(event: dict[str, Any]) -> tuple[str, str, int]:
+    params = _query_params(event)
+    symbol = str(params.get("symbol") or "").strip().upper()
+    if not symbol:
+        raise ValueError("El parametro `symbol` es obligatorio para consultar session vectors.")
+
+    trading_date_to = _parse_iso_date(params.get("trading_date_to"), field_name="trading_date_to")
+    if not trading_date_to:
+        trading_date_to = _analytics_catalog_trading_date()
+    if not trading_date_to:
+        raise ValueError(
+            "El parametro `trading_date_to` es obligatorio cuando el catalogo no tiene `trading_date`."
+        )
+
+    days = _parse_positive_limit(
+        params.get("days"),
+        default=MAX_SESSION_VECTOR_WINDOW_DAYS,
+        maximum=MAX_SESSION_VECTOR_WINDOW_DAYS,
+    )
+    return symbol, trading_date_to, days
 
 
 def _session_vector_window_request(event: dict[str, Any]) -> tuple[str, str, int, int, int]:
@@ -625,11 +656,12 @@ def _resolve_available_session_vector_trading_date(symbol: str, requested_tradin
     return candidate_dates[0] if candidate_dates else None
 
 
-def _query_all_session_vector_items_for_symbol(symbol: str) -> list[dict[str, Any]]:
+def _query_session_vector_metadata_for_symbol(symbol: str) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     query_kwargs: dict[str, Any] = {
         "KeyConditionExpression": Key("symbol").eq(symbol)
         & Key("record_type").begins_with("session_vector#"),
+        "ProjectionExpression": "record_type, trading_date, latest_captured_at, latest_sample_index, segment_count",
     }
     while True:
         response = SESSION_VECTORS_TABLE.query(**query_kwargs)
@@ -641,17 +673,22 @@ def _query_all_session_vector_items_for_symbol(symbol: str) -> list[dict[str, An
     return items
 
 
-def _available_session_vector_dates(symbol: str, trading_date_to: str, days: int) -> list[str]:
-    candidate_dates = sorted(
-        {
-            trading_date
-            for item in _query_all_session_vector_items_for_symbol(symbol)
-            if (trading_date := _session_vector_record_type_to_trading_date(str(item.get("record_type") or "")))
-            and trading_date <= trading_date_to
-        },
-        reverse=True,
-    )
-    return candidate_dates[:days]
+def _available_session_vector_days(symbol: str, trading_date_to: str, days: int) -> list[dict[str, Any]]:
+    available_days: list[dict[str, Any]] = []
+    for item in _query_session_vector_metadata_for_symbol(symbol):
+        trading_date = _session_vector_record_type_to_trading_date(str(item.get("record_type") or ""))
+        if not trading_date or trading_date > trading_date_to:
+            continue
+        available_days.append(
+            {
+                "trading_date": trading_date,
+                "latest_captured_at": item.get("latest_captured_at"),
+                "latest_sample_index": item.get("latest_sample_index"),
+                "segment_count": int(item.get("segment_count", 0) or 0),
+            }
+        )
+    available_days.sort(key=lambda item: str(item["trading_date"]), reverse=True)
+    return available_days[:days]
 
 
 def _load_session_vector_day(symbol: str, trading_date: str) -> dict[str, Any]:
@@ -737,11 +774,11 @@ def _get_session_vector_segments(event: dict[str, Any]) -> dict[str, Any]:
 
 def _get_session_vector_window(event: dict[str, Any]) -> dict[str, Any]:
     symbol, trading_date_to, days, page_size_days, next_index = _session_vector_window_request(event)
-    available_dates = _available_session_vector_dates(symbol, trading_date_to, days)
-    page_dates = available_dates[next_index:next_index + page_size_days]
-    records = [_load_session_vector_day(symbol, trading_date) for trading_date in page_dates]
-    following_index = next_index + len(page_dates)
-    has_more = following_index < len(available_dates)
+    available_days = _available_session_vector_days(symbol, trading_date_to, days)
+    page_days = available_days[next_index:next_index + page_size_days]
+    records = [_load_session_vector_day(symbol, str(day["trading_date"])) for day in page_days]
+    following_index = next_index + len(page_days)
+    has_more = following_index < len(available_days)
 
     next_token = None
     if has_more:
@@ -759,12 +796,28 @@ def _get_session_vector_window(event: dict[str, Any]) -> dict[str, Any]:
         "symbol": symbol,
         "trading_date_to": trading_date_to,
         "days_requested": days,
-        "available_day_count": len(available_dates),
+        "available_day_count": len(available_days),
         "page_size_days": page_size_days,
         "returned_day_count": len(records),
         "has_more": has_more,
         "next_token": next_token,
+        "available_dates": _json_ready(available_days),
         "records": records,
+    }
+
+
+def _get_session_vector_days(event: dict[str, Any]) -> dict[str, Any]:
+    symbol, trading_date_to, days = _session_vector_days_request(event)
+    available_days = _available_session_vector_days(symbol, trading_date_to, days)
+    default_trading_date = available_days[0]["trading_date"] if available_days else None
+
+    return {
+        "symbol": symbol,
+        "trading_date_to": trading_date_to,
+        "days_requested": days,
+        "available_day_count": len(available_days),
+        "default_trading_date": default_trading_date,
+        "available_dates": _json_ready(available_days),
     }
 
 
@@ -1675,6 +1728,16 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
                     "status": "ok",
                     "route": route_key,
                     "result": _get_session_vector_head(event),
+                },
+            )
+
+        if route_key == "GET /analytics/session-vector/days":
+            return _response(
+                200,
+                {
+                    "status": "ok",
+                    "route": route_key,
+                    "result": _get_session_vector_days(event),
                 },
             )
 

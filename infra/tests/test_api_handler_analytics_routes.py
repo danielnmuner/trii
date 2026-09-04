@@ -461,6 +461,43 @@ def test_handler_returns_session_vector_head() -> None:
     assert payload["result"]["manifest"]["latest_captured_at"] == "2026-08-21T09:01:00-05:00"
 
 
+def test_handler_returns_session_vector_days_with_catalog_default_date() -> None:
+    handler.SESSION_VECTORS_TABLE = FakeSessionVectorsTable()
+    handler.ANALYTICS_CATALOG_TABLE = FakeAnalyticsCatalogTable()
+
+    response = handler.handler(
+        {
+            "routeKey": "GET /analytics/session-vector/days",
+            "headers": {"X-Api-Token": "test-token"},
+            "queryStringParameters": {"symbol": "nuco"},
+        },
+        None,
+    )
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 200
+    assert payload["status"] == "ok"
+    assert payload["result"]["symbol"] == "NUCO"
+    assert payload["result"]["trading_date_to"] == "2026-08-20"
+    assert payload["result"]["days_requested"] == 3
+    assert payload["result"]["available_day_count"] == 2
+    assert payload["result"]["default_trading_date"] == "2026-08-20"
+    assert payload["result"]["available_dates"] == [
+        {
+            "trading_date": "2026-08-20",
+            "latest_captured_at": "2026-08-20T08:50:00-05:00",
+            "latest_sample_index": 40,
+            "segment_count": 1,
+        },
+        {
+            "trading_date": "2026-08-19",
+            "latest_captured_at": "2026-08-19T08:45:00-05:00",
+            "latest_sample_index": 30,
+            "segment_count": 1,
+        },
+    ]
+
+
 def test_handler_returns_session_vector_segments_from_segment_index() -> None:
     handler.SESSION_VECTORS_TABLE = FakeSessionVectorsTable()
 
@@ -745,6 +782,11 @@ def test_handler_returns_session_vector_window_with_day_pagination() -> None:
     assert first_payload["result"]["available_day_count"] == 3
     assert first_payload["result"]["returned_day_count"] == 2
     assert first_payload["result"]["has_more"] is True
+    assert [record["trading_date"] for record in first_payload["result"]["available_dates"]] == [
+        "2026-08-21",
+        "2026-08-20",
+        "2026-08-19",
+    ]
     assert [record["trading_date"] for record in first_payload["result"]["records"]] == [
         "2026-08-21",
         "2026-08-20",
@@ -793,7 +835,7 @@ def test_handler_session_vector_window_enforces_token_consistency() -> None:
             "queryStringParameters": {
                 "symbol": "nuco",
                 "trading_date_to": "2026-08-21",
-                "days": "5",
+                "days": "2",
                 "page_size_days": "2",
                 "next_token": token,
             },
