@@ -2,20 +2,18 @@ import json
 import os
 import time
 from datetime import datetime
-from decimal import Decimal
 from typing import Any
 
 import boto3
 from boto3.dynamodb.conditions import Key
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 from botocore.exceptions import ClientError
-from market_time import parse_captured_at
 from seasonality_profile import (
     SEASONALITY_PROFILE_KEY,
     build_seasonality_profile_item,
 )
 from snapshot_metrics import extract_metric_values, parse_metric_keys
-from stats_engine import build_stat_item
+from stats_engine import STATS_SUMMARY_KEY, build_stats_summary_item
 from zoneinfo import ZoneInfo
 
 
@@ -41,27 +39,6 @@ def _serialize_values(values: dict[str, Any]) -> dict[str, Any]:
     return {key: SERIALIZER.serialize(value) for key, value in values.items()}
 
 
-def _load_existing_stat_items(pk: str, metrics: list[str]) -> dict[str, dict[str, Any]]:
-    if not metrics:
-        return {}
-
-    response = DYNAMODB_CLIENT.batch_get_item(
-        RequestItems={
-            HISTORIC_STATS_TABLE: {
-                "Keys": [
-                    _serialize_item({"pk": pk, "sk": metric})
-                    for metric in metrics
-                ]
-            }
-        }
-    )
-    items = response.get("Responses", {}).get(HISTORIC_STATS_TABLE, [])
-    return {
-        item["sk"]["S"]: _deserialize_item(item)
-        for item in items
-    }
-
-
 def _load_previous_snapshot(symbol: str, captured_at: str) -> dict[str, Any] | None:
     response = CURRENT_SNAPSHOTS_TABLE.query(
         KeyConditionExpression=Key("symbol").eq(symbol) & Key("captured_at").lte(captured_at),
@@ -72,6 +49,15 @@ def _load_previous_snapshot(symbol: str, captured_at: str) -> dict[str, Any] | N
     if len(items) < 2:
         return None
     return items[1]
+
+
+def _load_existing_stats_summary_item(symbol: str) -> dict[str, Any] | None:
+    response = DYNAMODB_CLIENT.get_item(
+        TableName=HISTORIC_STATS_TABLE,
+        Key=_serialize_item({"pk": symbol, "sk": STATS_SUMMARY_KEY}),
+    )
+    item = response.get("Item")
+    return None if item is None else _deserialize_item(item)
 
 
 def _load_existing_seasonality_item(symbol: str) -> dict[str, Any] | None:
@@ -96,14 +82,10 @@ def _transact_snapshot(snapshot: dict[str, Any]) -> str:
         ENABLED_STATISTICAL_METRICS,
         previous_snapshot=previous_snapshot,
     )
-    metric_names = sorted(metrics.keys())
     updated_at = datetime.now(BOGOTA_TIMEZONE)
-    previous_timestamp = None
-    if previous_snapshot is not None:
-        previous_timestamp = parse_captured_at(str(previous_snapshot["captured_at"]))
 
     for _attempt in range(3):
-        previous_items = _load_existing_stat_items(symbol, metric_names)
+        previous_summary_item = _load_existing_stats_summary_item(symbol)
         previous_seasonality_item = _load_existing_seasonality_item(symbol)
         seasonality_item = build_seasonality_profile_item(
             previous_seasonality_item,
@@ -111,34 +93,34 @@ def _transact_snapshot(snapshot: dict[str, Any]) -> str:
             previous_snapshot=previous_snapshot,
             updated_at=updated_at,
         )
-        processed_units = list(metric_names)
+        processed_units = []
+        if metrics:
+            processed_units.append(STATS_SUMMARY_KEY)
         if seasonality_item is not None:
             processed_units.append(SEASONALITY_PROFILE_KEY)
         if not processed_units:
             return "skipped-no-metrics"
         transact_items = []
 
-        for metric_name in metric_names:
-            previous_item = previous_items.get(metric_name)
-            updated_item = build_stat_item(
-                previous_item,
+        if metrics:
+            updated_summary_item = build_stats_summary_item(
+                previous_summary_item,
                 symbol=symbol,
-                metric=metric_name,
                 captured_at=captured_at,
                 snapshot_checksum=snapshot_checksum,
-                value=metrics[metric_name],
+                metric_values=metrics,
                 updated_at=updated_at,
             )
             put_request = {
                 "TableName": HISTORIC_STATS_TABLE,
-                "Item": _serialize_item(updated_item),
+                "Item": _serialize_item(updated_summary_item),
             }
-            if previous_item is None:
+            if previous_summary_item is None:
                 put_request["ConditionExpression"] = "attribute_not_exists(pk) AND attribute_not_exists(sk)"
             else:
                 put_request["ConditionExpression"] = "stats_version = :expected_version"
                 put_request["ExpressionAttributeValues"] = _serialize_values(
-                    {":expected_version": int(previous_item["stats_version"])}
+                    {":expected_version": int(previous_summary_item["stats_version"])}
                 )
             transact_items.append({"Put": put_request})
 

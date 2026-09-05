@@ -338,40 +338,6 @@ class FakeStockOrdersLookupTable:
         return {"Items": []}
 
 
-class FakeHistoricStatsTable:
-    def query(self, **kwargs) -> dict:
-        return {
-            "Items": [
-                {
-                    "pk": "NUCO",
-                    "metric": "spread_bps",
-                    "latest_value": 4.3,
-                    "mean": 4.1,
-                    "stddev": 0.2,
-                    "sample_count": 24,
-                },
-                {
-                    "pk": "NUCO",
-                    "sk": "seasonality_profile",
-                    "record_type": "seasonality_profile",
-                    "bucket_granularity_minutes": 30,
-                    "timezone": "America/Bogota",
-                    "weekly_profile": {
-                        "1": {
-                            "weekday_label": "monday",
-                            "days_processed": 3,
-                            "hours": {
-                                "09:00": {
-                                    "accumulated_volume": 1200,
-                                }
-                            },
-                        }
-                    },
-                },
-            ]
-        }
-
-
 class FakeHistoricStatsSummaryTable:
     def query(self, **kwargs) -> dict:
         return {
@@ -393,8 +359,13 @@ class FakeHistoricStatsSummaryTable:
                         },
                         "vwap": {
                             "metric": "vwap",
+                            "latest_value": 2644.2,
+                            "mean": 2639.8,
+                            "m2": 3750,
                             "stddev": 12.5,
                             "sample_count": 24,
+                            "min_value": 2610.1,
+                            "max_value": 2666.4,
                         },
                     },
                 },
@@ -723,7 +694,7 @@ def test_handler_snapshot_accepts_optional_limit() -> None:
 
 def test_handler_historic_stats_uses_only_historic_stats_and_accepts_iam_auth() -> None:
     handler.CURRENT_SNAPSHOTS_TABLE = FailingCurrentSnapshotsTable()
-    handler.HISTORIC_STATS_TABLE = FakeHistoricStatsTable()
+    handler.HISTORIC_STATS_TABLE = FakeHistoricStatsSummaryTable()
 
     response = handler.handler(
         {
@@ -744,14 +715,15 @@ def test_handler_historic_stats_uses_only_historic_stats_and_accepts_iam_auth() 
     assert response["statusCode"] == 200
     assert payload["status"] == "ok"
     assert payload["result"]["symbol"] == "NUCO"
-    assert payload["result"]["record_count"] == 2
+    assert payload["result"]["record_count"] == 3
     assert payload["result"]["records"][0]["metric"] == "spread_bps"
-    assert payload["result"]["records"][1]["record_type"] == "seasonality_profile"
+    assert payload["result"]["records"][1]["metric"] == "vwap"
+    assert payload["result"]["records"][2]["record_type"] == "seasonality_profile"
 
 
 def test_handler_historic_stats_can_return_seasonality_profile_only() -> None:
     handler.CURRENT_SNAPSHOTS_TABLE = FailingCurrentSnapshotsTable()
-    handler.HISTORIC_STATS_TABLE = FakeHistoricStatsTable()
+    handler.HISTORIC_STATS_TABLE = FakeHistoricStatsSummaryTable()
 
     response = handler.handler(
         {

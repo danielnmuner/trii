@@ -1095,11 +1095,9 @@ def _load_historic_stats(symbol: str, metric: str | None = None) -> dict[str, An
     seasonality_key = "seasonality_profile"
     summary_item = None
     summary_metrics: dict[str, dict[str, Any]] = {}
-    legacy_metric_items: list[dict[str, Any]] = []
     seasonality_items: list[dict[str, Any]] = []
 
     for item in items:
-        item_metric = str(item.get("metric") or "").strip()
         item_sk = str(item.get("sk") or "").strip()
         item_record_type = str(item.get("record_type") or "").strip()
         is_seasonality_profile = item_sk == seasonality_key or item_record_type == seasonality_key
@@ -1111,8 +1109,6 @@ def _load_historic_stats(symbol: str, metric: str | None = None) -> dict[str, An
         if is_seasonality_profile:
             seasonality_items.append(item)
             continue
-        if item_metric:
-            legacy_metric_items.append(item)
 
     if summary_item is not None:
         for expanded_item in _expand_stats_summary_item(summary_item):
@@ -1121,11 +1117,6 @@ def _load_historic_stats(symbol: str, metric: str | None = None) -> dict[str, An
     filtered_items = []
     if metric is None:
         filtered_items.extend(summary_metrics.values())
-        for item in legacy_metric_items:
-            item_metric = str(item.get("metric") or "").strip()
-            if item_metric in summary_metrics:
-                continue
-            filtered_items.append(item)
         filtered_items.extend(seasonality_items)
     elif metric == seasonality_key:
         filtered_items.extend(seasonality_items)
@@ -1134,12 +1125,6 @@ def _load_historic_stats(symbol: str, metric: str | None = None) -> dict[str, An
             filtered_items.append(summary_item)
     elif metric in summary_metrics:
         filtered_items.append(summary_metrics[metric])
-    else:
-        filtered_items.extend(
-            item
-            for item in legacy_metric_items
-            if str(item.get("metric") or "").strip() == metric
-        )
 
     filtered_items.sort(
         key=lambda item: (

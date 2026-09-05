@@ -63,11 +63,6 @@ output "historic_stats_updater_function_name" {
   value       = module.historic_stats_updater.function_name
 }
 
-output "historic_stats_summary_migrator_function_name" {
-  description = "Historic stats summary migrator Lambda function name."
-  value       = module.historic_stats_summary_migrator.function_name
-}
-
 output "daily_closing_snapshots_updater_function_name" {
   description = "Daily closing snapshots updater Lambda function name."
   value       = module.daily_closing_snapshots_updater.function_name

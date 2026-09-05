@@ -9,7 +9,7 @@ purpose:
 
 primary_key:
 - pk: symbol
-- sk: metric, stats_summary, or seasonality_profile
+- sk: stats_summary or seasonality_profile
 
 global_secondary_indexes:
 - gsi1
@@ -17,50 +17,27 @@ global_secondary_indexes:
   sk: last_source_captured_at
   purpose: query one metric timeline for one symbol without scanning
 
-record_type:
-- pk: string, uppercase stock symbol
-- sk: string, metric name such as obi_l1, obi_top_5, spread_bps, traded_volume, traded_value, or vwap
-- symbol: string, uppercase stock symbol
-- metric: string
-- sample_name: string, currently all_time_market_sample
-- symbol_metric: string, formatted as SYMBOL#metric for gsi access
-- sample_count: number
-- mean: number
-- m2: number, Welford running second moment
-- stddev: number
-- min_value: number
-- max_value: number
-- latest_value: number
-- last_source_captured_at: string, iso-8601 timestamp with timezone
-- last_source_checksum: string
-- last_updated_at: string, iso-8601 timestamp with timezone
-- stats_scope: string, currently all_time_market_sample
-- stats_version: number, optimistic concurrency counter
-
 stats_summary_record_type:
 - pk: string, uppercase stock symbol
 - sk: string, fixed value stats_summary
 - symbol: string, uppercase stock symbol
 - record_type: string, stats_summary
-- metric_count: number, count of migrated metrics currently embedded in metrics
+- metric_count: number, count of embedded metrics currently maintained in metrics
 - metrics: map keyed by metric name
-- metrics.vwap.metric: string, fixed value vwap
-- metrics.vwap.stddev: number
-- metrics.vwap.sample_count: number
-- metrics.<spread_bps|obi_l1|obi_top_5|traded_volume|traded_value>.metric: string
-- metrics.<spread_bps|obi_l1|obi_top_5|traded_volume|traded_value>.latest_value: number
-- metrics.<spread_bps|obi_l1|obi_top_5|traded_volume|traded_value>.mean: number
-- metrics.<spread_bps|obi_l1|obi_top_5|traded_volume|traded_value>.stddev: number
-- metrics.<spread_bps|obi_l1|obi_top_5|traded_volume|traded_value>.sample_count: number
-- metrics.<spread_bps|obi_l1|obi_top_5|traded_volume|traded_value>.min_value: number
-- metrics.<spread_bps|obi_l1|obi_top_5|traded_volume|traded_value>.max_value: number
-- missing_metrics: list<string>, any target metrics absent at migration time
-- migration_status: string, complete or partial
-- source_metric_versions: map keyed by metric name with source item stats_version values
-- source_checksum: string, checksum of the embedded metrics payload
-- last_source_captured_at: string | null, max last_source_captured_at among embedded source metrics
+- metrics.<metric>.metric: string, one of spread_bps, obi_l1, obi_top_5, traded_volume, traded_value, or vwap
+- metrics.<metric>.sample_count: number
+- metrics.<metric>.mean: number
+- metrics.<metric>.m2: number, Welford running second moment
+- metrics.<metric>.stddev: number
+- metrics.<metric>.min_value: number
+- metrics.<metric>.max_value: number
+- metrics.<metric>.latest_value: number
+- missing_metrics: list<string>, enabled metrics not present in the current stats_summary item
+- last_source_captured_at: string, latest source snapshot timestamp folded into the summary
+- last_source_checksum: string, checksum of the latest source snapshot folded into the summary
 - last_updated_at: string, iso-8601 timestamp with timezone
-- stats_version: number, increments only when source_checksum changes
+- stats_scope: string, currently all_time_market_sample
+- stats_version: number, optimistic concurrency counter on the whole summary item
 
 seasonality_profile_record_type:
 - pk: string, uppercase stock symbol
@@ -115,7 +92,7 @@ official_statistical_metrics_from_raw_snapshot:
 - vwap = traded_value / traded_volume when traded_volume > 0
 
 special_record_types:
-- stats_summary = materialized compact record that embeds the six UI-consumed statistical metrics for a symbol
+- stats_summary = live-updated compact record that embeds the six maintained statistical metrics for a symbol
 - seasonality_profile = fold intraday seasonality buckets from cumulative traded_volume and traded_value only when a 30-minute bucket closes
 
 excluded_operational_snapshot_fields:
@@ -133,12 +110,10 @@ excluded_operational_snapshot_fields:
 - ask_depth_total_5
 
 query_patterns:
-- fetch the full incremental market sample for one symbol
 - fetch the compact stats_summary record for one symbol
-- fetch one metric timeline for one symbol through gsi1
+- fetch the seasonality_profile record for one symbol
 
 write_policy:
 - current-snapshots remains the deduplicated raw source of truth for live incremental updates
-- live writes stay controlled by local.enabled_statistical_metrics and currently include only spread_bps, obi_l1, obi_top_5, traded_volume, traded_value, and vwap
-- stats_summary is currently produced by a temporary manual migrator so the read path can switch safely before legacy metric items are removed
+- live writes stay controlled by local.enabled_statistical_metrics and are folded directly into stats_summary
 - seasonality_profile is maintained only when a 30-minute bucket closes and is not part of local.enabled_statistical_metrics

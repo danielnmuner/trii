@@ -25,9 +25,7 @@ data "aws_iam_policy_document" "inline" {
     sid    = "ReadWriteHistoricStats"
     effect = "Allow"
     actions = [
-      "dynamodb:BatchGetItem",
       "dynamodb:GetItem",
-      "dynamodb:PutItem",
       "dynamodb:TransactWriteItems",
     ]
     resources = concat(

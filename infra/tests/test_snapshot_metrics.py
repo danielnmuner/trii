@@ -18,7 +18,7 @@ if str(LAMBDA_SRC) not in sys.path:
     sys.path.insert(0, str(LAMBDA_SRC))
 
 from snapshot_metrics import extract_metric_values, parse_metric_keys
-from stats_engine import build_stat_item
+from stats_engine import STATS_SUMMARY_KEY, build_stat_item, build_stats_summary_item
 
 
 def _sample_snapshot() -> dict:
@@ -122,6 +122,86 @@ def test_build_stat_item_uses_welford_incrementally_for_market_sample() -> None:
     assert second["mean"] == Decimal("0.20")
     assert second["m2"] == Decimal("0.0200")
     assert second["stddev"] == Decimal("0.1414213562373095048801688724")
+
+
+def test_build_stats_summary_item_updates_all_metrics_in_one_record() -> None:
+    first = build_stats_summary_item(
+        None,
+        symbol="NUCO",
+        captured_at="2026-08-20T10:15:00-05:00",
+        snapshot_checksum="checksum-1",
+        metric_values={
+            "spread_bps": Decimal("4.3"),
+            "vwap": Decimal("2644.2"),
+        },
+        updated_at=datetime.fromisoformat("2026-08-20T10:15:10-05:00"),
+    )
+    second = build_stats_summary_item(
+        first,
+        symbol="NUCO",
+        captured_at="2026-08-20T10:16:00-05:00",
+        snapshot_checksum="checksum-2",
+        metric_values={
+            "spread_bps": Decimal("4.7"),
+            "vwap": Decimal("2645.2"),
+        },
+        updated_at=datetime.fromisoformat("2026-08-20T10:16:10-05:00"),
+    )
+
+    assert first["sk"] == STATS_SUMMARY_KEY
+    assert first["metric_count"] == 2
+    assert first["metrics"]["spread_bps"]["sample_count"] == 1
+    assert first["metrics"]["vwap"]["latest_value"] == Decimal("2644.2")
+    assert second["stats_version"] == 2
+    assert second["metrics"]["spread_bps"]["sample_count"] == 2
+    assert second["metrics"]["spread_bps"]["mean"] == Decimal("4.5")
+    assert second["metrics"]["vwap"]["sample_count"] == 2
+    assert second["metrics"]["vwap"]["mean"] == Decimal("2644.7")
+
+
+def test_build_stats_summary_item_can_continue_from_migrated_minimal_vwap_shape() -> None:
+    previous_summary = {
+        "pk": "NUCO",
+        "sk": STATS_SUMMARY_KEY,
+        "symbol": "NUCO",
+        "record_type": STATS_SUMMARY_KEY,
+        "metric_count": 2,
+        "metrics": {
+            "spread_bps": {
+                "metric": "spread_bps",
+                "latest_value": Decimal("4.3"),
+                "mean": Decimal("4.1"),
+                "stddev": Decimal("0.2"),
+                "sample_count": 24,
+                "min_value": Decimal("3.9"),
+                "max_value": Decimal("4.5"),
+            },
+            "vwap": {
+                "metric": "vwap",
+                "stddev": Decimal("12.5"),
+                "sample_count": 24,
+            },
+        },
+        "stats_version": 1,
+    }
+
+    updated_summary = build_stats_summary_item(
+        previous_summary,
+        symbol="NUCO",
+        captured_at="2026-08-20T10:16:00-05:00",
+        snapshot_checksum="checksum-2",
+        metric_values={
+            "spread_bps": Decimal("4.7"),
+            "vwap": Decimal("2645.2"),
+        },
+        updated_at=datetime.fromisoformat("2026-08-20T10:16:10-05:00"),
+    )
+
+    assert updated_summary["metrics"]["spread_bps"]["sample_count"] == 25
+    assert updated_summary["metrics"]["spread_bps"]["m2"] is not None
+    assert updated_summary["metrics"]["vwap"]["sample_count"] == 25
+    assert updated_summary["metrics"]["vwap"]["mean"] == Decimal("2645.2")
+    assert updated_summary["metrics"]["vwap"]["m2"] == Decimal("3593.75")
 
 
 def test_extract_metric_values_can_be_filtered_by_enabled_metric_keys() -> None:
