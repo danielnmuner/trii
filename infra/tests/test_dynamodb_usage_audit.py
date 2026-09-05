@@ -103,19 +103,41 @@ class FakeCostExplorerClient:
         return {
             "ResultsByTime": [
                 {
+                    "TimePeriod": {"Start": "2026-09-04", "End": "2026-09-05"},
+                    "Estimated": False,
                     "Groups": [
                         {
                             "Keys": ["USE1-DDB-WriteUnits"],
                             "Metrics": {
-                                "UnblendedCost": {"Amount": "4.92"},
-                                "UsageQuantity": {"Amount": "7879833"},
+                                "UnblendedCost": {"Amount": "2.00"},
+                                "UsageQuantity": {"Amount": "3000"},
                             },
                         },
                         {
                             "Keys": ["USE1-DDB-ReadUnits"],
                             "Metrics": {
-                                "UnblendedCost": {"Amount": "0.49"},
-                                "UsageQuantity": {"Amount": "3949752.5"},
+                                "UnblendedCost": {"Amount": "0.25"},
+                                "UsageQuantity": {"Amount": "1500"},
+                            },
+                        },
+                    ]
+                },
+                {
+                    "TimePeriod": {"Start": "2026-09-05", "End": "2026-09-06"},
+                    "Estimated": True,
+                    "Groups": [
+                        {
+                            "Keys": ["USE1-DDB-WriteUnits"],
+                            "Metrics": {
+                                "UnblendedCost": {"Amount": "2.92"},
+                                "UsageQuantity": {"Amount": "7876833"},
+                            },
+                        },
+                        {
+                            "Keys": ["USE1-DDB-ReadUnits"],
+                            "Metrics": {
+                                "UnblendedCost": {"Amount": "0.24"},
+                                "UsageQuantity": {"Amount": "3948252.5"},
                             },
                         },
                     ]
@@ -153,7 +175,12 @@ def test_build_summary_reports_top_table_and_costs() -> None:
     assert summary["tables"][1]["table_name"] == "trii-prod-current-snapshots"
     assert summary["tables"][1]["approx_total_write_units_with_indexes"] == 200.0
     assert summary["totals"]["approx_total_write_units_with_indexes"] == 1100.0
+    assert len(summary["daily"]) == 4
+    assert summary["daily"][-1]["date"] == "2026-09-05"
+    assert summary["daily"][-1]["tables"][0]["table_name"] == "trii-prod-historic-stats"
     assert summary["cost_explorer"]["groups"][0]["usage_type"] == "USE1-DDB-WriteUnits"
+    assert summary["cost_explorer"]["daily"][0]["date"] == "2026-09-04"
+    assert summary["cost_explorer"]["daily"][1]["is_estimated"] is True
 
 
 def test_build_markdown_report_includes_top_table_rows() -> None:
@@ -167,6 +194,17 @@ def test_build_markdown_report_includes_top_table_rows() -> None:
             "approx_total_write_units_with_indexes": 123.0,
             "approx_total_read_units_with_indexes": 45.0,
         },
+        "daily": [
+            {
+                "date": "2026-09-05",
+                "totals": {
+                    "approx_total_write_units_with_indexes": 12.0,
+                    "approx_total_read_units_with_indexes": 4.0,
+                    "write_throttle_events": 1.0,
+                    "read_throttle_events": 0.0,
+                },
+            }
+        ],
         "tables": [
             {
                 "table_name": "trii-prod-historic-stats",
@@ -177,6 +215,16 @@ def test_build_markdown_report_includes_top_table_rows() -> None:
             }
         ],
         "cost_explorer": {
+            "daily": [
+                {
+                    "date": "2026-09-05",
+                    "is_estimated": True,
+                    "totals": {
+                        "unblended_cost_usd": 2.34,
+                        "usage_quantity": 12345.0,
+                    },
+                }
+            ],
             "groups": [
                 {
                     "usage_type": "USE1-DDB-WriteUnits",
@@ -191,4 +239,6 @@ def test_build_markdown_report_includes_top_table_rows() -> None:
 
     assert "DynamoDB usage audit" in markdown
     assert "trii-prod-historic-stats" in markdown
+    assert "2026-09-05" in markdown
+    assert "Cost Explorer daily totals" in markdown
     assert "USE1-DDB-WriteUnits" in markdown

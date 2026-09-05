@@ -25,6 +25,7 @@ TABLE_METRICS = (
     "UserErrors",
     "SystemErrors",
 )
+TABLE_DESCRIPTION_CACHE: dict[str, dict[str, Any]] = {}
 
 
 def _get_dynamodb_client():
@@ -50,6 +51,28 @@ def _get_cost_explorer_client():
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def _utc_day_start(value: datetime) -> datetime:
+    return datetime(value.year, value.month, value.day, tzinfo=UTC)
+
+
+def _daily_windows(*, end_time: datetime, lookback_days: int) -> list[dict[str, Any]]:
+    start_of_today = _utc_day_start(end_time)
+    windows: list[dict[str, Any]] = []
+    for days_ago in range(lookback_days - 1, -1, -1):
+        day_start = start_of_today - timedelta(days=days_ago)
+        day_end = min(day_start + timedelta(days=1), end_time)
+        if day_end <= day_start:
+            continue
+        windows.append(
+            {
+                "date": day_start.date().isoformat(),
+                "start_time": day_start,
+                "end_time": day_end,
+            }
+        )
+    return windows
 
 
 def _metric_total(
@@ -97,8 +120,13 @@ def _list_prefixed_tables(table_prefix: str) -> list[str]:
 
 
 def _describe_table(table_name: str) -> dict[str, Any]:
+    cached = TABLE_DESCRIPTION_CACHE.get(table_name)
+    if cached is not None:
+        return dict(cached)
     response = _get_dynamodb_client().describe_table(TableName=table_name)
-    return dict(response["Table"])
+    description = dict(response["Table"])
+    TABLE_DESCRIPTION_CACHE[table_name] = description
+    return dict(description)
 
 
 def _index_names(table_description: dict[str, Any]) -> list[str]:
@@ -201,6 +229,50 @@ def _summarize_table(
     }
 
 
+def _daily_table_summaries(
+    *,
+    table_names: list[str],
+    daily_windows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    daily_rows: list[dict[str, Any]] = []
+    for window in daily_windows:
+        tables = [
+            _summarize_table(
+                table_name=table_name,
+                start_time=window["start_time"],
+                end_time=window["end_time"],
+            )
+            for table_name in table_names
+        ]
+        tables.sort(
+            key=lambda table: float(table["approx_total_write_units_with_indexes"]),
+            reverse=True,
+        )
+        daily_rows.append(
+            {
+                "date": window["date"],
+                "window_start_utc": window["start_time"].isoformat(),
+                "window_end_utc": window["end_time"].isoformat(),
+                "totals": {
+                    "approx_total_write_units_with_indexes": sum(
+                        float(table["approx_total_write_units_with_indexes"]) for table in tables
+                    ),
+                    "approx_total_read_units_with_indexes": sum(
+                        float(table["approx_total_read_units_with_indexes"]) for table in tables
+                    ),
+                    "write_throttle_events": sum(
+                        float(table["metrics"]["WriteThrottleEvents"]) for table in tables
+                    ),
+                    "read_throttle_events": sum(
+                        float(table["metrics"]["ReadThrottleEvents"]) for table in tables
+                    ),
+                },
+                "tables": tables,
+            }
+        )
+    return daily_rows
+
+
 def _cost_explorer_summary(*, start_date: str, end_date: str) -> dict[str, Any]:
     response = _get_cost_explorer_client().get_cost_and_usage(
         TimePeriod={"Start": start_date, "End": end_date},
@@ -216,18 +288,39 @@ def _cost_explorer_summary(*, start_date: str, end_date: str) -> dict[str, Any]:
     )
 
     groups: dict[str, dict[str, float]] = {}
+    daily: list[dict[str, Any]] = []
     for day in response.get("ResultsByTime", []):
+        day_groups: list[dict[str, Any]] = []
         for group in day.get("Groups", []):
             usage_type = str((group.get("Keys") or ["unknown"])[0])
             metrics = group.get("Metrics", {})
             cost_amount = float(metrics.get("UnblendedCost", {}).get("Amount", 0.0) or 0.0)
             usage_amount = float(metrics.get("UsageQuantity", {}).get("Amount", 0.0) or 0.0)
+            day_groups.append(
+                {
+                    "usage_type": usage_type,
+                    "unblended_cost_usd": cost_amount,
+                    "usage_quantity": usage_amount,
+                }
+            )
             aggregate = groups.setdefault(
                 usage_type,
                 {"unblended_cost_usd": 0.0, "usage_quantity": 0.0},
             )
             aggregate["unblended_cost_usd"] += cost_amount
             aggregate["usage_quantity"] += usage_amount
+        day_groups.sort(key=lambda group: group["unblended_cost_usd"], reverse=True)
+        daily.append(
+            {
+                "date": str(day.get("TimePeriod", {}).get("Start") or ""),
+                "is_estimated": bool(day.get("Estimated")),
+                "groups": day_groups,
+                "totals": {
+                    "unblended_cost_usd": sum(group["unblended_cost_usd"] for group in day_groups),
+                    "usage_quantity": sum(group["usage_quantity"] for group in day_groups),
+                },
+            }
+        )
 
     ordered_groups = [
         {"usage_type": usage_type, **payload}
@@ -242,6 +335,7 @@ def _cost_explorer_summary(*, start_date: str, end_date: str) -> dict[str, Any]:
         "start_date": start_date,
         "end_date_exclusive": end_date,
         "groups": ordered_groups,
+        "daily": daily,
     }
 
 
@@ -256,11 +350,29 @@ def _build_markdown_report(summary: dict[str, Any]) -> str:
         f"- Approx total write units: `{summary['totals']['approx_total_write_units_with_indexes']:.2f}`",
         f"- Approx total read units: `{summary['totals']['approx_total_read_units_with_indexes']:.2f}`",
         "",
+        "### Daily totals",
+        "",
+        "| Date UTC | Approx writes | Approx reads | Write throttle events | Read throttle events |",
+        "| --- | ---: | ---: | ---: | ---: |",
+    ]
+
+    for day in summary.get("daily", []):
+        lines.append(
+            f"| {day['date']} | {day['totals']['approx_total_write_units_with_indexes']:.2f} | "
+            f"{day['totals']['approx_total_read_units_with_indexes']:.2f} | "
+            f"{day['totals']['write_throttle_events']:.2f} | "
+            f"{day['totals']['read_throttle_events']:.2f} |"
+        )
+
+    lines.extend(
+        [
+            "",
         "### Top tables by writes",
         "",
         "| Table | Approx writes | Approx reads | Write/Read ratio | Indexes |",
         "| --- | ---: | ---: | ---: | ---: |",
-    ]
+        ]
+    )
 
     for table in summary["tables"]:
         ratio = table["write_read_ratio"]
@@ -273,6 +385,20 @@ def _build_markdown_report(summary: dict[str, Any]) -> str:
 
     cost_explorer = summary.get("cost_explorer")
     if cost_explorer:
+        lines.extend(
+            [
+                "",
+                "### Cost Explorer daily totals",
+                "",
+                "| Date UTC | Cost USD | Usage quantity | Estimated |",
+                "| --- | ---: | ---: | --- |",
+            ]
+        )
+        for day in cost_explorer.get("daily", []):
+            lines.append(
+                f"| {day['date']} | {day['totals']['unblended_cost_usd']:.4f} | "
+                f"{day['totals']['usage_quantity']:.2f} | {str(day['is_estimated']).lower()} |"
+            )
         lines.extend(
             [
                 "",
@@ -300,6 +426,11 @@ def _build_summary(
     start_time = end_time - timedelta(days=lookback_days)
     start_date = start_time.date().isoformat()
     end_date = (end_time.date() + timedelta(days=1)).isoformat()
+    table_names = _list_prefixed_tables(table_prefix)
+    daily_windows = _daily_windows(
+        end_time=end_time,
+        lookback_days=lookback_days,
+    )
 
     tables = [
         _summarize_table(
@@ -307,7 +438,7 @@ def _build_summary(
             start_time=start_time,
             end_time=end_time,
         )
-        for table_name in _list_prefixed_tables(table_prefix)
+        for table_name in table_names
     ]
     tables.sort(
         key=lambda table: float(table["approx_total_write_units_with_indexes"]),
@@ -339,6 +470,10 @@ def _build_summary(
         "table_prefix": table_prefix,
         "table_count": len(tables),
         "totals": totals,
+        "daily": _daily_table_summaries(
+            table_names=table_names,
+            daily_windows=daily_windows,
+        ),
         "tables": tables,
     }
 
