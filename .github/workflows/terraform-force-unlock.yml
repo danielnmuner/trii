@@ -1,0 +1,80 @@
+name: Terraform Force Unlock
+
+on:
+  workflow_dispatch:
+    inputs:
+      lock_id:
+        description: "Terraform lock ID a liberar"
+        required: true
+        type: string
+      confirm_unlock:
+        description: "Escribe unlock-prod para continuar"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: terraform-prod-force-unlock
+  cancel-in-progress: false
+
+jobs:
+  force-unlock:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Enforce main branch
+        run: |
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "This workflow must run from main because the IAM trust policy is expected to allow the main branch."
+            exit 1
+          fi
+
+      - name: Validate confirmation
+        env:
+          CONFIRM_UNLOCK: ${{ inputs.confirm_unlock }}
+        run: |
+          if [[ "${CONFIRM_UNLOCK}" != "unlock-prod" ]]; then
+            echo "Confirmation mismatch. Expected unlock-prod."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::311923415472:role/GitHubTerraformTriiRole
+          role-session-name: github-actions-terraform-force-unlock
+          allowed-account-ids: 311923415472
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.14.6
+          terraform_wrapper: false
+
+      - name: Bootstrap Terraform state bucket
+        run: bash infra/scripts/bootstrap-state-bucket.sh
+
+      - name: Terraform init prod
+        run: terraform -chdir=infra/prod init -input=false
+
+      - name: Terraform force-unlock prod
+        env:
+          LOCK_ID: ${{ inputs.lock_id }}
+        run: terraform -chdir=infra/prod force-unlock -force "${LOCK_ID}"
+
+      - name: Publish summary
+        env:
+          LOCK_ID: ${{ inputs.lock_id }}
+        run: |
+          {
+            echo "## Terraform force-unlock"
+            echo ""
+            echo "- Environment: \`prod\`"
+            echo "- Released lock ID: \`${LOCK_ID}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
