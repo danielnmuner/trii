@@ -48,6 +48,7 @@ with Diagram(
 
         with Cluster("Background analytics"):
             historic_stats_updater = Lambda("historic_stats_updater\nLambda")
+            historic_stats_summary_migrator = Lambda("historic_stats_summary_migrator\nLambda\n(manual temporary)")
             daily_closing_snapshots_updater = Lambda("daily_closing_snapshots_updater\nLambda")
             analytics_catalog_updater = Lambda("analytics_catalog_updater\nLambda")
             session_vectors_updater = Lambda("session_vectors_updater\nLambda")
@@ -78,6 +79,7 @@ with Diagram(
     current_snapshots_table >> Edge(label="stream INSERTs", color="deepskyblue4") >> session_vectors_updater
     current_snapshots_table >> Edge(label="stream INSERTs", color="firebrick4") >> current_snapshots_pruner
     historic_stats_updater >> Edge(label="update stats", color="darkorange") >> historic_stats_table
+    historic_stats_summary_migrator >> Edge(label="migrate 6 metrics\ninto stats_summary", color="goldenrod3") >> historic_stats_table
     daily_closing_schedule >> Edge(label="run every 24h", color="mediumpurple") >> daily_closing_snapshots_updater
     daily_closing_snapshots_updater >> Edge(label="read daily snapshots", color="mediumpurple", style="dashed") >> current_snapshots_table
     daily_closing_snapshots_updater >> Edge(label="store daily closing", color="mediumpurple") >> daily_closing_snapshots_table

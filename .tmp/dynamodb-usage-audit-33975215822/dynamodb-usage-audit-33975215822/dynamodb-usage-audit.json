@@ -1,0 +1,257 @@
+{
+  "cost_explorer": {
+    "end_date_exclusive": "2026-09-06",
+    "groups": [
+      {
+        "unblended_cost_usd": 4.924895625,
+        "usage_quantity": 7879833.0,
+        "usage_type": "WriteRequestUnits"
+      },
+      {
+        "unblended_cost_usd": 0.4937190624999999,
+        "usage_quantity": 3949752.5,
+        "usage_type": "ReadRequestUnits"
+      },
+      {
+        "unblended_cost_usd": 0.0021043071999999998,
+        "usage_quantity": 0.010521541799999999,
+        "usage_type": "USE1-TimedPITRStorage-ByteHrs"
+      },
+      {
+        "unblended_cost_usd": 0.0,
+        "usage_quantity": 0.0230629743,
+        "usage_type": "TimedStorage-ByteHrs"
+      },
+      {
+        "unblended_cost_usd": 0.0,
+        "usage_quantity": 1.0,
+        "usage_type": "USE1-Streams-Requests"
+      }
+    ],
+    "start_date": "2026-09-01"
+  },
+  "end_date_exclusive": "2026-09-06",
+  "generated_at_utc": "2026-09-05T15:34:54.499311+00:00",
+  "lookback_days": 4,
+  "start_date": "2026-09-01",
+  "table_count": 7,
+  "table_prefix": "trii-prod-",
+  "tables": [
+    {
+      "approx_total_read_units_with_indexes": 1598808.5,
+      "approx_total_write_units_with_indexes": 5419054.0,
+      "billing_mode": "PAY_PER_REQUEST",
+      "global_secondary_indexes": [
+        {
+          "index_name": "symbol-metric-captured-at-index",
+          "metrics": {
+            "ConsumedReadCapacityUnits": 0.0,
+            "ConsumedWriteCapacityUnits": 890788.0
+          }
+        }
+      ],
+      "item_count": 549,
+      "metrics": {
+        "ConditionalCheckFailedRequests": 0.0,
+        "ConsumedReadCapacityUnits": 1598808.5,
+        "ConsumedWriteCapacityUnits": 4528266.0,
+        "ReadThrottleEvents": 0.0,
+        "SystemErrors": 0.0,
+        "TransactionConflict": 0.0,
+        "UserErrors": 0.0,
+        "WriteThrottleEvents": 0.0
+      },
+      "stream_enabled": false,
+      "table_name": "trii-prod-historic-stats",
+      "table_size_bytes": 1381723,
+      "table_status": "ACTIVE",
+      "write_read_ratio": 3.389432818251842
+    },
+    {
+      "approx_total_read_units_with_indexes": 1173943.0,
+      "approx_total_write_units_with_indexes": 456661.0,
+      "billing_mode": "PAY_PER_REQUEST",
+      "global_secondary_indexes": [
+        {
+          "index_name": "captured-date-index",
+          "metrics": {
+            "ConsumedReadCapacityUnits": 896467.0,
+            "ConsumedWriteCapacityUnits": 181056.0
+          }
+        }
+      ],
+      "item_count": 38,
+      "metrics": {
+        "ConditionalCheckFailedRequests": 0.0,
+        "ConsumedReadCapacityUnits": 277476.0,
+        "ConsumedWriteCapacityUnits": 275605.0,
+        "ReadThrottleEvents": 0.0,
+        "SystemErrors": 0.0,
+        "TransactionConflict": 0.0,
+        "UserErrors": 0.0,
+        "WriteThrottleEvents": 14933.0
+      },
+      "stream_enabled": true,
+      "table_name": "trii-prod-current-snapshots",
+      "table_size_bytes": 51158,
+      "table_status": "ACTIVE",
+      "write_read_ratio": 0.3889975918762666
+    },
+    {
+      "approx_total_read_units_with_indexes": 39709.0,
+      "approx_total_write_units_with_indexes": 260552.0,
+      "billing_mode": "PAY_PER_REQUEST",
+      "global_secondary_indexes": [],
+      "item_count": 1,
+      "metrics": {
+        "ConditionalCheckFailedRequests": 664.0,
+        "ConsumedReadCapacityUnits": 39709.0,
+        "ConsumedWriteCapacityUnits": 260552.0,
+        "ReadThrottleEvents": 0.0,
+        "SystemErrors": 0.0,
+        "TransactionConflict": 0.0,
+        "UserErrors": 0.0,
+        "WriteThrottleEvents": 0.0
+      },
+      "stream_enabled": false,
+      "table_name": "trii-prod-analytics-catalog",
+      "table_size_bytes": 3444,
+      "table_status": "ACTIVE",
+      "write_read_ratio": 6.561535168349744
+    },
+    {
+      "approx_total_read_units_with_indexes": 254108.0,
+      "approx_total_write_units_with_indexes": 217408.0,
+      "billing_mode": "PAY_PER_REQUEST",
+      "global_secondary_indexes": [],
+      "item_count": 102,
+      "metrics": {
+        "ConditionalCheckFailedRequests": 0.0,
+        "ConsumedReadCapacityUnits": 254108.0,
+        "ConsumedWriteCapacityUnits": 217408.0,
+        "ReadThrottleEvents": 0.0,
+        "SystemErrors": 0.0,
+        "TransactionConflict": 0.0,
+        "UserErrors": 0.0,
+        "WriteThrottleEvents": 0.0
+      },
+      "stream_enabled": false,
+      "table_name": "trii-prod-session-vectors",
+      "table_size_bytes": 295361,
+      "table_status": "ACTIVE",
+      "write_read_ratio": 0.8555732208352355
+    },
+    {
+      "approx_total_read_units_with_indexes": 12122.0,
+      "approx_total_write_units_with_indexes": 180.0,
+      "billing_mode": "PAY_PER_REQUEST",
+      "global_secondary_indexes": [
+        {
+          "index_name": "trading-date-index",
+          "metrics": {
+            "ConsumedReadCapacityUnits": 0.0,
+            "ConsumedWriteCapacityUnits": 90.0
+          }
+        }
+      ],
+      "item_count": 278,
+      "metrics": {
+        "ConditionalCheckFailedRequests": 0.0,
+        "ConsumedReadCapacityUnits": 12122.0,
+        "ConsumedWriteCapacityUnits": 90.0,
+        "ReadThrottleEvents": 0.0,
+        "SystemErrors": 0.0,
+        "TransactionConflict": 0.0,
+        "UserErrors": 0.0,
+        "WriteThrottleEvents": 0.0
+      },
+      "stream_enabled": false,
+      "table_name": "trii-prod-daily-closing-snapshots",
+      "table_size_bytes": 132283,
+      "table_status": "ACTIVE",
+      "write_read_ratio": 0.014849034812737172
+    },
+    {
+      "approx_total_read_units_with_indexes": 103166.5,
+      "approx_total_write_units_with_indexes": 103.0,
+      "billing_mode": "PAY_PER_REQUEST",
+      "global_secondary_indexes": [
+        {
+          "index_name": "symbol-created-at-index",
+          "metrics": {
+            "ConsumedReadCapacityUnits": 103166.5,
+            "ConsumedWriteCapacityUnits": 3.0
+          }
+        },
+        {
+          "index_name": "created-month-index",
+          "metrics": {
+            "ConsumedReadCapacityUnits": 0.0,
+            "ConsumedWriteCapacityUnits": 3.0
+          }
+        }
+      ],
+      "item_count": 70,
+      "metrics": {
+        "ConditionalCheckFailedRequests": 94.0,
+        "ConsumedReadCapacityUnits": 0.0,
+        "ConsumedWriteCapacityUnits": 97.0,
+        "ReadThrottleEvents": 0.0,
+        "SystemErrors": 0.0,
+        "TransactionConflict": 0.0,
+        "UserErrors": 0.0,
+        "WriteThrottleEvents": 0.0
+      },
+      "stream_enabled": false,
+      "table_name": "trii-prod-stock-orders",
+      "table_size_bytes": 36973,
+      "table_status": "ACTIVE",
+      "write_read_ratio": 0.000998386104016323
+    },
+    {
+      "approx_total_read_units_with_indexes": 0.0,
+      "approx_total_write_units_with_indexes": 0.0,
+      "billing_mode": "PAY_PER_REQUEST",
+      "global_secondary_indexes": [
+        {
+          "index_name": "issued-month-index",
+          "metrics": {
+            "ConsumedReadCapacityUnits": 0.0,
+            "ConsumedWriteCapacityUnits": 0.0
+          }
+        },
+        {
+          "index_name": "order-reference-issued-at-index",
+          "metrics": {
+            "ConsumedReadCapacityUnits": 0.0,
+            "ConsumedWriteCapacityUnits": 0.0
+          }
+        }
+      ],
+      "item_count": 0,
+      "metrics": {
+        "ConditionalCheckFailedRequests": 0.0,
+        "ConsumedReadCapacityUnits": 0.0,
+        "ConsumedWriteCapacityUnits": 0.0,
+        "ReadThrottleEvents": 0.0,
+        "SystemErrors": 0.0,
+        "TransactionConflict": 0.0,
+        "UserErrors": 0.0,
+        "WriteThrottleEvents": 0.0
+      },
+      "stream_enabled": false,
+      "table_name": "trii-prod-parsed-invoices",
+      "table_size_bytes": 0,
+      "table_status": "ACTIVE",
+      "write_read_ratio": null
+    }
+  ],
+  "totals": {
+    "approx_total_read_units_with_indexes": 3181857.0,
+    "approx_total_write_units_with_indexes": 6353958.0,
+    "read_throttle_events": 0.0,
+    "write_throttle_events": 14933.0
+  },
+  "window_end_utc": "2026-09-05T15:34:39.568871+00:00",
+  "window_start_utc": "2026-09-01T15:34:39.568871+00:00"
+}

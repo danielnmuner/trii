@@ -35,6 +35,15 @@ SESSION_VECTOR_SAMPLES_PER_SEGMENT = 156
 MAX_SESSION_VECTOR_WINDOW_DAYS = 3
 DEFAULT_SESSION_VECTOR_WINDOW_PAGE_SIZE_DAYS = 2
 MAX_SESSION_VECTOR_WINDOW_PAGE_SIZE_DAYS = 2
+STATS_SUMMARY_KEY = "stats_summary"
+STATS_SUMMARY_METRICS = (
+    "vwap",
+    "spread_bps",
+    "obi_l1",
+    "obi_top_5",
+    "traded_volume",
+    "traded_value",
+)
 EXPECTED_STOCK_ORDER_COLUMNS = (
     "Fecha y hora",
     "Símbolo de la acción",
@@ -1057,32 +1066,80 @@ def _load_historic_stats_for_snapshot(snapshot: dict[str, Any]) -> dict[str, Any
     return _load_historic_stats(symbol)
 
 
+def _expand_stats_summary_item(summary_item: dict[str, Any]) -> list[dict[str, Any]]:
+    symbol = str(summary_item.get("symbol") or summary_item.get("pk") or "").strip().upper()
+    metrics = summary_item.get("metrics") or {}
+    expanded_items: list[dict[str, Any]] = []
+
+    for metric_name in STATS_SUMMARY_METRICS:
+        metric_payload = metrics.get(metric_name)
+        if not isinstance(metric_payload, dict):
+            continue
+        expanded_item = {
+            "pk": symbol,
+            "sk": metric_name,
+            "symbol": symbol,
+            "metric": metric_name,
+        }
+        expanded_item.update(metric_payload)
+        expanded_items.append(expanded_item)
+
+    return expanded_items
+
+
 def _load_historic_stats(symbol: str, metric: str | None = None) -> dict[str, Any]:
     response = HISTORIC_STATS_TABLE.query(
         KeyConditionExpression=Key("pk").eq(symbol),
     )
     items = response.get("Items", [])
     seasonality_key = "seasonality_profile"
+    summary_item = None
+    summary_metrics: dict[str, dict[str, Any]] = {}
+    legacy_metric_items: list[dict[str, Any]] = []
+    seasonality_items: list[dict[str, Any]] = []
 
-    filtered_items = []
     for item in items:
         item_metric = str(item.get("metric") or "").strip()
         item_sk = str(item.get("sk") or "").strip()
         item_record_type = str(item.get("record_type") or "").strip()
         is_seasonality_profile = item_sk == seasonality_key or item_record_type == seasonality_key
+        is_stats_summary = item_sk == STATS_SUMMARY_KEY or item_record_type == STATS_SUMMARY_KEY
 
-        if metric is None:
-            if item_metric or is_seasonality_profile:
-                filtered_items.append(item)
+        if is_stats_summary:
+            summary_item = item
             continue
-
-        if metric == seasonality_key:
-            if is_seasonality_profile:
-                filtered_items.append(item)
+        if is_seasonality_profile:
+            seasonality_items.append(item)
             continue
+        if item_metric:
+            legacy_metric_items.append(item)
 
-        if item_metric == metric:
+    if summary_item is not None:
+        for expanded_item in _expand_stats_summary_item(summary_item):
+            summary_metrics[str(expanded_item["metric"])] = expanded_item
+
+    filtered_items = []
+    if metric is None:
+        filtered_items.extend(summary_metrics.values())
+        for item in legacy_metric_items:
+            item_metric = str(item.get("metric") or "").strip()
+            if item_metric in summary_metrics:
+                continue
             filtered_items.append(item)
+        filtered_items.extend(seasonality_items)
+    elif metric == seasonality_key:
+        filtered_items.extend(seasonality_items)
+    elif metric == STATS_SUMMARY_KEY:
+        if summary_item is not None:
+            filtered_items.append(summary_item)
+    elif metric in summary_metrics:
+        filtered_items.append(summary_metrics[metric])
+    else:
+        filtered_items.extend(
+            item
+            for item in legacy_metric_items
+            if str(item.get("metric") or "").strip() == metric
+        )
 
     filtered_items.sort(
         key=lambda item: (

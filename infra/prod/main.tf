@@ -79,6 +79,17 @@ module "historic_stats_updater" {
   enabled_statistical_metrics                    = local.enabled_statistical_metrics
 }
 
+module "historic_stats_summary_migrator" {
+  source = "./services/lambda/historic-stats-summary-migrator"
+
+  environment               = local.environment
+  project_name              = local.project_name
+  tags                      = local.common_tags
+  historic_stats_table_name = module.historic_stats_table.name
+  historic_stats_table_arn  = module.historic_stats_table.arn
+  historic_stats_index_arns = module.historic_stats_table.index_arns
+}
+
 module "daily_closing_snapshots_updater" {
   source = "./services/lambda/daily-closing-snapshots-updater"
 

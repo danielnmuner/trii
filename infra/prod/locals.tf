@@ -10,13 +10,9 @@ locals {
     "spread_bps",
     "obi_l1",
     "obi_top_5",
-    "book_pressure_ratio",
-    "depth_weighted_microprice_deviation",
     "traded_volume",
     "traded_value",
     "vwap",
-    "volume_rate",
-    "value_rate",
   ]
 
   common_tags = {

@@ -9,7 +9,7 @@ purpose:
 
 primary_key:
 - pk: symbol
-- sk: metric, seasonality_profile, or data_quality
+- sk: metric, stats_summary, or seasonality_profile
 
 global_secondary_indexes:
 - gsi1
@@ -19,7 +19,7 @@ global_secondary_indexes:
 
 record_type:
 - pk: string, uppercase stock symbol
-- sk: string, metric name such as obi_l1, obi_top_5, spread_bps, or book_pressure_ratio
+- sk: string, metric name such as obi_l1, obi_top_5, spread_bps, traded_volume, traded_value, or vwap
 - symbol: string, uppercase stock symbol
 - metric: string
 - sample_name: string, currently all_time_market_sample
@@ -37,6 +37,31 @@ record_type:
 - stats_scope: string, currently all_time_market_sample
 - stats_version: number, optimistic concurrency counter
 
+stats_summary_record_type:
+- pk: string, uppercase stock symbol
+- sk: string, fixed value stats_summary
+- symbol: string, uppercase stock symbol
+- record_type: string, stats_summary
+- metric_count: number, count of migrated metrics currently embedded in metrics
+- metrics: map keyed by metric name
+- metrics.vwap.metric: string, fixed value vwap
+- metrics.vwap.stddev: number
+- metrics.vwap.sample_count: number
+- metrics.<spread_bps|obi_l1|obi_top_5|traded_volume|traded_value>.metric: string
+- metrics.<spread_bps|obi_l1|obi_top_5|traded_volume|traded_value>.latest_value: number
+- metrics.<spread_bps|obi_l1|obi_top_5|traded_volume|traded_value>.mean: number
+- metrics.<spread_bps|obi_l1|obi_top_5|traded_volume|traded_value>.stddev: number
+- metrics.<spread_bps|obi_l1|obi_top_5|traded_volume|traded_value>.sample_count: number
+- metrics.<spread_bps|obi_l1|obi_top_5|traded_volume|traded_value>.min_value: number
+- metrics.<spread_bps|obi_l1|obi_top_5|traded_volume|traded_value>.max_value: number
+- missing_metrics: list<string>, any target metrics absent at migration time
+- migration_status: string, complete or partial
+- source_metric_versions: map keyed by metric name with source item stats_version values
+- source_checksum: string, checksum of the embedded metrics payload
+- last_source_captured_at: string | null, max last_source_captured_at among embedded source metrics
+- last_updated_at: string, iso-8601 timestamp with timezone
+- stats_version: number, increments only when source_checksum changes
+
 seasonality_profile_record_type:
 - pk: string, uppercase stock symbol
 - sk: string, seasonality_profile
@@ -45,7 +70,7 @@ seasonality_profile_record_type:
 - bucket_granularity_minutes: number, currently 30
 - timezone: string, currently America/Bogota
 - total_days_processed: number, trading days successfully folded into the profile
-- total_snapshots_processed: number, valid raw snapshots consumed for the symbol
+- total_snapshots_processed: number, bucket-close writes processed for the symbol
 - last_source_captured_at: string, iso-8601 timestamp with timezone
 - last_updated_at: string, iso-8601 timestamp with timezone
 - stats_scope: string, currently weekly_intraday_seasonality
@@ -53,9 +78,12 @@ seasonality_profile_record_type:
 - pending_day: optional map used by the live updater until a trading day can be finalized into weekly_profile
 - pending_day.trading_date: string, yyyy-mm-dd in America/Bogota
 - pending_day.weekday: string, ISO weekday number
-- pending_day.last_source_captured_at: string, iso-8601 timestamp with timezone
-- pending_day.total_day_volume: number
-- pending_day.total_day_value: number
+- pending_day.last_source_captured_at: string, latest bucket-close source timestamp for the day
+- pending_day.total_day_volume: number, cumulative traded volume at the latest processed bucket close
+- pending_day.total_day_value: number, cumulative traded value at the latest processed bucket close
+- pending_day.last_processed_bucket_key: string | null, last closed bucket already persisted for the day
+- pending_day.last_processed_total_volume: number, cumulative traded volume at the last processed bucket close
+- pending_day.last_processed_total_value: number, cumulative traded value at the last processed bucket close
 - pending_day.hours.<hh:mm>.bucket_volume: number
 - pending_day.hours.<hh:mm>.bucket_value: number
 - weekly_profile: map keyed by ISO weekday number
@@ -65,7 +93,7 @@ seasonality_profile_record_type:
 - weekly_profile.<weekday>.accumulated_day_value: number
 - weekly_profile.<weekday>.hours.<hh:mm>.accumulated_volume: number
 - weekly_profile.<weekday>.hours.<hh:mm>.accumulated_value: number
-- weekly_profile.<weekday>.hours.<hh:mm>.delta_samples: number, accepted delta intervals folded into the bucket
+- weekly_profile.<weekday>.hours.<hh:mm>.delta_samples: number, completed 30-minute bucket observations folded into the bucket
 - weekly_profile.<weekday>.hours.<hh:mm>.bucket_vwap: number
 - weekly_profile.<weekday>.hours.<hh:mm>.volume_share_stats.sample_count: number
 - weekly_profile.<weekday>.hours.<hh:mm>.volume_share_stats.mu: number
@@ -77,52 +105,18 @@ seasonality_profile_record_type:
 - weekly_profile.<weekday>.hours.<hh:mm>.vwap_stats.m2: number
 - weekly_profile.<weekday>.hours.<hh:mm>.vwap_stats.variance: number
 - weekly_profile.<weekday>.hours.<hh:mm>.vwap_stats.sigma: number
-- weekly_profile.<weekday>.hours.<hh:mm>.volume_rate_stats.sample_count: number
-- weekly_profile.<weekday>.hours.<hh:mm>.volume_rate_stats.mu: number
-- weekly_profile.<weekday>.hours.<hh:mm>.volume_rate_stats.m2: number
-- weekly_profile.<weekday>.hours.<hh:mm>.volume_rate_stats.variance: number
-- weekly_profile.<weekday>.hours.<hh:mm>.volume_rate_stats.sigma: number
-- weekly_profile.<weekday>.hours.<hh:mm>.value_rate_stats.sample_count: number
-- weekly_profile.<weekday>.hours.<hh:mm>.value_rate_stats.mu: number
-- weekly_profile.<weekday>.hours.<hh:mm>.value_rate_stats.m2: number
-- weekly_profile.<weekday>.hours.<hh:mm>.value_rate_stats.variance: number
-- weekly_profile.<weekday>.hours.<hh:mm>.value_rate_stats.sigma: number
-
-data_quality_record_type:
-- pk: string, uppercase stock symbol
-- sk: string, fixed value data_quality
-- symbol: string, uppercase stock symbol
-- trading_date: string, yyyy-mm-dd in America/Bogota
-- sample_name: string, currently intraday_data_quality
-- expected_interval_seconds: number, currently 60
-- warning_gap_seconds: number, currently 600
-- market_session_started_at: string, iso-8601 timestamp with timezone
-- market_session_ended_at: string, iso-8601 timestamp with timezone
-- last_snapshot_at: string, latest in-session snapshot seen for the day
-- gap_count: number
-- largest_gap_seconds: number
-- largest_gap_started_at: string | null
-- largest_gap_ended_at: string | null
-- quality_status: string, healthy, warning, or critical
-- gap_warnings: list<map>, all gaps detected during the active market day
-- last_updated_at: string, iso-8601 timestamp with timezone
-- stats_scope: string, currently intraday_data_quality
-- stats_version: number, optimistic concurrency counter
 
 official_statistical_metrics_from_raw_snapshot:
 - spread_bps = (spread / mid_price) * 10000
 - obi_l1 = (best_bid_quantity - best_ask_quantity) / (best_bid_quantity + best_ask_quantity)
 - obi_top_5 = (bid_depth_total_5 - ask_depth_total_5) / (bid_depth_total_5 + ask_depth_total_5)
-- book_pressure_ratio = bid_depth_total_5 / ask_depth_total_5
-- depth_weighted_microprice_deviation = microprice - mid_price
 - traded_volume = cumulative traded volume reported in the snapshot
 - traded_value = cumulative traded value reported in the snapshot
 - vwap = traded_value / traded_volume when traded_volume > 0
-- volume_rate = (traded_volume_t - traded_volume_t-1) / delta_seconds for contiguous snapshots in the same trading day
-- value_rate = (traded_value_t - traded_value_t-1) / delta_seconds for contiguous snapshots in the same trading day
 
 special_record_types:
-- seasonality_profile = fold intraday seasonality buckets from traded_volume and traded_value deltas between contiguous snapshots
+- stats_summary = materialized compact record that embeds the six UI-consumed statistical metrics for a symbol
+- seasonality_profile = fold intraday seasonality buckets from cumulative traded_volume and traded_value only when a 30-minute bucket closes
 
 excluded_operational_snapshot_fields:
 - last_price
@@ -140,10 +134,11 @@ excluded_operational_snapshot_fields:
 
 query_patterns:
 - fetch the full incremental market sample for one symbol
-- fetch the current reusable data quality record for one symbol
+- fetch the compact stats_summary record for one symbol
 - fetch one metric timeline for one symbol through gsi1
 
 write_policy:
 - current-snapshots remains the deduplicated raw source of truth for live incremental updates
-- live writes stay controlled by local.enabled_statistical_metrics
-- seasonality_profile is maintained by a dedicated live-updater branch and is not part of local.enabled_statistical_metrics
+- live writes stay controlled by local.enabled_statistical_metrics and currently include only spread_bps, obi_l1, obi_top_5, traded_volume, traded_value, and vwap
+- stats_summary is currently produced by a temporary manual migrator so the read path can switch safely before legacy metric items are removed
+- seasonality_profile is maintained only when a 30-minute bucket closes and is not part of local.enabled_statistical_metrics

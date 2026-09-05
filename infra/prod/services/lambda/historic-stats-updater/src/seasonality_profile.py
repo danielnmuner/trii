@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from data_quality import market_session_bounds, parse_captured_at
+from market_time import market_session_bounds, parse_captured_at
 from snapshot_metrics import to_decimal
 
 
@@ -78,8 +78,6 @@ def _build_hour_entry() -> dict[str, Any]:
         "bucket_vwap": None,
         "volume_share_stats": _empty_welford_state(),
         "vwap_stats": _empty_welford_state(),
-        "volume_rate_stats": _empty_welford_state(),
-        "value_rate_stats": _empty_welford_state(),
     }
 
 
@@ -109,6 +107,9 @@ def _build_pending_day(
         "last_source_captured_at": captured_at,
         "total_day_volume": Decimal("0"),
         "total_day_value": Decimal("0"),
+        "last_processed_bucket_key": None,
+        "last_processed_total_volume": Decimal("0"),
+        "last_processed_total_value": Decimal("0"),
         "hours": {},
     }
 
@@ -143,47 +144,19 @@ def _ensure_profile_base(
     return profile
 
 
-def _update_accumulated_bucket(
-    profile: dict[str, Any],
-    *,
-    weekday_key: str,
-    bucket_key: str,
-    delta_volume: Decimal,
-    delta_value: Decimal,
-    delta_seconds: Decimal,
-) -> None:
-    weekly_entry = profile["weekly_profile"].setdefault(weekday_key, _build_weekday_entry())
-    weekly_entry["weekday_label"] = WEEKDAY_LABELS.get(weekday_key, "unknown")
-    hour_entry = weekly_entry["hours"].setdefault(bucket_key, _build_hour_entry())
-    hour_entry["accumulated_volume"] += delta_volume
-    hour_entry["accumulated_value"] += delta_value
-    hour_entry["delta_samples"] += 1
-    if hour_entry["accumulated_volume"] > 0:
-        hour_entry["bucket_vwap"] = (
-            hour_entry["accumulated_value"] / hour_entry["accumulated_volume"]
-        )
-    hour_entry["volume_rate_stats"] = _update_welford_state(
-        hour_entry.get("volume_rate_stats"),
-        delta_volume / delta_seconds,
-    )
-    hour_entry["value_rate_stats"] = _update_welford_state(
-        hour_entry.get("value_rate_stats"),
-        delta_value / delta_seconds,
-    )
-
-
-def _accumulate_pending_day(
+def _ensure_pending_day(
     profile: dict[str, Any],
     *,
     trading_date: str,
     weekday_key: str,
-    bucket_key: str,
     captured_at: str,
-    delta_volume: Decimal,
-    delta_value: Decimal,
-) -> None:
+) -> dict[str, Any]:
     pending_day = profile.get("pending_day")
-    if pending_day is None or str(pending_day.get("trading_date")) != trading_date:
+    if pending_day is not None and str(pending_day.get("trading_date") or "") != trading_date:
+        _finalize_pending_day(profile)
+        pending_day = None
+
+    if pending_day is None:
         pending_day = _build_pending_day(
             trading_date=trading_date,
             weekday_key=weekday_key,
@@ -191,18 +164,25 @@ def _accumulate_pending_day(
         )
         profile["pending_day"] = pending_day
 
-    pending_day["last_source_captured_at"] = captured_at
-    pending_day["total_day_volume"] += delta_volume
-    pending_day["total_day_value"] += delta_value
-    pending_hour = pending_day["hours"].setdefault(
-        bucket_key,
-        {
-            "bucket_volume": Decimal("0"),
-            "bucket_value": Decimal("0"),
-        },
-    )
-    pending_hour["bucket_volume"] += delta_volume
-    pending_hour["bucket_value"] += delta_value
+    return pending_day
+
+
+def _update_accumulated_bucket(
+    profile: dict[str, Any],
+    *,
+    weekday_key: str,
+    bucket_key: str,
+    bucket_volume: Decimal,
+    bucket_value: Decimal,
+) -> None:
+    weekly_entry = profile["weekly_profile"].setdefault(weekday_key, _build_weekday_entry())
+    weekly_entry["weekday_label"] = WEEKDAY_LABELS.get(weekday_key, "unknown")
+    hour_entry = weekly_entry["hours"].setdefault(bucket_key, _build_hour_entry())
+    hour_entry["accumulated_volume"] += bucket_volume
+    hour_entry["accumulated_value"] += bucket_value
+    hour_entry["delta_samples"] += 1
+    if hour_entry["accumulated_volume"] > 0:
+        hour_entry["bucket_vwap"] = hour_entry["accumulated_value"] / hour_entry["accumulated_volume"]
 
 
 def _finalize_pending_day(profile: dict[str, Any]) -> bool:
@@ -244,6 +224,15 @@ def _finalize_pending_day(profile: dict[str, Any]) -> bool:
     return True
 
 
+def _should_close_bucket(
+    previous_timestamp: datetime,
+    current_timestamp: datetime,
+) -> bool:
+    if current_timestamp.date() != previous_timestamp.date():
+        return True
+    return _get_bucket_key(current_timestamp) != _get_bucket_key(previous_timestamp)
+
+
 def build_seasonality_profile_item(
     previous_item: dict[str, Any] | None,
     *,
@@ -254,74 +243,72 @@ def build_seasonality_profile_item(
     symbol = str(snapshot.get("symbol") or "").strip().upper()
     captured_at = str(snapshot.get("captured_at") or "").strip()
     snapshot_checksum = str(snapshot.get("snapshot_checksum") or "").strip()
-    if not symbol or not captured_at or not snapshot_checksum:
+    if not symbol or not captured_at or not snapshot_checksum or previous_snapshot is None:
         return None
-
-    profile = _ensure_profile_base(previous_item, symbol=symbol, updated_at=updated_at)
-    profile["last_source_captured_at"] = captured_at
-    profile["total_snapshots_processed"] = int(profile.get("total_snapshots_processed", 0) or 0) + 1
-
-    current_timestamp = parse_captured_at(captured_at)
-    current_trading_date = _get_trading_date(snapshot)
-
-    pending_day = profile.get("pending_day")
-    if pending_day is not None and str(pending_day.get("trading_date")) != current_trading_date:
-        _finalize_pending_day(profile)
-
-    if previous_snapshot is None:
-        return profile
 
     previous_captured_at = str(previous_snapshot.get("captured_at") or "").strip()
     if not previous_captured_at:
-        return profile
+        return None
 
+    current_timestamp = parse_captured_at(captured_at)
     previous_timestamp = parse_captured_at(previous_captured_at)
-    if _get_trading_date(previous_snapshot) != current_trading_date:
-        return profile
+    if current_timestamp <= previous_timestamp:
+        return None
 
-    current_volume = to_decimal(snapshot.get("traded_volume"))
-    current_value = to_decimal(snapshot.get("traded_value"))
-    previous_volume = to_decimal(previous_snapshot.get("traded_volume"))
-    previous_value = to_decimal(previous_snapshot.get("traded_value"))
-    if (
-        current_volume is None
-        or current_value is None
-        or previous_volume is None
-        or previous_value is None
-    ):
-        return profile
+    if not _should_close_bucket(previous_timestamp, current_timestamp):
+        return None
 
-    delta_volume = current_volume - previous_volume
-    delta_value = current_value - previous_value
-    if delta_volume <= 0 or delta_value <= 0:
-        return profile
+    target_trading_date = _get_trading_date(previous_snapshot)
+    target_weekday_key = str(previous_timestamp.isoweekday())
+    target_bucket_key = _get_bucket_key(previous_timestamp)
+    cumulative_volume = to_decimal(previous_snapshot.get("traded_volume"))
+    cumulative_value = to_decimal(previous_snapshot.get("traded_value"))
+    if cumulative_volume is None or cumulative_value is None or cumulative_volume <= 0 or cumulative_value <= 0:
+        return None
 
-    delta_seconds = Decimal(str((current_timestamp - previous_timestamp).total_seconds()))
-    if delta_seconds <= 0:
-        return profile
+    profile = _ensure_profile_base(previous_item, symbol=symbol, updated_at=updated_at)
+    pending_day = _ensure_pending_day(
+        profile,
+        trading_date=target_trading_date,
+        weekday_key=target_weekday_key,
+        captured_at=previous_captured_at,
+    )
 
-    weekday_key = str(current_timestamp.isoweekday())
-    bucket_key = _get_bucket_key(current_timestamp)
+    last_processed_bucket_key = str(pending_day.get("last_processed_bucket_key") or "").strip()
+    if last_processed_bucket_key == target_bucket_key:
+        return None
+
+    baseline_volume = to_decimal(pending_day.get("last_processed_total_volume")) or Decimal("0")
+    baseline_value = to_decimal(pending_day.get("last_processed_total_value")) or Decimal("0")
+    bucket_volume = cumulative_volume - baseline_volume
+    bucket_value = cumulative_value - baseline_value
+    if bucket_volume <= 0 or bucket_value <= 0:
+        return None
+
     _update_accumulated_bucket(
         profile,
-        weekday_key=weekday_key,
-        bucket_key=bucket_key,
-        delta_volume=delta_volume,
-        delta_value=delta_value,
-        delta_seconds=delta_seconds,
-    )
-    _accumulate_pending_day(
-        profile,
-        trading_date=current_trading_date,
-        weekday_key=weekday_key,
-        bucket_key=bucket_key,
-        captured_at=captured_at,
-        delta_volume=delta_volume,
-        delta_value=delta_value,
+        weekday_key=target_weekday_key,
+        bucket_key=target_bucket_key,
+        bucket_volume=bucket_volume,
+        bucket_value=bucket_value,
     )
 
-    _session_start, session_end = market_session_bounds(current_timestamp.date())
-    if current_timestamp >= session_end:
+    pending_day["last_source_captured_at"] = previous_captured_at
+    pending_day["total_day_volume"] = cumulative_volume
+    pending_day["total_day_value"] = cumulative_value
+    pending_day["last_processed_bucket_key"] = target_bucket_key
+    pending_day["last_processed_total_volume"] = cumulative_volume
+    pending_day["last_processed_total_value"] = cumulative_value
+    pending_day["hours"][target_bucket_key] = {
+        "bucket_volume": bucket_volume,
+        "bucket_value": bucket_value,
+    }
+
+    profile["last_source_captured_at"] = previous_captured_at
+    profile["total_snapshots_processed"] = int(profile.get("total_snapshots_processed", 0) or 0) + 1
+
+    _session_start, session_end = market_session_bounds(previous_timestamp.date())
+    if current_timestamp.date() != previous_timestamp.date() or current_timestamp >= session_end:
         _finalize_pending_day(profile)
 
     return profile

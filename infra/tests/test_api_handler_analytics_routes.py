@@ -372,6 +372,43 @@ class FakeHistoricStatsTable:
         }
 
 
+class FakeHistoricStatsSummaryTable:
+    def query(self, **kwargs) -> dict:
+        return {
+            "Items": [
+                {
+                    "pk": "NUCO",
+                    "sk": "stats_summary",
+                    "symbol": "NUCO",
+                    "record_type": "stats_summary",
+                    "metrics": {
+                        "spread_bps": {
+                            "metric": "spread_bps",
+                            "latest_value": 4.3,
+                            "mean": 4.1,
+                            "stddev": 0.2,
+                            "sample_count": 24,
+                            "min_value": 3.9,
+                            "max_value": 4.5,
+                        },
+                        "vwap": {
+                            "metric": "vwap",
+                            "stddev": 12.5,
+                            "sample_count": 24,
+                        },
+                    },
+                },
+                {
+                    "pk": "NUCO",
+                    "sk": "seasonality_profile",
+                    "record_type": "seasonality_profile",
+                    "bucket_granularity_minutes": 30,
+                    "timezone": "America/Bogota",
+                },
+            ]
+        }
+
+
 class FailingHistoricStatsTable:
     def query(self, **kwargs) -> dict:
         raise AssertionError("historic_stats should not be queried by analytics/snapshot")
@@ -732,6 +769,52 @@ def test_handler_historic_stats_can_return_seasonality_profile_only() -> None:
     assert payload["result"]["metric"] == "seasonality_profile"
     assert payload["result"]["record_count"] == 1
     assert payload["result"]["records"][0]["record_type"] == "seasonality_profile"
+
+
+def test_handler_historic_stats_expands_stats_summary_without_duplicates() -> None:
+    handler.CURRENT_SNAPSHOTS_TABLE = FailingCurrentSnapshotsTable()
+    handler.HISTORIC_STATS_TABLE = FakeHistoricStatsSummaryTable()
+
+    response = handler.handler(
+        {
+            "routeKey": "GET /analytics/historic-stats",
+            "headers": {"X-Api-Token": "test-token"},
+            "queryStringParameters": {"symbol": "nuco"},
+        },
+        None,
+    )
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 200
+    assert payload["status"] == "ok"
+    assert payload["result"]["symbol"] == "NUCO"
+    assert payload["result"]["record_count"] == 3
+    assert payload["result"]["records"][0]["metric"] == "spread_bps"
+    assert payload["result"]["records"][1]["metric"] == "vwap"
+    assert payload["result"]["records"][2]["record_type"] == "seasonality_profile"
+
+
+def test_handler_historic_stats_can_return_metric_from_stats_summary() -> None:
+    handler.CURRENT_SNAPSHOTS_TABLE = FailingCurrentSnapshotsTable()
+    handler.HISTORIC_STATS_TABLE = FakeHistoricStatsSummaryTable()
+
+    response = handler.handler(
+        {
+            "routeKey": "GET /analytics/historic-stats",
+            "headers": {"X-Api-Token": "test-token"},
+            "queryStringParameters": {"symbol": "nuco", "metric": "vwap"},
+        },
+        None,
+    )
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 200
+    assert payload["status"] == "ok"
+    assert payload["result"]["symbol"] == "NUCO"
+    assert payload["result"]["metric"] == "vwap"
+    assert payload["result"]["record_count"] == 1
+    assert payload["result"]["records"][0]["metric"] == "vwap"
+    assert payload["result"]["records"][0]["sample_count"] == 24
 
 
 def test_handler_catalog_uses_latest_available_snapshot_date() -> None:
