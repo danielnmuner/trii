@@ -38,7 +38,7 @@ SAMPLE_XML = (ROOT_DIR / "nuco-factura.xml").read_bytes()
 class FakeS3Client:
     def __init__(self) -> None:
         self.bucket = "test-source-documents"
-        self.prefix = "invoices/daniel-muner/2026/08/14/invoice-001/"
+        self.prefix = "invoices/daniel-muner/invoice-001/"
         self.xml_key = f"{self.prefix}invoice.xml"
         self.pdf_key = f"{self.prefix}invoice.pdf"
 
@@ -106,9 +106,9 @@ def _pdf_event(key: str) -> dict:
 def test_parse_invoice_xml_extracts_relevant_fields() -> None:
     result = handler._parse_invoice_xml(
         SAMPLE_XML,
-        source_xml_s3_key="invoices/daniel-muner/2026/08/14/invoice-001/invoice.xml",
-        source_pdf_s3_key="invoices/daniel-muner/2026/08/14/invoice-001/invoice.pdf",
-        source_folder_s3_prefix="invoices/daniel-muner/2026/08/14/invoice-001/",
+        source_xml_s3_key="invoices/daniel-muner/invoice-001/invoice.xml",
+        source_pdf_s3_key="invoices/daniel-muner/invoice-001/invoice.pdf",
+        source_folder_s3_prefix="invoices/daniel-muner/invoice-001/",
     )
 
     assert result["invoice_uuid"].startswith("1df6bcd2")
@@ -126,7 +126,7 @@ def test_parse_invoice_xml_extracts_relevant_fields() -> None:
 
 def test_handler_ignores_xml_event_until_pdf_arrives() -> None:
     response = handler.handler(
-        _pdf_event("invoices/daniel-muner/2026/08/14/invoice-001/invoice.xml"),
+        _pdf_event("invoices/daniel-muner/invoice-001/invoice.xml"),
         None,
     )
 

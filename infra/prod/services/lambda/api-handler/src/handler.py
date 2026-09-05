@@ -1561,7 +1561,6 @@ def _persist_invoices(body: dict[str, Any]) -> dict[str, Any]:
             "El payload de facturas debe incluir una lista `documents` con XML y PDF por factura."
         )
 
-    captured_at = datetime.now(timezone.utc).replace(microsecond=0)
     persisted_documents = []
     for document_payload in documents:
         archive_name = str(document_payload.get("archive_name") or "").strip()
@@ -1585,7 +1584,8 @@ def _persist_invoices(body: dict[str, Any]) -> dict[str, Any]:
         if not pdf_bytes:
             raise ValueError(f"La factura `{archive_name}` tiene un PDF vacio.")
 
-        base_prefix = f"invoices/{user_name}/{captured_at.strftime('%Y/%m/%d')}/{archive_stem}"
+        source_xml_checksum = hashlib.sha256(xml_bytes).hexdigest()
+        base_prefix = f"invoices/{user_name}/{source_xml_checksum}"
         xml_s3_key = f"{base_prefix}/{xml_file_name}"
         pdf_s3_key = f"{base_prefix}/{pdf_file_name}"
 
@@ -1612,6 +1612,9 @@ def _persist_invoices(body: dict[str, Any]) -> dict[str, Any]:
         persisted_documents.append(
             {
                 "archive_name": archive_name,
+                "archive_stem": archive_stem,
+                "source_xml_checksum": source_xml_checksum,
+                "source_folder_s3_prefix": f"{base_prefix}/",
                 "xml_s3_key": xml_s3_key,
                 "pdf_s3_key": pdf_s3_key,
             }

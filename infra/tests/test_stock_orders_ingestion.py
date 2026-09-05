@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import csv
+import hashlib
 import importlib
 import os
 import sys
@@ -225,6 +226,8 @@ def test_persist_orders_rejects_non_approved_normalized_records_payload() -> Non
 def test_persist_invoices_prefixes_s3_keys_with_user_name() -> None:
     fake_s3 = FakeS3Client()
     handler.S3_CLIENT = fake_s3
+    xml_bytes = b"<xml />"
+    expected_checksum = hashlib.sha256(xml_bytes).hexdigest()
 
     result = handler._persist_invoices(
         {
@@ -235,7 +238,7 @@ def test_persist_invoices_prefixes_s3_keys_with_user_name() -> None:
                     "archive_stem": "invoice-001",
                     "xml_file_name": "invoice.xml",
                     "pdf_file_name": "invoice.pdf",
-                    "xml_content_base64": base64.b64encode(b"<xml />").decode("utf-8"),
+                    "xml_content_base64": base64.b64encode(xml_bytes).decode("utf-8"),
                     "pdf_content_base64": base64.b64encode(b"%PDF-1.4").decode("utf-8"),
                 }
             ],
@@ -243,6 +246,9 @@ def test_persist_invoices_prefixes_s3_keys_with_user_name() -> None:
     )
 
     assert result["user_name"] == "daniel-muner"
-    assert result["documents"][0]["xml_s3_key"].startswith("invoices/daniel-muner/")
-    assert result["documents"][0]["pdf_s3_key"].startswith("invoices/daniel-muner/")
+    assert result["documents"][0]["archive_stem"] == "invoice-001"
+    assert result["documents"][0]["source_xml_checksum"] == expected_checksum
+    assert result["documents"][0]["source_folder_s3_prefix"] == f"invoices/daniel-muner/{expected_checksum}/"
+    assert result["documents"][0]["xml_s3_key"] == f"invoices/daniel-muner/{expected_checksum}/invoice.xml"
+    assert result["documents"][0]["pdf_s3_key"] == f"invoices/daniel-muner/{expected_checksum}/invoice.pdf"
     assert len(fake_s3.objects) == 2
