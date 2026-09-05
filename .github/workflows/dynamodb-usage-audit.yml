@@ -80,7 +80,7 @@ jobs:
             args+=(--skip-cost-explorer)
           fi
 
-          uv run infra/scripts/dynamodb_usage_audit.py "${args[@]}" | tee dynamodb-usage-audit.json
+          uv run --isolated --no-project --with boto3 --script infra/scripts/dynamodb_usage_audit.py "${args[@]}" | tee dynamodb-usage-audit.json
 
       - name: Publish summary
         shell: bash
