@@ -42,20 +42,6 @@ data "aws_iam_policy_document" "inline" {
   }
 
   statement {
-    sid    = "ReadParsedInvoices"
-    effect = "Allow"
-    actions = [
-      "dynamodb:GetItem",
-      "dynamodb:BatchGetItem",
-      "dynamodb:Query",
-    ]
-    resources = concat(
-      [var.parsed_invoices_table_arn],
-      var.parsed_invoices_index_arns,
-    )
-  }
-
-  statement {
     sid    = "ReadHistoricStats"
     effect = "Allow"
     actions = [
@@ -120,17 +106,6 @@ data "aws_iam_policy_document" "inline" {
   }
 
   statement {
-    sid    = "WriteParsedInvoices"
-    effect = "Allow"
-    actions = [
-      "dynamodb:PutItem",
-      "dynamodb:UpdateItem",
-      "dynamodb:BatchWriteItem",
-    ]
-    resources = [var.parsed_invoices_table_arn]
-  }
-
-  statement {
     sid    = "WriteSourceDocuments"
     effect = "Allow"
     actions = [
@@ -167,7 +142,6 @@ module "function" {
     SESSION_VECTORS_TABLE         = var.session_vectors_table_name
     ANALYTICS_CATALOG_TABLE       = var.analytics_catalog_table_name
     STOCK_ORDERS_TABLE            = var.stock_orders_table_name
-    PARSED_INVOICES_TABLE         = var.parsed_invoices_table_name
     SOURCE_DOCUMENTS_BUCKET       = var.source_documents_bucket_name
     API_SHARED_TOKEN              = var.api_gateway_shared_token
   }

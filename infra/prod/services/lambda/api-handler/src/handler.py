@@ -79,6 +79,7 @@ SPANISH_DATETIME_PATTERN = re.compile(
     r"(?P<meridiem>[ap])\.\s*m\.\s*$",
     re.IGNORECASE,
 )
+USER_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._@-]{0,127}$")
 
 
 def _next_monday(value: date) -> date:
@@ -400,6 +401,17 @@ def _parse_year_month(raw_value: str | None, *, field_name: str) -> str | None:
     normalized = str(raw_value).strip()
     if not re.fullmatch(r"\d{4}-\d{2}", normalized):
         raise ValueError(f"El parámetro `{field_name}` debe tener formato YYYY-MM.")
+    return normalized
+
+
+def _normalize_user_name(raw_value: Any, *, field_name: str) -> str:
+    normalized = "-".join(str(raw_value or "").strip().lower().split())
+    if not normalized:
+        raise ValueError(f"El campo `{field_name}` es obligatorio.")
+    if not USER_NAME_PATTERN.fullmatch(normalized):
+        raise ValueError(
+            f"El campo `{field_name}` solo permite letras, numeros, punto, guion, guion bajo y @."
+        )
     return normalized
 
 
@@ -832,6 +844,7 @@ def _get_session_vector_days(event: dict[str, Any]) -> dict[str, Any]:
 
 def _project_order_record(item: dict[str, Any]) -> dict[str, Any]:
     projected_item = {
+        "user_name": item.get("user_name"),
         "record_checksum": item.get("record_checksum"),
         "source_file_checksum": item.get("source_file_checksum"),
         "source_line_number": item.get("source_line_number"),
@@ -854,9 +867,9 @@ def _project_order_record(item: dict[str, Any]) -> dict[str, Any]:
     }
     return _json_ready(projected_item)
 
-
 def _list_orders(event: dict[str, Any]) -> dict[str, Any]:
     params = _query_params(event)
+    user_name = _normalize_user_name(params.get("user_name"), field_name="user_name")
     record_checksum = str(params.get("record_checksum") or "").strip()
     symbol = str(params.get("symbol") or "").strip().upper()
     created_month = _parse_year_month(params.get("created_month"), field_name="created_month")
@@ -869,11 +882,11 @@ def _list_orders(event: dict[str, Any]) -> dict[str, Any]:
     ]
     if sum(filters_used) != 1:
         raise ValueError(
-            "Debes enviar exactamente uno de estos parámetros: `record_checksum`, `symbol`, o `created_month`."
+            "Debes enviar exactamente uno de estos parametros: `record_checksum`, `symbol`, o `created_month`."
         )
 
     projection_expression = (
-        "record_checksum, source_file_checksum, source_line_number, "
+        "user_name, record_checksum, source_file_checksum, source_line_number, "
         "created_at, created_month, created_at_symbol, symbol, order_side, "
         "raw_status, normalized_status, requested_quantity, filled_quantity, "
         "pending_quantity, price_per_share, gross_amount, commission_amount, "
@@ -886,8 +899,11 @@ def _list_orders(event: dict[str, Any]) -> dict[str, Any]:
             ProjectionExpression=projection_expression,
         )
         item = response.get("Item")
+        if item is not None and str(item.get("user_name") or "") != user_name:
+            item = None
         records = [] if item is None else [_project_order_record(item)]
         return {
+            "user_name": user_name,
             "lookup_mode": "record_checksum",
             "record_checksum": record_checksum,
             "record_count": len(records),
@@ -896,14 +912,15 @@ def _list_orders(event: dict[str, Any]) -> dict[str, Any]:
 
     if symbol:
         response = STOCK_ORDERS_TABLE.query(
-            IndexName="symbol-created-at-index",
-            KeyConditionExpression=Key("symbol").eq(symbol),
+            IndexName="user-symbol-created-at-index",
+            KeyConditionExpression=Key("user_symbol").eq(f"{user_name}#{symbol}"),
             ProjectionExpression=projection_expression,
             ScanIndexForward=False,
             Limit=limit,
         )
         records = [_project_order_record(item) for item in response.get("Items", [])]
         return {
+            "user_name": user_name,
             "lookup_mode": "symbol",
             "symbol": symbol,
             "record_count": len(records),
@@ -911,20 +928,20 @@ def _list_orders(event: dict[str, Any]) -> dict[str, Any]:
         }
 
     response = STOCK_ORDERS_TABLE.query(
-        IndexName="created-month-index",
-        KeyConditionExpression=Key("created_month").eq(created_month),
+        IndexName="user-created-month-index",
+        KeyConditionExpression=Key("user_created_month").eq(f"{user_name}#{created_month}"),
         ProjectionExpression=projection_expression,
         ScanIndexForward=False,
         Limit=limit,
     )
     records = [_project_order_record(item) for item in response.get("Items", [])]
     return {
+        "user_name": user_name,
         "lookup_mode": "created_month",
         "created_month": created_month,
         "record_count": len(records),
         "records": records,
     }
-
 
 def _find_latest_daily_closing_trading_date(*, lookback_days: int = 14) -> str | None:
     for offset in range(lookback_days + 1):
@@ -1218,39 +1235,6 @@ def _get_historic_stats(event: dict[str, Any]) -> dict[str, Any]:
     return _load_historic_stats(symbol, metric=metric)
 
 
-def _parse_spanish_datetime(raw_value: str) -> str:
-    normalized = " ".join(raw_value.replace(",", " ").split()).lower()
-    parts = normalized.split()
-    if len(parts) < 6:
-        raise ValueError(f"Fecha y hora inválida: {raw_value}")
-
-    day = int(parts[0])
-    month = SPANISH_MONTHS.get(parts[1][:3])
-    year = int(parts[2])
-    hour, minute = [int(value) for value in parts[3].split(":")]
-    meridiem = f"{parts[4]} {parts[5]}"
-
-    if month is None:
-        raise ValueError(f"Mes no soportado en fecha: {raw_value}")
-    if meridiem == "p. m." and hour != 12:
-        hour += 12
-    if meridiem == "a. m." and hour == 12:
-        hour = 0
-
-    return datetime(year, month, day, hour, minute).isoformat() + "-05:00"
-
-
-def _parse_decimal(raw_value: str) -> Decimal:
-    value = raw_value.strip().replace("$", "").replace(" ", "")
-    if not value:
-        return Decimal("0")
-    if "," in value and "." in value:
-        value = value.replace(",", "")
-    elif "," in value:
-        value = value.replace(",", ".")
-    return Decimal(value)
-
-
 def _parse_quantity(raw_value: str) -> int:
     value = raw_value.strip()
     if not value:
@@ -1276,6 +1260,7 @@ def _parse_requested_quantity(completed_value: str, pending_value: str) -> int:
 def _normalize_status(raw_status: str) -> str:
     mapping = {
         "aprobado": "approved",
+        "aprobada": "approved",
         "cancelado": "cancelled",
         "pendiente": "pending",
         "rechazado": "rejected",
@@ -1292,135 +1277,11 @@ def _normalize_order_side(raw_value: str) -> str:
     raise ValueError(f"Tipo de orden no soportado: {raw_value}")
 
 
-def _order_record_checksum(record: dict[str, Any]) -> str:
-    canonical_payload = {
-        "ordered_at": record["ordered_at"],
-        "symbol": record["symbol"],
-        "order_side": record["order_side"],
-        "raw_status": record["raw_status"],
-        "requested_quantity": record["requested_quantity"],
-        "filled_quantity": record["filled_quantity"],
-        "pending_quantity": record["pending_quantity"],
-        "price_per_share": str(record["price_per_share"]),
-        "gross_amount": str(record["gross_amount"]),
-        "commission_amount": str(record["commission_amount"]),
-        "net_amount": str(record["net_amount"]),
-        "currency": record["currency"],
-    }
-    return _json_checksum(canonical_payload)
-
-
-def _load_csv_rows(raw_bytes: bytes) -> list[dict[str, str]]:
-    text = raw_bytes.decode("utf-8-sig").strip()
-    if not text:
-        raise ValueError("El archivo CSV de movimientos está vacío.")
-
-    reader = csv.DictReader(StringIO(text))
-    columns = tuple(reader.fieldnames or ())
-    if columns != EXPECTED_STOCK_ORDER_COLUMNS:
-        missing = [column for column in EXPECTED_STOCK_ORDER_COLUMNS if column not in columns]
-        unexpected = [column for column in columns if column not in EXPECTED_STOCK_ORDER_COLUMNS]
-        details: list[str] = []
-        if missing:
-            details.append("faltan: " + ", ".join(missing))
-        if unexpected:
-            details.append("sobran: " + ", ".join(unexpected))
+def _validate_approved_order(raw_status: str, normalized_status: str) -> None:
+    if normalized_status != "approved":
         raise ValueError(
-            "El CSV de movimientos no coincide con la estructura esperada de Trii; "
-            + "; ".join(details)
-            + "."
+            f"Solo se permite cargar ordenes aprobadas; se recibio estado `{raw_status}`."
         )
-
-    rows = [{key: (value or "").strip() for key, value in row.items()} for row in reader]
-    rows = [row for row in rows if any(value for value in row.values())]
-    if not rows:
-        raise ValueError("El archivo CSV de movimientos no contiene filas válidas.")
-    return rows
-
-
-def _normalize_order_records(raw_bytes: bytes) -> list[dict[str, Any]]:
-    rows = _load_csv_rows(raw_bytes)
-    imported_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
-    source_file_checksum = hashlib.sha256(raw_bytes).hexdigest()
-
-    records: list[dict[str, Any]] = []
-    seen_checksums: set[str] = set()
-    for line_number, row in enumerate(rows, start=2):
-        ordered_at = _parse_spanish_datetime(row["Fecha y hora"])
-        symbol = row["Símbolo de la acción"].strip().upper()
-        record = {
-            "source_file_checksum": source_file_checksum,
-            "source_line_number": line_number,
-            "ordered_at": ordered_at,
-            "ordered_month": ordered_at[:7],
-            "ordered_at_symbol": f"{ordered_at}#{symbol}",
-            "symbol": symbol,
-            "order_side": _normalize_order_side(row["Tipo de orden"]),
-            "raw_status": row["Estado"],
-            "normalized_status": _normalize_status(row["Estado"]),
-            "requested_quantity": _parse_requested_quantity(
-                row["Acciones completadas"],
-                row["Acciones pendientes"],
-            ),
-            "filled_quantity": _parse_quantity(row["Acciones completadas"]),
-            "pending_quantity": _parse_quantity(row["Acciones pendientes"]),
-            "price_per_share": _parse_decimal(row["Precio por acción"]),
-            "gross_amount": _parse_decimal(row["Total invertido"]),
-            "commission_amount": _parse_decimal(row["Valor comisión"]),
-            "net_amount": _parse_decimal(row["Total estimado"]),
-            "currency": "COP",
-            "imported_at": imported_at,
-        }
-        record["record_checksum"] = _order_record_checksum(record)
-        if record["record_checksum"] in seen_checksums:
-            raise ValueError(
-                "El CSV de movimientos contiene checksums duplicados dentro del mismo archivo; se rechaza el lote completo."
-            )
-        seen_checksums.add(record["record_checksum"])
-        records.append(record)
-
-    return records
-
-
-def _persist_order_if_new(record: dict[str, Any]) -> bool:
-    try:
-        STOCK_ORDERS_TABLE.put_item(
-            Item=_decimalize(record),
-            ConditionExpression="attribute_not_exists(record_checksum)",
-        )
-        return True
-    except ClientError as exc:
-        error_code = exc.response.get("Error", {}).get("Code", "")
-        if error_code == "ConditionalCheckFailedException":
-            return False
-        raise
-
-
-def _persist_orders(body: dict[str, Any]) -> dict[str, Any]:
-    file_name = str(body.get("file_name") or "").strip()
-    if not file_name:
-        raise ValueError("El payload de movimientos debe incluir `file_name`.")
-
-    raw_bytes = _decode_base64_field(body, "file_content_base64")
-    records = _normalize_order_records(raw_bytes)
-    imported_records = 0
-    duplicate_records = 0
-
-    for new_record in records:
-        if _persist_order_if_new(new_record):
-            imported_records += 1
-        else:
-            duplicate_records += 1
-
-    return {
-        "table": os.environ["STOCK_ORDERS_TABLE"],
-        "file_name": file_name,
-        "source_file_checksum": records[0]["source_file_checksum"],
-        "received_records": len(records),
-        "imported_records": imported_records,
-        "duplicate_records": duplicate_records,
-        "symbols": sorted({record["symbol"] for record in records}),
-    }
 
 
 def _parse_spanish_datetime(raw_value: str) -> str:
@@ -1463,6 +1324,7 @@ def _parse_decimal(raw_value: Any) -> Decimal:
 
 def _order_record_checksum(record: dict[str, Any]) -> str:
     canonical_payload = {
+        "user_name": record["user_name"],
         "created_at": record["created_at"],
         "symbol": record["symbol"],
         "order_side": record["order_side"],
@@ -1478,37 +1340,79 @@ def _order_record_checksum(record: dict[str, Any]) -> str:
     }
     return _json_checksum(canonical_payload)
 
+def _load_csv_rows(raw_bytes: bytes) -> list[dict[str, str]]:
+    text = raw_bytes.decode("utf-8-sig").strip()
+    if not text:
+        raise ValueError("El archivo CSV de movimientos esta vacio.")
 
-def _normalize_order_records(raw_bytes: bytes) -> list[dict[str, Any]]:
+    reader = csv.DictReader(StringIO(text))
+    columns = tuple(reader.fieldnames or ())
+    if columns != EXPECTED_STOCK_ORDER_COLUMNS:
+        missing = [column for column in EXPECTED_STOCK_ORDER_COLUMNS if column not in columns]
+        unexpected = [column for column in columns if column not in EXPECTED_STOCK_ORDER_COLUMNS]
+        details: list[str] = []
+        if missing:
+            details.append("faltan: " + ", ".join(missing))
+        if unexpected:
+            details.append("sobran: " + ", ".join(unexpected))
+        raise ValueError(
+            "El CSV de movimientos no coincide con la estructura esperada de Trii; "
+            + "; ".join(details)
+            + "."
+        )
+
+    rows = [{key: (value or "").strip() for key, value in row.items()} for row in reader]
+    rows = [row for row in rows if any(value for value in row.values())]
+    if not rows:
+        raise ValueError("El archivo CSV de movimientos no contiene filas validas.")
+    return rows
+
+
+def _normalize_order_records(raw_bytes: bytes, *, user_name: str) -> list[dict[str, Any]]:
     rows = _load_csv_rows(raw_bytes)
     imported_at = datetime.now(BOGOTA_TIMEZONE).replace(microsecond=0).isoformat()
     source_file_checksum = hashlib.sha256(raw_bytes).hexdigest()
+    symbol_column = EXPECTED_STOCK_ORDER_COLUMNS[1]
+    order_side_column = EXPECTED_STOCK_ORDER_COLUMNS[2]
+    raw_status_column = EXPECTED_STOCK_ORDER_COLUMNS[3]
+    completed_quantity_column = EXPECTED_STOCK_ORDER_COLUMNS[4]
+    pending_quantity_column = EXPECTED_STOCK_ORDER_COLUMNS[5]
+    price_per_share_column = EXPECTED_STOCK_ORDER_COLUMNS[6]
+    gross_amount_column = EXPECTED_STOCK_ORDER_COLUMNS[7]
+    commission_amount_column = EXPECTED_STOCK_ORDER_COLUMNS[8]
+    net_amount_column = EXPECTED_STOCK_ORDER_COLUMNS[9]
 
     records: list[dict[str, Any]] = []
     seen_checksums: set[str] = set()
     for line_number, row in enumerate(rows, start=2):
         created_at = _parse_spanish_datetime(row["Fecha y hora"])
-        symbol = row["Símbolo de la acción"].strip().upper()
+        symbol = row[symbol_column].strip().upper()
+        raw_status = row[raw_status_column]
+        normalized_status = _normalize_status(raw_status)
+        _validate_approved_order(raw_status, normalized_status)
         record = {
+            "user_name": user_name,
             "source_file_checksum": source_file_checksum,
             "source_line_number": line_number,
             "created_at": created_at,
             "created_month": created_at[:7],
+            "user_symbol": f"{user_name}#{symbol}",
+            "user_created_month": f"{user_name}#{created_at[:7]}",
             "created_at_symbol": f"{created_at}#{symbol}",
             "symbol": symbol,
-            "order_side": _normalize_order_side(row["Tipo de orden"]),
-            "raw_status": row["Estado"],
-            "normalized_status": _normalize_status(row["Estado"]),
+            "order_side": _normalize_order_side(row[order_side_column]),
+            "raw_status": raw_status,
+            "normalized_status": normalized_status,
             "requested_quantity": _parse_requested_quantity(
-                row["Acciones completadas"],
-                row["Acciones pendientes"],
+                row[completed_quantity_column],
+                row[pending_quantity_column],
             ),
-            "filled_quantity": _parse_quantity(row["Acciones completadas"]),
-            "pending_quantity": _parse_quantity(row["Acciones pendientes"]),
-            "price_per_share": _parse_decimal(row["Precio por acción"]),
-            "gross_amount": _parse_decimal(row["Total invertido"]),
-            "commission_amount": _parse_decimal(row["Valor comisión"]),
-            "net_amount": _parse_decimal(row["Total estimado"]),
+            "filled_quantity": _parse_quantity(row[completed_quantity_column]),
+            "pending_quantity": _parse_quantity(row[pending_quantity_column]),
+            "price_per_share": _parse_decimal(row[price_per_share_column]),
+            "gross_amount": _parse_decimal(row[gross_amount_column]),
+            "commission_amount": _parse_decimal(row[commission_amount_column]),
+            "net_amount": _parse_decimal(row[net_amount_column]),
             "currency": "COP",
             "imported_at": imported_at,
         }
@@ -1521,6 +1425,19 @@ def _normalize_order_records(raw_bytes: bytes) -> list[dict[str, Any]]:
         records.append(record)
 
     return records
+
+def _persist_order_if_new(record: dict[str, Any]) -> bool:
+    try:
+        STOCK_ORDERS_TABLE.put_item(
+            Item=_decimalize(record),
+            ConditionExpression="attribute_not_exists(record_checksum)",
+        )
+        return True
+    except ClientError as exc:
+        error_code = exc.response.get("Error", {}).get("Code", "")
+        if error_code == "ConditionalCheckFailedException":
+            return False
+        raise
 
 
 def _normalize_iso_timestamp(raw_value: Any) -> str:
@@ -1536,10 +1453,10 @@ def _normalize_iso_timestamp(raw_value: Any) -> str:
     return timestamp.astimezone(BOGOTA_TIMEZONE).isoformat()
 
 
-def _normalize_payload_order_records(body: dict[str, Any]) -> list[dict[str, Any]]:
+def _normalize_payload_order_records(body: dict[str, Any], *, user_name: str) -> list[dict[str, Any]]:
     payload_records = body.get("records")
     if not isinstance(payload_records, list) or not payload_records:
-        raise ValueError("El payload de movimientos debe incluir una lista `records` no vacía.")
+        raise ValueError("El payload de movimientos debe incluir una lista `records` no vacia.")
 
     source_file_checksum = str(body.get("source_file_checksum") or "").strip()
     if not source_file_checksum:
@@ -1561,6 +1478,8 @@ def _normalize_payload_order_records(body: dict[str, Any]) -> list[dict[str, Any
         raw_status = str(payload_record.get("raw_status") or "").strip()
         if not raw_status:
             raise ValueError("Cada orden debe incluir `raw_status`.")
+        normalized_status = _normalize_status(raw_status)
+        _validate_approved_order(raw_status, normalized_status)
 
         order_side = str(payload_record.get("order_side") or "").strip().lower()
         if order_side == "buy":
@@ -1571,15 +1490,18 @@ def _normalize_payload_order_records(body: dict[str, Any]) -> list[dict[str, Any
             normalized_order_side = _normalize_order_side(order_side)
 
         record = {
+            "user_name": user_name,
             "source_file_checksum": source_file_checksum,
             "source_line_number": int(payload_record.get("source_line_number") or position + 1),
             "created_at": created_at,
             "created_month": created_at[:7],
+            "user_symbol": f"{user_name}#{symbol}",
+            "user_created_month": f"{user_name}#{created_at[:7]}",
             "created_at_symbol": f"{created_at}#{symbol}",
             "symbol": symbol,
             "order_side": normalized_order_side,
             "raw_status": raw_status,
-            "normalized_status": _normalize_status(raw_status),
+            "normalized_status": normalized_status,
             "requested_quantity": int(payload_record.get("requested_quantity") or 0),
             "filled_quantity": int(payload_record.get("filled_quantity") or 0),
             "pending_quantity": int(payload_record.get("pending_quantity") or 0),
@@ -1600,17 +1522,17 @@ def _normalize_payload_order_records(body: dict[str, Any]) -> list[dict[str, Any
 
     return records
 
-
 def _persist_orders(body: dict[str, Any]) -> dict[str, Any]:
+    user_name = _normalize_user_name(body.get("user_name"), field_name="user_name")
     file_name = str(body.get("file_name") or "").strip()
     if not file_name:
         raise ValueError("El payload de movimientos debe incluir `file_name`.")
 
     if body.get("records") is not None:
-        records = _normalize_payload_order_records(body)
+        records = _normalize_payload_order_records(body, user_name=user_name)
     else:
         raw_bytes = _decode_base64_field(body, "file_content_base64")
-        records = _normalize_order_records(raw_bytes)
+        records = _normalize_order_records(raw_bytes, user_name=user_name)
     imported_records = 0
     duplicate_records = 0
 
@@ -1622,6 +1544,7 @@ def _persist_orders(body: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "table": os.environ["STOCK_ORDERS_TABLE"],
+        "user_name": user_name,
         "file_name": file_name,
         "source_file_checksum": records[0]["source_file_checksum"],
         "received_records": len(records),
@@ -1630,15 +1553,15 @@ def _persist_orders(body: dict[str, Any]) -> dict[str, Any]:
         "symbols": sorted({record["symbol"] for record in records}),
     }
 
-
 def _persist_invoices(body: dict[str, Any]) -> dict[str, Any]:
+    user_name = _normalize_user_name(body.get("user_name"), field_name="user_name")
     documents = body.get("documents")
     if not isinstance(documents, list) or not documents:
         raise ValueError(
             "El payload de facturas debe incluir una lista `documents` con XML y PDF por factura."
         )
 
-    captured_at = datetime.utcnow().replace(microsecond=0)
+    captured_at = datetime.now(timezone.utc).replace(microsecond=0)
     persisted_documents = []
     for document_payload in documents:
         archive_name = str(document_payload.get("archive_name") or "").strip()
@@ -1651,18 +1574,18 @@ def _persist_invoices(body: dict[str, Any]) -> dict[str, Any]:
         if not archive_stem:
             raise ValueError("Cada factura debe incluir `archive_stem`.")
         if not xml_file_name.lower().endswith(".xml"):
-            raise ValueError(f"La factura `{archive_name}` debe incluir un `xml_file_name` válido.")
+            raise ValueError(f"La factura `{archive_name}` debe incluir un `xml_file_name` valido.")
         if not pdf_file_name.lower().endswith(".pdf"):
-            raise ValueError(f"La factura `{archive_name}` debe incluir un `pdf_file_name` válido.")
+            raise ValueError(f"La factura `{archive_name}` debe incluir un `pdf_file_name` valido.")
 
         xml_bytes = _decode_base64_field(document_payload, "xml_content_base64")
         pdf_bytes = _decode_base64_field(document_payload, "pdf_content_base64")
         if not xml_bytes:
-            raise ValueError(f"La factura `{archive_name}` tiene un XML vacío.")
+            raise ValueError(f"La factura `{archive_name}` tiene un XML vacio.")
         if not pdf_bytes:
-            raise ValueError(f"La factura `{archive_name}` tiene un PDF vacío.")
+            raise ValueError(f"La factura `{archive_name}` tiene un PDF vacio.")
 
-        base_prefix = f"invoices/{captured_at.strftime('%Y/%m/%d')}/{archive_stem}"
+        base_prefix = f"invoices/{user_name}/{captured_at.strftime('%Y/%m/%d')}/{archive_stem}"
         xml_s3_key = f"{base_prefix}/{xml_file_name}"
         pdf_s3_key = f"{base_prefix}/{pdf_file_name}"
 
@@ -1696,10 +1619,10 @@ def _persist_invoices(body: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "bucket": os.environ["SOURCE_DOCUMENTS_BUCKET"],
+        "user_name": user_name,
         "uploaded_files": len(persisted_documents) * 2,
         "documents": persisted_documents,
     }
-
 
 def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
     route_key = event.get("routeKey", "")

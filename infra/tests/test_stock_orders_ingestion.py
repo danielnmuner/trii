@@ -9,6 +9,7 @@ from pathlib import Path
 from io import StringIO
 
 from botocore.exceptions import ClientError
+import pytest
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -22,7 +23,6 @@ os.environ.setdefault("DAILY_CLOSING_SNAPSHOTS_TABLE", "test-daily-closing")
 os.environ.setdefault("SESSION_VECTORS_TABLE", "test-session-vectors")
 os.environ.setdefault("ANALYTICS_CATALOG_TABLE", "test-analytics-catalog")
 os.environ.setdefault("STOCK_ORDERS_TABLE", "test-stock-orders")
-os.environ.setdefault("PARSED_INVOICES_TABLE", "test-parsed-invoices")
 os.environ.setdefault("SOURCE_DOCUMENTS_BUCKET", "test-source-documents")
 os.environ.setdefault("API_SHARED_TOKEN", "test-token")
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
@@ -46,6 +46,15 @@ class FakeStockOrdersTable:
         return {}
 
 
+class FakeS3Client:
+    def __init__(self) -> None:
+        self.objects: list[dict[str, object]] = []
+
+    def put_object(self, **kwargs) -> dict:
+        self.objects.append(kwargs)
+        return {}
+
+
 def _build_orders_payload() -> dict[str, str]:
     buffer = StringIO()
     writer = csv.DictWriter(buffer, fieldnames=handler.EXPECTED_STOCK_ORDER_COLUMNS)
@@ -58,8 +67,8 @@ def _build_orders_payload() -> dict[str, str]:
                     "13 ago 2026, 1:59 p. m.",
                     "NUCO",
                     "Venta",
-                    "Cancelado",
-                    "0",
+                    "Aprobada",
+                    "15/15",
                     "0",
                     "43700",
                     "8303000",
@@ -78,7 +87,7 @@ def _build_orders_payload() -> dict[str, str]:
                     "13 ago 2026, 2:15 p. m.",
                     "CIB",
                     "Compra",
-                    "Aprobado",
+                    "Aprobada",
                     "10/10",
                     "0",
                     "1250",
@@ -92,6 +101,7 @@ def _build_orders_payload() -> dict[str, str]:
     )
     raw_bytes = buffer.getvalue().encode("utf-8")
     return {
+        "user_name": "Daniel Muner",
         "file_name": "orders-trii.csv",
         "file_content_base64": base64.b64encode(raw_bytes).decode("utf-8"),
     }
@@ -99,8 +109,9 @@ def _build_orders_payload() -> dict[str, str]:
 
 def _build_normalized_orders_payload() -> dict[str, object]:
     raw_bytes = base64.b64decode(_build_orders_payload()["file_content_base64"])
-    records = handler._normalize_order_records(raw_bytes)
+    records = handler._normalize_order_records(raw_bytes, user_name="daniel-muner")
     return {
+        "user_name": "Daniel Muner",
         "file_name": "orders-trii.csv",
         "source_file_checksum": records[0]["source_file_checksum"],
         "records": [
@@ -122,7 +133,10 @@ def test_persist_orders_imports_all_new_records() -> None:
     first_checksum = next(iter(fake_table.record_checksums))
     stored_record = next(
         record
-        for record in handler._normalize_order_records(base64.b64decode(_build_orders_payload()["file_content_base64"]))
+        for record in handler._normalize_order_records(
+            base64.b64decode(_build_orders_payload()["file_content_base64"]),
+            user_name="daniel-muner",
+        )
         if record["record_checksum"] == first_checksum
     )
 
@@ -131,6 +145,8 @@ def test_persist_orders_imports_all_new_records() -> None:
     assert result["duplicate_records"] == 0
     assert len(fake_table.record_checksums) == result["received_records"]
     assert result["source_file_checksum"]
+    assert result["user_name"] == "daniel-muner"
+    assert stored_record["user_name"] == "daniel-muner"
     assert str(stored_record["imported_at"]).endswith("-05:00")
 
 
@@ -153,7 +169,7 @@ def test_persist_orders_accepts_mixed_batch_with_new_and_existing_records() -> N
     handler.STOCK_ORDERS_TABLE = fake_table
     payload = _build_orders_payload()
     raw_bytes = base64.b64decode(payload["file_content_base64"])
-    records = handler._normalize_order_records(raw_bytes)
+    records = handler._normalize_order_records(raw_bytes, user_name="daniel-muner")
     fake_table.record_checksums.add(records[0]["record_checksum"])
 
     result = handler._persist_orders(payload)
@@ -172,3 +188,61 @@ def test_persist_orders_accepts_normalized_records_payload() -> None:
     assert result["received_records"] > 0
     assert result["imported_records"] == result["received_records"]
     assert result["duplicate_records"] == 0
+
+
+def test_persist_orders_uses_user_scope_in_checksum() -> None:
+    raw_bytes = base64.b64decode(_build_orders_payload()["file_content_base64"])
+
+    daniel_records = handler._normalize_order_records(raw_bytes, user_name="daniel")
+    maria_records = handler._normalize_order_records(raw_bytes, user_name="maria")
+
+    assert daniel_records[0]["record_checksum"] != maria_records[0]["record_checksum"]
+
+
+def test_persist_orders_rejects_non_approved_csv_records() -> None:
+    fake_table = FakeStockOrdersTable()
+    handler.STOCK_ORDERS_TABLE = fake_table
+    payload = _build_orders_payload()
+    raw_bytes = base64.b64decode(payload["file_content_base64"]).decode("utf-8")
+    payload["file_content_base64"] = base64.b64encode(
+        raw_bytes.replace("Aprobada", "Cancelado", 1).encode("utf-8")
+    ).decode("utf-8")
+
+    with pytest.raises(ValueError, match="ordenes aprobadas"):
+        handler._persist_orders(payload)
+
+
+def test_persist_orders_rejects_non_approved_normalized_records_payload() -> None:
+    fake_table = FakeStockOrdersTable()
+    handler.STOCK_ORDERS_TABLE = fake_table
+    payload = _build_normalized_orders_payload()
+    payload["records"][0]["raw_status"] = "Cancelado"
+
+    with pytest.raises(ValueError, match="ordenes aprobadas"):
+        handler._persist_orders(payload)
+
+
+def test_persist_invoices_prefixes_s3_keys_with_user_name() -> None:
+    fake_s3 = FakeS3Client()
+    handler.S3_CLIENT = fake_s3
+
+    result = handler._persist_invoices(
+        {
+            "user_name": "Daniel Muner",
+            "documents": [
+                {
+                    "archive_name": "invoice-001.zip",
+                    "archive_stem": "invoice-001",
+                    "xml_file_name": "invoice.xml",
+                    "pdf_file_name": "invoice.pdf",
+                    "xml_content_base64": base64.b64encode(b"<xml />").decode("utf-8"),
+                    "pdf_content_base64": base64.b64encode(b"%PDF-1.4").decode("utf-8"),
+                }
+            ],
+        }
+    )
+
+    assert result["user_name"] == "daniel-muner"
+    assert result["documents"][0]["xml_s3_key"].startswith("invoices/daniel-muner/")
+    assert result["documents"][0]["pdf_s3_key"].startswith("invoices/daniel-muner/")
+    assert len(fake_s3.objects) == 2

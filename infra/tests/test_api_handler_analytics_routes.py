@@ -18,7 +18,6 @@ os.environ.setdefault("DAILY_CLOSING_SNAPSHOTS_TABLE", "test-daily-closing")
 os.environ.setdefault("SESSION_VECTORS_TABLE", "test-session-vectors")
 os.environ.setdefault("ANALYTICS_CATALOG_TABLE", "test-analytics-catalog")
 os.environ.setdefault("STOCK_ORDERS_TABLE", "test-stock-orders")
-os.environ.setdefault("PARSED_INVOICES_TABLE", "test-parsed-invoices")
 os.environ.setdefault("SOURCE_DOCUMENTS_BUCKET", "test-source-documents")
 os.environ.setdefault("API_SHARED_TOKEN", "test-token")
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
@@ -222,7 +221,7 @@ class FakeCurrentSnapshotsTable:
 class FakeStockOrdersLookupTable:
     def get_item(self, *, Key: dict, ProjectionExpression: str) -> dict:
         assert ProjectionExpression == (
-            "record_checksum, source_file_checksum, source_line_number, "
+            "user_name, record_checksum, source_file_checksum, source_line_number, "
             "created_at, created_month, created_at_symbol, symbol, order_side, "
             "raw_status, normalized_status, requested_quantity, filled_quantity, "
             "pending_quantity, price_per_share, gross_amount, commission_amount, "
@@ -232,6 +231,7 @@ class FakeStockOrdersLookupTable:
             return {}
         return {
             "Item": {
+                "user_name": "daniel-muner",
                 "record_checksum": "checksum-1",
                 "source_file_checksum": "source-1",
                 "source_line_number": 4,
@@ -256,16 +256,17 @@ class FakeStockOrdersLookupTable:
 
     def query(self, **kwargs) -> dict:
         assert kwargs["ProjectionExpression"] == (
-            "record_checksum, source_file_checksum, source_line_number, "
+            "user_name, record_checksum, source_file_checksum, source_line_number, "
             "created_at, created_month, created_at_symbol, symbol, order_side, "
             "raw_status, normalized_status, requested_quantity, filled_quantity, "
             "pending_quantity, price_per_share, gross_amount, commission_amount, "
             "net_amount, currency, imported_at"
         )
-        if kwargs.get("IndexName") == "symbol-created-at-index":
+        if kwargs.get("IndexName") == "user-symbol-created-at-index":
             return {
                 "Items": [
                     {
+                        "user_name": "daniel-muner",
                         "record_checksum": "checksum-1",
                         "source_file_checksum": "source-1",
                         "source_line_number": 4,
@@ -287,6 +288,7 @@ class FakeStockOrdersLookupTable:
                         "currency": "COP",
                     },
                     {
+                        "user_name": "daniel-muner",
                         "record_checksum": "checksum-2",
                         "source_file_checksum": "source-2",
                         "source_line_number": 9,
@@ -309,10 +311,11 @@ class FakeStockOrdersLookupTable:
                     },
                 ]
             }
-        if kwargs.get("IndexName") == "created-month-index":
+        if kwargs.get("IndexName") == "user-created-month-index":
             return {
                 "Items": [
                     {
+                        "user_name": "daniel-muner",
                         "record_checksum": "checksum-1",
                         "source_file_checksum": "source-1",
                         "source_line_number": 4,
@@ -576,7 +579,7 @@ def test_handler_orders_requires_exactly_one_indexed_filter() -> None:
         {
             "routeKey": "GET /orders",
             "headers": {"X-Api-Token": "test-token"},
-            "queryStringParameters": {},
+            "queryStringParameters": {"user_name": "Daniel Muner"},
         },
         None,
     )
@@ -587,6 +590,22 @@ def test_handler_orders_requires_exactly_one_indexed_filter() -> None:
     assert "exactamente uno" in payload["message"]
 
 
+def test_handler_orders_requires_user_name() -> None:
+    response = handler.handler(
+        {
+            "routeKey": "GET /orders",
+            "headers": {"X-Api-Token": "test-token"},
+            "queryStringParameters": {"symbol": "nuco"},
+        },
+        None,
+    )
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 400
+    assert payload["status"] == "error"
+    assert "user_name" in payload["message"]
+
+
 def test_handler_orders_can_lookup_by_symbol_with_full_projection() -> None:
     handler.STOCK_ORDERS_TABLE = FakeStockOrdersLookupTable()
 
@@ -594,7 +613,7 @@ def test_handler_orders_can_lookup_by_symbol_with_full_projection() -> None:
         {
             "routeKey": "GET /orders",
             "headers": {"X-Api-Token": "test-token"},
-            "queryStringParameters": {"symbol": "nuco", "limit": "2"},
+            "queryStringParameters": {"user_name": "Daniel Muner", "symbol": "nuco", "limit": "2"},
         },
         None,
     )
@@ -602,10 +621,12 @@ def test_handler_orders_can_lookup_by_symbol_with_full_projection() -> None:
     payload = json.loads(response["body"])
     assert response["statusCode"] == 200
     assert payload["status"] == "ok"
+    assert payload["result"]["user_name"] == "daniel-muner"
     assert payload["result"]["lookup_mode"] == "symbol"
     assert payload["result"]["symbol"] == "NUCO"
     assert payload["result"]["record_count"] == 2
     assert payload["result"]["records"][0] == {
+        "user_name": "daniel-muner",
         "record_checksum": "checksum-1",
         "source_file_checksum": "source-1",
         "source_line_number": 4,
@@ -635,7 +656,7 @@ def test_handler_orders_can_lookup_by_record_checksum() -> None:
         {
             "routeKey": "GET /orders",
             "headers": {"X-Api-Token": "test-token"},
-            "queryStringParameters": {"record_checksum": "checksum-1"},
+            "queryStringParameters": {"user_name": "Daniel Muner", "record_checksum": "checksum-1"},
         },
         None,
     )
@@ -643,6 +664,7 @@ def test_handler_orders_can_lookup_by_record_checksum() -> None:
     payload = json.loads(response["body"])
     assert response["statusCode"] == 200
     assert payload["status"] == "ok"
+    assert payload["result"]["user_name"] == "daniel-muner"
     assert payload["result"]["lookup_mode"] == "record_checksum"
     assert payload["result"]["record_count"] == 1
     assert payload["result"]["records"][0]["imported_at"] == "2026-08-21T11:58:09-05:00"

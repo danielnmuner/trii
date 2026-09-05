@@ -6,21 +6,21 @@ module "table" {
 
   attributes = [
     { name = "record_checksum", type = "S" },
-    { name = "symbol", type = "S" },
+    { name = "user_symbol", type = "S" },
     { name = "created_at", type = "S" },
-    { name = "created_month", type = "S" },
+    { name = "user_created_month", type = "S" },
     { name = "created_at_symbol", type = "S" },
   ]
 
   global_secondary_indexes = [
     {
-      name      = "symbol-created-at-index"
-      hash_key  = "symbol"
+      name      = "user-symbol-created-at-index"
+      hash_key  = "user_symbol"
       range_key = "created_at"
     },
     {
-      name      = "created-month-index"
-      hash_key  = "created_month"
+      name      = "user-created-month-index"
+      hash_key  = "user_created_month"
       range_key = "created_at_symbol"
     },
   ]
