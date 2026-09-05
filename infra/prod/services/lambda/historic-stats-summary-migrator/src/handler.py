@@ -25,6 +25,16 @@ TARGET_METRICS = (
     "traded_volume",
     "traded_value",
 )
+RETIRED_EXACT_KEYS = {
+    "book_pressure_ratio",
+    "depth_weighted_microprice_deviation",
+    "volume_rate",
+    "value_rate",
+    "data_quality",
+}
+RETIRED_PREFIXES = (
+    "data_quality#",
+)
 SUMMARY_FIELDS_BY_METRIC = {
     "vwap": (
         "metric",
@@ -115,6 +125,30 @@ def _scan_symbols() -> list[str]:
             symbol = str(item.get("pk") or "").strip().upper()
             metric = str(item.get("sk") or "").strip()
             if symbol and metric in TARGET_METRICS:
+                symbols.add(symbol)
+
+        last_evaluated_key = response.get("LastEvaluatedKey")
+        if last_evaluated_key is None:
+            break
+        scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+
+    return sorted(symbols)
+
+
+def _scan_all_symbols() -> list[str]:
+    symbols: set[str] = set()
+    scan_kwargs: dict[str, Any] = {
+        "ProjectionExpression": "#pk",
+        "ExpressionAttributeNames": {
+            "#pk": "pk",
+        },
+    }
+
+    while True:
+        response = HISTORIC_STATS_TABLE.scan(**scan_kwargs)
+        for item in response.get("Items", []):
+            symbol = str(item.get("pk") or "").strip().upper()
+            if symbol:
                 symbols.add(symbol)
 
         last_evaluated_key = response.get("LastEvaluatedKey")
@@ -241,12 +275,34 @@ def _cleanup_legacy_items(symbol: str, items_by_sk: dict[str, dict[str, Any]]) -
     return deleted_items
 
 
-def _run(mode: str, symbol: str | None, confirm_delete_legacy: bool) -> dict[str, Any]:
-    symbols = [symbol] if symbol else _scan_symbols()
+def _cleanup_retired_items(symbol: str, items_by_sk: dict[str, dict[str, Any]]) -> int:
+    deleted_items = 0
+    with HISTORIC_STATS_TABLE.batch_writer() as batch:
+        for sk in sorted(items_by_sk):
+            if sk in RETIRED_EXACT_KEYS or any(sk.startswith(prefix) for prefix in RETIRED_PREFIXES):
+                batch.delete_item(Key={"pk": symbol, "sk": sk})
+                deleted_items += 1
+    return deleted_items
+
+
+def _run(
+    mode: str,
+    symbol: str | None,
+    confirm_delete_legacy: bool,
+    confirm_delete_retired: bool,
+) -> dict[str, Any]:
+    if symbol:
+        symbols = [symbol]
+    elif mode == "cleanup" and confirm_delete_retired:
+        symbols = _scan_all_symbols()
+    else:
+        symbols = _scan_symbols()
+
     migrated = 0
     skipped = 0
     invalid = 0
-    cleaned_up = 0
+    deleted_legacy_items = 0
+    deleted_retired_items = 0
     results: list[dict[str, Any]] = []
 
     for current_symbol in symbols:
@@ -256,6 +312,16 @@ def _run(mode: str, symbol: str | None, confirm_delete_legacy: bool) -> dict[str
         validation["has_existing_summary"] = existing_summary is not None
 
         if summary_item is None:
+            if mode == "cleanup" and confirm_delete_retired:
+                retired_deleted = _cleanup_retired_items(current_symbol, items_by_sk)
+                deleted_retired_items += retired_deleted
+                validation["valid"] = existing_summary is not None
+                validation["deleted_legacy_items"] = 0
+                validation["deleted_retired_items"] = retired_deleted
+                results.append(validation)
+                if retired_deleted == 0:
+                    skipped += 1
+                continue
             invalid += 1
             results.append(validation)
             continue
@@ -270,15 +336,31 @@ def _run(mode: str, symbol: str | None, confirm_delete_legacy: bool) -> dict[str
             continue
 
         if mode == "cleanup":
-            if not confirm_delete_legacy:
-                raise ValueError("cleanup mode requires `confirm_delete_legacy=true`.")
-            if existing_summary is None or not _summary_matches_source(existing_summary, summary_item):
+            if not confirm_delete_legacy and not confirm_delete_retired:
+                raise ValueError(
+                    "cleanup mode requires `confirm_delete_legacy=true` or `confirm_delete_retired=true`."
+                )
+            if confirm_delete_legacy and (
+                existing_summary is None or not _summary_matches_source(existing_summary, summary_item)
+            ):
                 validation["valid"] = False
                 invalid += 1
                 results.append(validation)
                 continue
-            cleaned_up += _cleanup_legacy_items(current_symbol, items_by_sk)
-            validation["valid"] = True
+
+            legacy_deleted = 0
+            if confirm_delete_legacy:
+                legacy_deleted = _cleanup_legacy_items(current_symbol, items_by_sk)
+                deleted_legacy_items += legacy_deleted
+
+            retired_deleted = 0
+            if confirm_delete_retired:
+                retired_deleted = _cleanup_retired_items(current_symbol, items_by_sk)
+                deleted_retired_items += retired_deleted
+
+            validation["valid"] = existing_summary is not None
+            validation["deleted_legacy_items"] = legacy_deleted
+            validation["deleted_retired_items"] = retired_deleted
             results.append(validation)
             continue
 
@@ -297,7 +379,8 @@ def _run(mode: str, symbol: str | None, confirm_delete_legacy: bool) -> dict[str
         "migrated_symbols": migrated,
         "skipped_symbols": skipped,
         "invalid_symbols": invalid,
-        "deleted_legacy_items": cleaned_up,
+        "deleted_legacy_items": deleted_legacy_items,
+        "deleted_retired_items": deleted_retired_items,
         "results": results,
     }
 
@@ -309,8 +392,16 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
 
     symbol = str(event.get("symbol") or "").strip().upper() or None
     confirm_delete_legacy = bool(event.get("confirm_delete_legacy"))
+    confirm_delete_retired = bool(event.get("confirm_delete_retired"))
 
     return {
         "statusCode": 200,
-        "body": json.dumps(_run(mode, symbol, confirm_delete_legacy)),
+        "body": json.dumps(
+            _run(
+                mode,
+                symbol,
+                confirm_delete_legacy,
+                confirm_delete_retired,
+            )
+        ),
     }

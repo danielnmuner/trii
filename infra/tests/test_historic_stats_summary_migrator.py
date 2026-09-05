@@ -115,6 +115,30 @@ class FakeHistoricStatsTable:
                 "stats_version": 9,
                 "last_source_captured_at": "2026-09-04T15:00:00-05:00",
             },
+            ("NUCO", "book_pressure_ratio"): {
+                "pk": "NUCO",
+                "sk": "book_pressure_ratio",
+            },
+            ("NUCO", "depth_weighted_microprice_deviation"): {
+                "pk": "NUCO",
+                "sk": "depth_weighted_microprice_deviation",
+            },
+            ("NUCO", "volume_rate"): {
+                "pk": "NUCO",
+                "sk": "volume_rate",
+            },
+            ("NUCO", "value_rate"): {
+                "pk": "NUCO",
+                "sk": "value_rate",
+            },
+            ("NUCO", "data_quality"): {
+                "pk": "NUCO",
+                "sk": "data_quality",
+            },
+            ("NUCO", "data_quality#2026-09-04"): {
+                "pk": "NUCO",
+                "sk": "data_quality#2026-09-04",
+            },
         }
         self.put_items: list[dict] = []
         self.deleted_keys: list[dict] = []
@@ -206,3 +230,72 @@ def test_migrator_cleanup_requires_validated_summary() -> None:
     assert payload["deleted_legacy_items"] == 6
     assert len(fake_table.deleted_keys) == 6
     assert ("NUCO", "stats_summary") in fake_table.items
+
+
+def test_migrator_cleanup_can_also_delete_retired_records() -> None:
+    fake_table = FakeHistoricStatsTable()
+    _module.HISTORIC_STATS_TABLE = fake_table
+    _module.handler({"mode": "migrate", "symbol": "NUCO"}, None)
+
+    response = _module.handler(
+        {
+            "mode": "cleanup",
+            "symbol": "NUCO",
+            "confirm_delete_legacy": True,
+            "confirm_delete_retired": True,
+        },
+        None,
+    )
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 200
+    assert payload["deleted_legacy_items"] == 6
+    assert payload["deleted_retired_items"] == 6
+    assert ("NUCO", "stats_summary") in fake_table.items
+    assert ("NUCO", "seasonality_profile") not in fake_table.items
+
+
+def test_migrator_cleanup_retired_records_can_run_after_legacy_cleanup() -> None:
+    fake_table = FakeHistoricStatsTable()
+    fake_table.items[("NUCO", "stats_summary")] = {
+        "pk": "NUCO",
+        "sk": "stats_summary",
+        "symbol": "NUCO",
+        "record_type": "stats_summary",
+        "metric_count": 6,
+        "metrics": {
+            "vwap": {"metric": "vwap", "stddev": 12.5, "sample_count": 120},
+        },
+        "missing_metrics": [],
+        "source_checksum": "existing",
+        "stats_version": 1,
+    }
+    for metric in (
+        "vwap",
+        "spread_bps",
+        "obi_l1",
+        "obi_top_5",
+        "traded_volume",
+        "traded_value",
+    ):
+        fake_table.items.pop(("NUCO", metric), None)
+
+    _module.HISTORIC_STATS_TABLE = fake_table
+
+    response = _module.handler(
+        {
+            "mode": "cleanup",
+            "symbol": "NUCO",
+            "confirm_delete_retired": True,
+        },
+        None,
+    )
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 200
+    assert payload["deleted_legacy_items"] == 0
+    assert payload["deleted_retired_items"] == 6
+    remaining_keys = {key for key in fake_table.items}
+    assert ("NUCO", "stats_summary") in remaining_keys
+    assert ("NUCO", "book_pressure_ratio") not in remaining_keys
+    assert ("NUCO", "data_quality#2026-09-04") not in remaining_keys
