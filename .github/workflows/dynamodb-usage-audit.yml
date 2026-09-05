@@ -1,0 +1,103 @@
+name: DynamoDB Usage Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      lookback_days:
+        description: "Dias hacia atras a auditar"
+        required: true
+        default: "4"
+        type: choice
+        options:
+          - "1"
+          - "2"
+          - "3"
+          - "4"
+          - "5"
+          - "7"
+      table_prefix:
+        description: "Prefijo de tablas DynamoDB"
+        required: true
+        default: "trii-prod-"
+        type: string
+      include_cost_explorer:
+        description: "Incluir Cost Explorer"
+        required: true
+        default: "yes"
+        type: choice
+        options:
+          - "yes"
+          - "no"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: dynamodb-usage-audit-prod
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Enforce main branch
+        run: |
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "This workflow must run from main because the IAM trust policy is expected to allow the main branch."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::311923415472:role/GitHubTerraformTriiRole
+          role-session-name: github-actions-terraform-prod
+          allowed-account-ids: 311923415472
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Run DynamoDB usage audit
+        shell: bash
+        env:
+          LOOKBACK_DAYS: ${{ inputs.lookback_days }}
+          TABLE_PREFIX: ${{ inputs.table_prefix }}
+          INCLUDE_COST_EXPLORER: ${{ inputs.include_cost_explorer }}
+        run: |
+          set -euo pipefail
+
+          declare -a args
+          args+=(--lookback-days "${LOOKBACK_DAYS}")
+          args+=(--table-prefix "${TABLE_PREFIX}")
+          args+=(--markdown-output dynamodb-usage-audit-summary.md)
+
+          if [[ "${INCLUDE_COST_EXPLORER}" != "yes" ]]; then
+            args+=(--skip-cost-explorer)
+          fi
+
+          uv run infra/scripts/dynamodb_usage_audit.py "${args[@]}" | tee dynamodb-usage-audit.json
+
+      - name: Publish summary
+        shell: bash
+        run: |
+          cat dynamodb-usage-audit-summary.md >> "${GITHUB_STEP_SUMMARY}"
+          {
+            echo ""
+            echo "### Raw JSON"
+            echo '```json'
+            cat dynamodb-usage-audit.json
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dynamodb-usage-audit-${{ github.run_id }}
+          path: |
+            dynamodb-usage-audit.json
+            dynamodb-usage-audit-summary.md
