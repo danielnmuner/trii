@@ -6,22 +6,27 @@ module "table" {
 
   attributes = [
     { name = "invoice_uuid", type = "S" },
-    { name = "order_reference_id", type = "S" },
+    { name = "user_order_reference_id", type = "S" },
     { name = "issued_at", type = "S" },
-    { name = "issued_month", type = "S" },
+    { name = "user_issued_month", type = "S" },
     { name = "issued_at_invoice_number", type = "S" },
+    { name = "source_xml_checksum", type = "S" },
   ]
 
   global_secondary_indexes = [
     {
-      name      = "order-reference-issued-at-index"
-      hash_key  = "order_reference_id"
+      name      = "user-order-reference-issued-at-index"
+      hash_key  = "user_order_reference_id"
       range_key = "issued_at"
     },
     {
-      name      = "issued-month-index"
-      hash_key  = "issued_month"
+      name      = "user-issued-month-index"
+      hash_key  = "user_issued_month"
       range_key = "issued_at_invoice_number"
+    },
+    {
+      name     = "source-xml-checksum-index"
+      hash_key = "source_xml_checksum"
     },
   ]
 

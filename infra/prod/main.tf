@@ -127,6 +127,19 @@ module "current_snapshots_pruner" {
   current_snapshots_table_arn  = module.current_snapshots_table.arn
 }
 
+module "parsed_invoices_processor" {
+  source = "./services/lambda/parsed-invoices-processor"
+
+  environment                  = local.environment
+  project_name                 = local.project_name
+  tags                         = local.common_tags
+  source_documents_bucket_name = module.source_documents_bucket.bucket_name
+  source_documents_bucket_arn  = module.source_documents_bucket.bucket_arn
+  parsed_invoices_table_name   = module.parsed_invoices_table.name
+  parsed_invoices_table_arn    = module.parsed_invoices_table.arn
+  parsed_invoices_index_arns   = module.parsed_invoices_table.index_arns
+}
+
 module "api_handler" {
   source = "./services/lambda/api-handler"
 

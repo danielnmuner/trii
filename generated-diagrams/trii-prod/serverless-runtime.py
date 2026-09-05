@@ -53,6 +53,8 @@ with Diagram(
             session_vectors_updater = Lambda("session_vectors_updater\nLambda")
             current_snapshots_pruner = Lambda("current_snapshots_pruner\nLambda\n(stream + manual)")
             daily_closing_schedule = Eventbridge("24h closing\nschedule")
+            source_documents_events = Eventbridge("source documents\nobject-created events")
+            parsed_invoices_processor = Lambda("parsed_invoices_processor\nLambda")
 
         with Cluster("Operational data stores"):
             with Cluster("API persistence"):
@@ -65,6 +67,7 @@ with Diagram(
                 daily_closing_snapshots_table = Dynamodb("trii-prod-daily-closing-snapshots")
                 analytics_catalog_table = Dynamodb("trii-prod-analytics-catalog")
                 session_vectors_table = Dynamodb("trii-prod-session-vectors\n(120h TTL)")
+                parsed_invoices_table = Dynamodb("trii-prod-parsed-invoices")
 
     streamlit_operator >> Edge(label="read analytics / upload docs") >> http_api >> api_handler
     chrome_extension >> Edge(label="send snapshots / orders") >> http_api
@@ -72,6 +75,10 @@ with Diagram(
     api_handler >> Edge(label="write snapshot", color="firebrick") >> current_snapshots_table
     api_handler >> Edge(label="write orders", color="firebrick") >> stock_orders_table
     api_handler >> Edge(label="store files", color="firebrick") >> source_documents_bucket
+
+    source_documents_bucket >> Edge(label="emit object-created\nevents", color="darkgreen") >> source_documents_events
+    source_documents_events >> Edge(label="process uploaded\ninvoice folders", color="darkgreen") >> parsed_invoices_processor
+    parsed_invoices_processor >> Edge(label="store invoice\nsummary", color="darkgreen") >> parsed_invoices_table
 
     current_snapshots_table >> Edge(label="stream INSERTs", color="darkorange") >> historic_stats_updater
     current_snapshots_table >> Edge(label="stream INSERTs", color="royalblue") >> analytics_catalog_updater

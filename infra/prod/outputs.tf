@@ -82,3 +82,8 @@ output "current_snapshots_pruner_function_name" {
   description = "Current snapshots pruner Lambda function name."
   value       = module.current_snapshots_pruner.function_name
 }
+
+output "parsed_invoices_processor_function_name" {
+  description = "Parsed invoices processor Lambda function name."
+  value       = module.parsed_invoices_processor.function_name
+}
